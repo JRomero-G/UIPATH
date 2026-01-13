@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-pandas
-numpy
-requests
-mysql-connector-python
-openai
-beautifulsoup4
-flask

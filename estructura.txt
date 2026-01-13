@@ -1,0 +1,53 @@
+UIPATH_API/
+├── .venv/                        # Entorno virtual (correcto, en .gitignore)
+├── logs/                         # Logs de ejecución (bien)
+├── data/                         # Nueva carpeta recomendada
+│   ├── input/                    # Archivos de entrada (JSON, CSV, etc.)
+│   └── output/                   # Resultados generados, reportes
+├── src/                          # Código fuente principal
+│   └── app/                      # Paquete principal
+│       ├── __init__.py
+│       ├── config.py             # Configuración global + carga .env
+│       ├── database/             # Manejo de DB (conexiones, models, queries)
+│       │   ├── __init__.py
+│       │   ├── connection.py
+│       │   └── models.py         # (si usas ORM o schemas)
+│       └── tasks/                # ← Renombrada de "task" a "tasks" (plural)
+│           ├── __init__.py
+│           ├── scraping_portal.py
+│           ├── procesar_datos.py
+│           ├── guardar_mysql.py
+│           └── enviar_email.py   # (si lo tienes)
+├── UI/                           # Interfaz de usuario (ya muy bien estructurada)
+│   ├── __init__.py
+│   ├── main_ui.py                # Launcher principal (ej. streamlit run UI/main_ui.py)
+│   ├── assets/                   # Imágenes, logos, CSS, JS
+│   │   ├── css/
+│   │   ├── js/
+│   │   └── images/
+│   ├── components/               # Widgets reutilizables
+│   │   ├── __init__.py
+│   │   ├── data_table.py
+│   │   ├── filtros.py
+│   │   └── progress_indicator.py
+│   ├── routers/                  # Rutas/endpoints (si usas FastAPI/Flask)
+│   │   ├── __init__.py
+│   │   ├── scraping.py
+│   │   └── dashboard.py
+│   ├── services/                 # Lógica de negocio/UI
+│   │   ├── __init__.py
+│   │   └── scraping_service.py   # Llama a tasks/scraping_portal.py
+│   ├── views/                    # Plantillas HTML (si usas Flask/Jinja)
+│   │   ├── base.html
+│   │   └── dashboard.html
+│   └── utils/                    # Helpers solo para UI
+│       ├── __init__.py
+│       └── session_utils.py
+├── utils/                        # Utilidades generales del proyecto
+│   ├── __init__.py
+│   ├── logging_config.py         # Configuración de logging
+│   └── helpers.py                # clean, paths, etc.
+├── .env                          # Variables sensibles
+├── .gitignore                    # ← Recomendado agregar si no existe
+├── main.py                       # Orquestador CLI (python main.py)
+└── pyproject.toml                # Dependencias y tools
