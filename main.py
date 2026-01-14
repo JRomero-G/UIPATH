@@ -1,4 +1,4 @@
-from src.tasks import convert
+from src.tasks import Recolector
 
 if __name__ == "__main__":
-    convert.main()
+    Recolector.main()
