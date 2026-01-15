@@ -4,17 +4,17 @@ import mysql.connector
 from mysql.connector import Error
 
 def clean(x):
-    """Limpia valores: None → 'SIN DEFINIR', quita espacios raros y convierte a string"""
+    # Limpia valores: None → 'SIN DEFINIR', quita espacios raros y convierte a string
     if x is None or pd.isna(x):
         return "SIN DEFINIR"
     return str(x).replace("\u00a0", " ").replace("\n", " ").strip() or "SIN DEFINIR"
 
 
 def insert_to_mysql(json_data_str):
-    """
-    Recibe un string JSON con lista de registros (como los extraídos del portal de compras públicas)
-    e inserta/actualiza en la base de datos usando el procedimiento upsert_infimas.
-    """
+    
+    # Recibe un string JSON con lista de registros (como los extraídos del portal de compras públicas)
+    # e inserta/actualiza en la base de datos usando el procedimiento upsert_infimas.
+
     try:
         data = json.loads(json_data_str)
         if not data or not isinstance(data, list):
@@ -66,9 +66,9 @@ def insert_to_mysql(json_data_str):
         
         # Conexión a MySQL
         conn = mysql.connector.connect(
-            host="localhost",
+            host="localhost",     # Recordar cambiar al usar la BD en Cloud
             user="root",
-            password="",           # ← pon tu contraseña aquí si tienes
+            password="",           # ← pon tu contraseña aquí si tienes # Admin123% para cloud
             database="gestorex",
             autocommit=True
         )
@@ -134,7 +134,7 @@ if __name__ == "__main__":
         "contacto": "Funcionario Encargado: ING. PAMELA REYES RODRIGUEZ Email: jp-jgrp@live.com"
       }
       // ... más registros
-    ]'''
+    ]'''  # ?????
     
     resultado = insert_to_mysql(ejemplo_json)
     print(resultado)
