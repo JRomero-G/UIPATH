@@ -2,134 +2,163 @@ import json
 import os
 import tempfile
 import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
+# Configuración de cabeceras para simular un navegador real (inspirado en el script adjunto)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Language": "es-EC,es;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://www.compraspublicas.gob.ec/",
+}
 
 def main():
     """
-    Función principal que configura el navegador, accede a la URL, interactúa con la página,
+    Función principal que accede a la URL usando requests, interactúa simulando la selección de registros,
     extrae la tabla y guarda los datos en un archivo JSON temporal.
     """
-    # Configurar el webdriver para Chrome (asegúrate de tener ChromeDriver instalado y en PATH)
-    driver = setup_driver()
+    url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
     
+    # Crear sesión reutilizable
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    
+    # Acceder a la URL inicial y obtener el HTML
+    html_content = load_page(session, url)
+    
+    # Simular la selección de 100 registros parseando el form y enviando request modificado
+    html_content = select_records(session, url, html_content, 100)
+    
+    # Extraer los datos de la tabla usando BeautifulSoup
+    data = extract_table_data(html_content, url)
+    
+    # Guardar los datos en un archivo JSON temporal
+    save_to_json(data)
+
+def load_page(session, url):
+    """
+    Accede a la URL usando requests y retorna el HTML content.
+    Agrega un timeout y una pequeña pausa si es necesario.
+    """
+    print("Accediendo a la página...")
     try:
-        # Acceder a la URL y esperar a que cargue
-        load_page(driver, "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe")
-        
-        # Encontrar y seleccionar 100 registros en el cuadro de selección
-        select_records(driver, 100)
-        
-        # Extraer los datos de la tabla
-        data = extract_table_data(driver)
-        
-        # Guardar los datos en un archivo JSON temporal
-        save_to_json(data)
-        
-    finally:
-        # Cerrar el navegador
-        driver.quit()
-
-def setup_driver():
-    """
-    Configura y retorna el webdriver para Chrome.
-    Nota: Requiere que ChromeDriver esté instalado y disponible en el PATH del sistema.
-    Puedes descargar ChromeDriver desde https://chromedriver.chromium.org/downloads
-    """
-    # Opciones para Chrome (puedes agregar más como headless si no quieres ver la ventana)
-    options = webdriver.ChromeOptions()
-    # options.add_argument("--headless")  # Descomenta para modo sin interfaz
-    driver = webdriver.Chrome(options=options)
-    return driver
-
-def load_page(driver, url):
-    """
-    Accede a la URL y espera al menos 40 segundos para que la página cargue completamente.
-    Usa time.sleep para un retraso fijo, pero podría mejorarse con WebDriverWait para elementos específicos.
-    """
-    driver.get(url)
-    print("Esperando a que la página cargue...")
-    time.sleep(40)  # Espera mínima de 40 segundos como se indica
-
-def select_records(driver, num_records):
-    """
-    Encuentra el cuadro de selección entre "Mostrar registros" y selecciona el valor deseado (ej: 100).
-    Asume que el select está en un elemento con texto contiguo o cerca de "Mostrar registros".
-    """
-    # Esperar a que el elemento de selección esté presente (ajusta el XPath si es necesario)
-    try:
-        # Buscar el label o div que contiene "Mostrar registros" y encontrar el select dentro o cerca
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Mostrar registros')]"))
-        )
-        
-        # Encontrar el select (asumiendo que es el único o el primero cerca del texto)
-        # Ajusta el XPath basado en inspección: por ejemplo, si el select tiene name='pageSize' o similar
-        select_element = driver.find_element(By.XPATH, "//select[contains(@id, 'pageSize') or contains(@name, 'registros')]")  # Ajusta según inspección real
-        
-        # Si no encuentra por ID/name, buscar el select más cercano al texto
-        if not select_element:
-            select_element = driver.find_element(By.XPATH, "//*[contains(text(), 'Mostrar registros')]/following-sibling::select | //*[contains(text(), 'Mostrar registros')]/select")
-        
-        select = Select(select_element)
-        select.select_by_value(str(num_records))  # Selecciona el option con value='100'
-        
-        print(f"Seleccionados {num_records} registros.")
-        
-        # Esperar a que la tabla se actualice después de cambiar el select
-        time.sleep(5)  # Ajusta si es necesario, o usa WebDriverWait para la tabla
-        
+        response = session.get(url, timeout=60)  # Timeout de 60s para manejar cargas lentas
+        response.raise_for_status()
+        print("Página cargada exitosamente.")
+        time.sleep(5)  # Pausa opcional para simular carga, ajusta si necesario
+        return response.text
     except Exception as e:
-        print(f"Error al seleccionar registros: {e}")
+        print(f"Error al cargar la página: {e}")
         raise
 
-def extract_table_data(driver):
+def select_records(session, base_url, html_content, num_records):
     """
-    Extrae los headers y rows de la tabla principal.
-    Asume que la tabla es la primera <table> después del select, o con un ID/class específico.
+    Parsea el HTML para encontrar el form y el select cerca de "Mostrar registros".
+    Modifica los parámetros para seleccionar el número deseado y envía una nueva request.
+    Retorna el nuevo HTML content después de "seleccionar".
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Encontrar el elemento con "Mostrar registros"
+    mostrar_elem = soup.find(string=lambda t: 'Mostrar registros' in str(t))
+    if not mostrar_elem:
+        print("No se encontró 'Mostrar registros'.")
+        return html_content  # Retorna el original si falla
+    
+    # Encontrar el form padre
+    form = mostrar_elem.find_parent('form')
+    if not form:
+        print("No se encontró form asociado.")
+        return html_content
+    
+    action = urljoin(base_url, form.get('action', ''))
+    method = form.get('method', 'get').lower()
+    
+    # Recopilar parámetros del form
+    params = {}
+    for input_tag in form.find_all(['input', 'select']):
+        name = input_tag.get('name')
+        if not name:
+            continue
+        if input_tag.name == 'input':
+            params[name] = input_tag.get('value', '')
+        elif input_tag.name == 'select':
+            # Buscar si es el select de registros (por proximidad o attrs)
+            if 'registros' in name.lower() or 'pagesize' in name.lower() or 'ps' in name.lower():
+                # Verificar si 100 es una opción disponible
+                options = {opt.get('value'): opt.text for opt in input_tag.find_all('option')}
+                if str(num_records) in options:
+                    params[name] = str(num_records)
+                    print(f"Seleccionados {num_records} registros vía parámetro '{name}'.")
+                else:
+                    print(f"{num_records} no es una opción disponible. Usando default.")
+                    selected = input_tag.find('option', selected=True)
+                    params[name] = selected.get('value') if selected else ''
+            else:
+                selected = input_tag.find('option', selected=True)
+                params[name] = selected.get('value') if selected else ''
+    
+    # Enviar la request modificada
+    try:
+        if method == 'post':
+            response = session.post(action, data=params, timeout=60)
+        else:
+            response = session.get(action, params=params, timeout=60)
+        response.raise_for_status()
+        time.sleep(5)  # Pausa para simular actualización de tabla
+        return response.text
+    except Exception as e:
+        print(f"Error al simular selección: {e}")
+        return html_content  # Retorna original si falla
+
+def extract_table_data(html_content, base_url):
+    """
+    Extrae los headers y rows de la tabla principal usando BeautifulSoup.
     Maneja variaciones en nombres de columnas.
     Retorna una lista de diccionarios, cada uno representando un registro.
     """
     data = []
+    soup = BeautifulSoup(html_content, 'html.parser')
     
-    try:
-        # Esperar a que la tabla esté presente
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "table"))
-        )
-        
-        # Encontrar la tabla (ajusta XPath si hay múltiples tablas)
-        table = driver.find_element(By.XPATH, "//table[contains(@class, 'tabla') or @id='tablaRegistros']")  # Ajusta según inspección
-        
-        # Extraer headers (th)
-        headers = [th.text.strip().lower() for th in table.find_elements(By.TAG_NAME, "th")]
-        # Normalizar headers para manejar variaciones (ej: 'tipo de necesidad' o similar)
-        normalized_headers = normalize_column_names(headers)
-        
-        # Extraer rows (tr), saltando la primera si es header
-        rows = table.find_elements(By.TAG_NAME, "tr")[1:101]  # Hasta 100 registros
-        
-        for row in rows:
-            cells = row.find_elements(By.TAG_NAME, "td")
-            if len(cells) == len(normalized_headers):
-                record = {normalized_headers[i]: cells[i].text.strip() for i in range(len(cells))}
-                # Extraer URL si está en un <a> dentro de la celda (ej: URL de Entidad Contratante)
-                for i, header in enumerate(normalized_headers):
-                    if 'url' in header.lower():
-                        a_tag = cells[i].find_element(By.TAG_NAME, "a") if cells[i].find_elements(By.TAG_NAME, "a") else None
-                        if a_tag:
-                            record[header] = a_tag.get_attribute("href")
-                data.append(record)
-        
-        print(f"Extraídos {len(data)} registros.")
-        
-    except Exception as e:
-        print(f"Error al extraer tabla: {e}")
-        raise
+    # Encontrar la tabla (asumiendo class 'tabla' o id 'tablaRegistros', ajusta si necesario)
+    table = soup.find('table', attrs={'class': lambda c: c and 'tabla' in c} or {'id': 'tablaRegistros'})
+    if not table:
+        # Búsqueda alternativa por headers
+        tables = soup.find_all('table')
+        for t in tables:
+            headers = [th.text.strip().lower() for th in t.find_all('th')]
+            if any(h in headers for h in ['tipo de necesidad', 'código de necesidad']):
+                table = t
+                break
+        if not table:
+            print("No se encontró la tabla.")
+            return data
     
+    # Extraer headers
+    headers = [th.text.strip().lower() for th in table.find_all('th')]
+    normalized_headers = normalize_column_names(headers)
+    
+    # Extraer rows (tr en tbody o directo)
+    tbody = table.find('tbody') if table.find('tbody') else table
+    rows = tbody.find_all('tr')[:100]  # Limitar a 100
+    
+    for row in rows:
+        cells = row.find_all('td')
+        if len(cells) == len(normalized_headers):
+            record = {normalized_headers[i]: cells[i].text.strip() for i in range(len(cells))}
+            # Extraer URL si hay <a> en la celda
+            for i, header in enumerate(normalized_headers):
+                if 'url' in header.lower():
+                    a_tag = cells[i].find('a')
+                    if a_tag and a_tag.get('href'):
+                        record[header] = urljoin(base_url, a_tag['href'])
+            data.append(record)
+    
+    print(f"Extraídos {len(data)} registros.")
     return data
 
 def normalize_column_names(headers):
