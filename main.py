@@ -1,4 +1,4 @@
-from src.tasks import Recolector
+from main_back import run_all_scripts
 
 if __name__ == "__main__":
-    Recolector.main()
+    run_all_scripts()

@@ -33,7 +33,11 @@ dependencies = [
     # Recomendadas para robustez en scraping y config
     "python-dotenv>=1.0.1",
     "httpx>=0.27",
-    "tenacity>=9.0",        # reintentos automáticos para portales inestables
+    "tenacity>=9.0",
+    "selenium>=4.21.0",
+    "webdriver-manager>=4.0.0",
+    "pydrive2>=1.19.0",
+    
 ]
 
 [project.optional-dependencies]
@@ -50,16 +54,6 @@ dev = [
 [project.scripts]
 compras-publicas = "app.__main__:main"         # Comando ejecutable (cámbialo si prefieres otro nombre)
 # O: auto-contrataciones = "app.__main__:main"
-
-[tool.ruff]
-line-length = 88
-target-version = "py313"                       # ← Especifica 3.13 para mejores chequeos
-select = ["E", "F", "I", "UP", "B", "Q", "SIM", "PL", "RET", "RUF"]
-ignore = ["E501", "E741"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
 
 [tool.pytest.ini_options]
 minversion = "8.0"

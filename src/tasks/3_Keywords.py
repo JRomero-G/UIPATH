@@ -12,8 +12,8 @@ from openai import OpenAI
 MYSQL_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "",  
-    "database": "gestorex"
+    "password": "",
+    "database": "gestorex",
 }
 
 MODEL_ID = "llama-3.3-70b-versatile"
@@ -31,14 +31,12 @@ mantenimiento, logística de eventos, adecuaciones, monitoreos, mano de obra, re
 # 2. CLIENTE OPENAI / GROQ
 # =========================
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url="https://api.groq.com/openai/v1"
-)
+client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
 
 # =========================
 # 3. UTILIDADES
 # =========================
+
 
 def safe_value(val, default="SIN_VALOR"):
     if pd.isna(val) or val is None:
@@ -49,21 +47,25 @@ def safe_value(val, default="SIN_VALOR"):
         return val.strftime("%Y-%m-%d")
     return str(val)
 
+
 def limpiar_texto(texto):
     if not texto:
         return ""
     texto = texto.lower()
-    texto = re.sub(r'\s+', ' ', texto).strip()
+    texto = re.sub(r"\s+", " ", texto).strip()
     return texto
+
 
 def dividir_dict(data, size=40):
     items = list(data.items())
     for i in range(0, len(items), size):
-        yield dict(items[i:i + size])
+        yield dict(items[i : i + size])
+
 
 # =========================
 # 4. FUNCIONES BASE DE DATOS
 # =========================
+
 
 def obtener_infimas():
     conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -72,22 +74,25 @@ def obtener_infimas():
         SELECT * FROM infimas
         WHERE etapa = 'ingresada'
     """)
-    
+
     datos = cursor.fetchall()
     cursor.close()
     conn.close()
-    
+
     df = pd.DataFrame(datos)
 
     if not df.empty and "descripcion_objeto_compra" in df.columns:
-        df["descripcion_objeto_compra"] = df["descripcion_objeto_compra"].apply(lambda x: limpiar_texto(str(x)))
+        df["descripcion_objeto_compra"] = df["descripcion_objeto_compra"].apply(
+            lambda x: limpiar_texto(str(x))
+        )
     return df
+
 
 def actualizar_etapa(df, resultados):
     """Actualiza la columna etapa según el resultado invertido: SI -> 'no seleccionada', NO -> 'preseleccionada'"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
-    
+
     for idx, row in df.iterrows():
         if resultados.get(idx) is None:
             continue
@@ -95,20 +100,25 @@ def actualizar_etapa(df, resultados):
         # Invertir resultado
         etapa = "preseleccionada" if resultados[idx] is False else "no seleccionada"
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE infimas
             SET etapa = %s,
                 actualizado_en = NOW()
             WHERE id = %s
-        """, (etapa, row["id"]))
-    
+        """,
+            (etapa, row["id"]),
+        )
+
     conn.commit()
     cursor.close()
     conn.close()
 
+
 # =========================
 # 5. CLASIFICACIÓN IA
 # =========================
+
 
 def clasificar_descripcion_lote(batch_data):
     prompt = f"""
@@ -126,7 +136,7 @@ def clasificar_descripcion_lote(batch_data):
             model=MODEL_ID,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            temperature=0.1
+            temperature=0.1,
         )
 
         resultados = json.loads(response.choices[0].message.content)
@@ -144,9 +154,11 @@ def clasificar_descripcion_lote(batch_data):
         print(f"Error al preparar la solicitud: {e}")
         return {}
 
+
 # =========================
 # 6. ORQUESTADOR PRINCIPAL
 # =========================
+
 
 def main():
     df = obtener_infimas()
@@ -176,6 +188,7 @@ def main():
     actualizar_etapa(df, resultados_finales)
 
     print("Proceso finalizado correctamente.")
+
 
 # =========================
 # 7. EJECUCIÓN

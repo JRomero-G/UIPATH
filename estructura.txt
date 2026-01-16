@@ -1,53 +1,69 @@
-UIPATH_API/
-├── .venv/                        # Entorno virtual (correcto, en .gitignore)
-├── logs/                         # Logs de ejecución (bien)
-├── data/                         # Nueva carpeta recomendada
-│   ├── input/                    # Archivos de entrada (JSON, CSV, etc.)
-│   └── output/                   # Resultados generados, reportes
-├── src/                          # Código fuente principal
-│   └── app/                      # Paquete principal
-│       ├── __init__.py
-│       ├── config.py             # Configuración global + carga .env
-│       ├── database/             # Manejo de DB (conexiones, models, queries)
-│       │   ├── __init__.py
-│       │   ├── connection.py
-│       │   └── models.py         # (si usas ORM o schemas)
-│       └── tasks/                # ← Renombrada de "task" a "tasks" (plural)
-│           ├── __init__.py
-│           ├── scraping_portal.py
-│           ├── procesar_datos.py
-│           ├── guardar_mysql.py
-│           └── enviar_email.py   # (si lo tienes)
-├── UI/                           # Interfaz de usuario (ya muy bien estructurada)
+portal_scraper_api/                     # Nombre del proyecto (ajusta según necesites)
+├── .venv/                              # → .gitignore
+├── logs/                               # logs de ejecución
+├── data/                               # datos no versionados
+│   ├── input/                          # archivos de entrada (CSV, JSON, etc.)
+│   ├── output/                         # resultados, reportes, excels
+│   └── temp/                           # archivos temporales
+├── src/                                # todo el código fuente (paquete Python)
 │   ├── __init__.py
-│   ├── main_ui.py                # Launcher principal (ej. streamlit run UI/main_ui.py)
-│   ├── assets/                   # Imágenes, logos, CSS, JS
-│   │   ├── css/
-│   │   ├── js/
-│   │   └── images/
-│   ├── components/               # Widgets reutilizables
+│   ├── config/
+│   │   └── settings.py                 # pydantic-settings + .env
+│   ├── core/
 │   │   ├── __init__.py
-│   │   ├── data_table.py
-│   │   ├── filtros.py
-│   │   └── progress_indicator.py
-│   ├── routers/                  # Rutas/endpoints (si usas FastAPI/Flask)
+│   │   ├── security.py                 # auth básica (API key, etc.)
+│   │   └── exceptions.py               # excepciones personalizadas
+│   ├── database/
 │   │   ├── __init__.py
-│   │   ├── scraping.py
-│   │   └── dashboard.py
-│   ├── services/                 # Lógica de negocio/UI
+│   │   ├── config.py                   # async engine + sessionmaker
+│   │   ├── session.py                  # dependency get_db (async)
+│   │   ├── models/                     # modelos SQLAlchemy
+│   │   │   ├── __init__.py
+│   │   │   └── scraping.py             # ej: ScrapingResult, PortalLog, etc.
+│   │   └── schemas/                    # Pydantic schemas (API in/out)
+│   │       ├── __init__.py
+│   │       └── scraping.py
+│   ├── api/
 │   │   ├── __init__.py
-│   │   └── scraping_service.py   # Llama a tasks/scraping_portal.py
-│   ├── views/                    # Plantillas HTML (si usas Flask/Jinja)
-│   │   ├── base.html
-│   │   └── dashboard.html
-│   └── utils/                    # Helpers solo para UI
-│       ├── __init__.py
-│       └── session_utils.py
-├── utils/                        # Utilidades generales del proyecto
+│   │   ├── deps.py                     # dependencias comunes (db, etc.)
+│   │   └── v1/
+│   │       ├── __init__.py
+│   │       ├── router.py               # APIRouter principal
+│   │       └── endpoints/
+│   │           ├── scraping.py
+│   │           ├── reports.py
+│   │           └── health.py
+│   ├── services/                       # lógica de negocio
+│   │   ├── __init__.py
+│   │   └── scraping_service.py         # orquesta scraping + guardado en MySQL
+│   ├── tasks/                          # funciones atómicas
+│   │   ├── __init__.py
+│   │   ├── scrape_portal.py
+│   │   ├── process_data.py
+│   │   ├── save_to_mysql.py
+│   │   └── send_notification.py
+│   └── main.py                         # FastAPI app + lifespan (create_all en dev)
+├── frontend/                           # Streamlit (opcional)
+│   ├── main.py                         # streamlit run frontend/main.py
+│   ├── pages/
+│   │   ├── 1_Dashboard.py
+│   │   └── 2_Historial.py
+│   ├── components/
+│   │   └── data_viewer.py
+│   ├── services/
+│   │   └── api_client.py               # cliente httpx al backend
+│   └── utils/
+│       └── session.py
+├── utils/
 │   ├── __init__.py
-│   ├── logging_config.py         # Configuración de logging
-│   └── helpers.py                # clean, paths, etc.
-├── .env                          # Variables sensibles
-├── .gitignore                    # ← Recomendado agregar si no existe
-├── main.py                       # Orquestador CLI (python main.py)
-└── pyproject.toml                # Dependencias y tools
+│   ├── logging.py
+│   └── file_utils.py
+├── tests/
+│   ├── __init__.py
+│   └── test_scraping.py
+├── .env                                # DATABASE_URL=mysql+aiomysql://...
+├── .env.example
+├── .gitignore
+├── README.md
+├── requirements.txt
+└── docker-compose.yml                  # mysql + api + streamlit (opcional)
