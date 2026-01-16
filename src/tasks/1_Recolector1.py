@@ -64,9 +64,9 @@ def select_records(session, base_url, html_content, num_records):
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # Encontrar el elemento con "Mostrar registros"
-    mostrar_elem = soup.find(string=lambda t: 'Mostrar registros' in str(t))
+    mostrar_elem = soup.find(string=lambda t: 'Mostrar' in str(t))
     if not mostrar_elem:
-        print("No se encontró 'Mostrar registros'.")
+        print("No se encontró 'Mostrar'.")
         return html_content  # Retorna el original si falla
     
     # Encontrar el form padre
