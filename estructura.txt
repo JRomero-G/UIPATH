@@ -66,4 +66,3 @@ portal_scraper_api/                     # Nombre del proyecto (ajusta según nec
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
-└── docker-compose.yml                  # mysql + api + streamlit (opcional)
