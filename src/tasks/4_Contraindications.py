@@ -8,7 +8,7 @@ from vertexai.generative_models import GenerativeModel, Part
 import vertexai
 
 # Credenciales GCP
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "src/Credentials/Acceso_bucket_nexus.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "src/Credentials/Clave_bucket_AIgemini.json"
 
 PROJECT_ID = "moonlit-oven-483902-e4"
 LOCATION = "us-central1"
