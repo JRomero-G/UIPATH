@@ -63,7 +63,7 @@ def conectar_base_datos():
     return mysql.connector.connect(
         host="35.225.240.246",
         user="root",
-        password="Nexus012026%",
+        password="Admin123%",
         database="gestorex"
     )
 
