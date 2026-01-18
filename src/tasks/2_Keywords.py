@@ -10,22 +10,14 @@ from openai import OpenAI
 # =========================
 
 MYSQL_CONFIG = {
-    "host": "localhost",
+    "host": "35.225.240.246",
     "user": "root",
-    "password": "",
+    "password": "Admin123%",
     "database": "gestorex",
 }
 
 MODEL_ID = "llama-3.3-70b-versatile"
 API_KEY = "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"
-
-TEMAS = """
-Kit de alimentos, contratación de servicio,contratación del servicio, servicio de producción audiovisual, servicio de consultaría,servicio, 
-servicios de todo tipo, medicamentos, seguros, pólizas, arrendamiento,
-combustibles hidrocarburos y sus derivados, compuestos químicos de uso industrial,
-alimentos de todo tipo, material de oficina, alquileres, hosting, internet, fiscalización,
-mantenimiento, logística de eventos, adecuaciones, monitoreos, mano de obra, recarga de gas, servicio de instalación
-"""
 
 # =========================
 # 2. CLIENTE OPENAI / GROQ
@@ -74,7 +66,6 @@ def obtener_infimas():
         SELECT * FROM infimas
         WHERE etapa = 'ingresada'
     """)
-
     datos = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -86,6 +77,20 @@ def obtener_infimas():
             lambda x: limpiar_texto(str(x))
         )
     return df
+
+
+def obtener_palabras_clave():
+    """Trae todas las palabras o frases de la tabla palabras_clave"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("SELECT palabra_clave FROM palabras_clave")
+    filas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    # Convertir a lista de cadenas y limpiar
+    palabras = [limpiar_texto(fila[0]) for fila in filas if fila[0]]
+    return palabras
 
 
 def actualizar_etapa(df, resultados):
@@ -120,11 +125,12 @@ def actualizar_etapa(df, resultados):
 # =========================
 
 
-def clasificar_descripcion_lote(batch_data):
+def clasificar_descripcion_lote(batch_data, palabras_clave):
+    """Clasifica un lote de descripciones usando palabras clave de la BD"""
     prompt = f"""
     Eres un analista de compras públicas.
-    Analiza si en las siguientes descripciones se mencionan estas palabras:
-    {TEMAS}
+    Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
+    {", ".join(palabras_clave)}
 
     Responde ESTRICTAMENTE con un objeto JSON donde la clave es el número de fila y el valor es "SI" o "NO".
     Datos:
@@ -162,9 +168,13 @@ def clasificar_descripcion_lote(batch_data):
 
 def main():
     df = obtener_infimas()
-
     if df.empty:
         print("No hay datos en la tabla infimas con etapa 'ingresada'.")
+        return
+
+    palabras_clave = obtener_palabras_clave()
+    if not palabras_clave:
+        print("No hay palabras clave en la tabla palabras_clave.")
         return
 
     data = {
@@ -181,12 +191,11 @@ def main():
     print(f"Procesando {len(data)} registros...")
 
     for bloque in dividir_dict(data, size=40):
-        resultados = clasificar_descripcion_lote(bloque)
+        resultados = clasificar_descripcion_lote(bloque, palabras_clave)
         resultados_finales.update(resultados)
 
     # Actualiza la etapa según resultado invertido
     actualizar_etapa(df, resultados_finales)
-
     print("Proceso finalizado correctamente.")
 
 

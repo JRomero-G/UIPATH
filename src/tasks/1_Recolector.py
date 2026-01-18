@@ -209,10 +209,10 @@ def extract_table_data(html_content, base_url):
 def save_to_db(data):
     try:
         conn = mysql.connector.connect(
-            host="localhost",
-            database="gestorex",
+            host="35.225.240.246",
             user="root",
-            password="",
+            password="Admin123%",
+            database="gestorex",
             connect_timeout=10,
         )
         cur = conn.cursor()
