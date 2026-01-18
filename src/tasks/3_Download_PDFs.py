@@ -1,16 +1,15 @@
-import os
-import time
-import re
-from urllib.parse import urljoin, urlparse
-
+import mysql.connector
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+import os
+import re
+from urllib.parse import urljoin, urlparse
+import time
 from google.cloud import storage
-import mysql.connector
 
 # =====================================================
-# 1. CONFIGURACIÓN
+# 1. CONFIGURACIÓN GENERAL
 # =====================================================
 MYSQL_CONFIG = {
     "host": "35.225.240.246",
@@ -19,10 +18,10 @@ MYSQL_CONFIG = {
     "database": "gestorex",
 }
 
+BASE_DOWNLOAD_PATH = r"C:\\Users\\Marissa\\Downloads\\Contratación\\"
+
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "*/*",
     "Accept-Language": "es-EC,es;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
@@ -31,19 +30,38 @@ HEADERS = {
 }
 
 TIMEOUT_PAGINA = 60
-TIMEOUT_DESCARGA = 120  # aumentar timeout para archivos grandes
+TIMEOUT_DESCARGA = 40
+
 PAUSA_ENTRE_PROCESOS = 4
 PAUSA_ENTRE_ARCHIVOS = 1
 
-# Google Cloud - siempre en base del proyecto
+session = requests.Session()
+session.headers.update(HEADERS)
+
+# =====================================================
+# 1.1 GOOGLE CLOUD STORAGE (TEMPORAL)
+# =====================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
     BASE_DIR, "data", "moonlit-oven-483902-e4-c3e17a7fda32.json"
 )
 BUCKET_NAME = "nexusbucket1"
 
-session = requests.Session()
-session.headers.update(HEADERS)
+storage_client = storage.Client()
+bucket = storage_client.bucket(BUCKET_NAME)
+
+
+def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
+    try:
+        nombre_archivo = os.path.basename(ruta_local)
+        blob_path = f"{codigo_necesidad}/{nombre_archivo}"
+
+        blob = bucket.blob(blob_path)
+        blob.upload_from_filename(ruta_local)
+
+        return f"gs://{BUCKET_NAME}/{blob_path}"
+    except Exception:
+        return None
 
 
 # =====================================================
@@ -64,168 +82,150 @@ def obtener_datos_preseleccionados():
         cursor.close()
         conn.close()
         df = pd.DataFrame(datos)
-        return df if not df.empty else None
-    except Exception as e:
-        print(f"[ERROR DB] {e}")
+        if df.empty:
+            return None
+        return df
+    except Exception:
         return None
 
 
 # =====================================================
-# 3. DETECCIÓN DE EXTENSIÓN
+# 3. CANTIDADES
+# =====================================================
+def encontrar_tabla_cantidad(html_content):
+    soup = BeautifulSoup(html_content, "html.parser")
+    for tabla in soup.find_all("table"):
+        headers = [th.get_text(strip=True).lower() for th in tabla.find_all("th")]
+        if headers and all(
+            x in " | ".join(headers) for x in ["no.", "cpc", "descripción", "cantidad"]
+        ):
+            return tabla, 5
+    return None, None
+
+
+def extraer_y_limpiar_cantidad(celda):
+    input_tag = celda.find("input")
+    texto = (
+        input_tag["value"].strip()
+        if input_tag and input_tag.get("value")
+        else celda.get_text(strip=True)
+    )
+
+    texto = re.sub(r"[^\d.,]", "", texto)
+    texto = (
+        texto.replace(".", "").replace(",", ".")
+        if texto.count(",") == 1
+        else texto.replace(",", ".")
+    )
+
+    try:
+        return float(texto)
+    except Exception:
+        return None
+
+
+def obtener_suma_cantidades(html_content):
+    tabla, col_index = encontrar_tabla_cantidad(html_content)
+    if not tabla:
+        return None
+
+    suma = 0.0
+    for fila in tabla.find_all("tr")[1:]:
+        celdas = fila.find_all(["td", "th"])
+        if len(celdas) > col_index:
+            valor = extraer_y_limpiar_cantidad(celdas[col_index])
+            if valor:
+                suma += valor
+
+    return suma if 0 < suma <= 10 else None
+
+
+# =====================================================
+# 4. DETECCIÓN DE EXTENSIÓN
 # =====================================================
 def detectar_extension(url, descripcion="", primeros_bytes=b""):
-    # Forzar .pdf para archivos .cpe de Compras Públicas
-    if "ExeGENBajarArchivoGeneral.cpe" in url:
-        return ".pdf"
-
     path = urlparse(url).path.lower()
     if path.endswith((".pdf", ".docx", ".xlsx", ".doc", ".xls")):
         return os.path.splitext(path)[1]
 
-    if primeros_bytes:
-        if primeros_bytes.startswith(b"%PDF"):
-            return ".pdf"
-        if primeros_bytes.startswith(b"PK\x03\x04"):
-            return ".docx" if b"word/" in primeros_bytes.lower() else ".xlsx"
-        if primeros_bytes.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
-            return ".doc"
-
-    desc = descripcion.lower()
-    if any(p in desc for p in ["forma", "subir oferta", "oferta", "formato", "anexo"]):
+    if primeros_bytes.startswith(b"%PDF"):
+        return ".pdf"
+    if primeros_bytes.startswith(b"PK"):
         return ".docx"
-    if any(p in desc for p in ["presupuesto", "referencial", "costo", "excel"]):
-        return ".xlsx"
+    if primeros_bytes.startswith(b"\xd0\xcf"):
+        return ".doc"
+
     return ".pdf"
 
 
 # =====================================================
-# 4. SUBIDA A BUCKET
+# 5. DESCARGA
 # =====================================================
-def subir_a_bucket(bucket_name, archivo_local, ruta_destino):
-    try:
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(ruta_destino)
-        blob.upload_from_filename(archivo_local)
-        return True
-    except Exception as e:
-        print(f"[ERROR SUBIDA] {archivo_local}: {e}")
-        return False
+def descargar_archivo(url, ruta_base, descripcion="", max_reintentos=5):
+    for intento in range(max_reintentos):
+        try:
+            with session.get(url, stream=True, timeout=TIMEOUT_DESCARGA) as r:
+                r.raise_for_status()
+                it = r.iter_content(32768)
+                primeros_bytes = next(it, b"")
+
+                extension = detectar_extension(url, descripcion, primeros_bytes)
+                ruta_final = ruta_base + extension
+                temp = ruta_final + ".part"
+
+                with open(temp, "wb") as f:
+                    f.write(primeros_bytes)
+                    for chunk in it:
+                        if chunk:
+                            f.write(chunk)
+
+                os.replace(temp, ruta_final)
+                return ruta_final
+        except Exception:
+            time.sleep(7 * (intento + 1))
+    return None
 
 
-# =====================================================
-# 5. DESCARGA Y SUBIDA DIRECTA
-# =====================================================
-def descargar_y_subir_archivo(url, codigo, nombre_original, descripcion=""):
-    """Descarga el archivo y lo sube al bucket manteniendo nombre y extensión correcta"""
-    try:
-        for intento in range(1, 6):
-            try:
-                with session.get(url, stream=True, timeout=TIMEOUT_DESCARGA) as r:
-                    r.raise_for_status()
+def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
+    soup = BeautifulSoup(html, "html.parser")
+    seccion = soup.find(string=lambda t: t and "DOCUMENTOS" in t.upper())
+    if not seccion:
+        return 0
 
-                    # Detectar extensión real
-                    primeros_bytes = next(r.iter_content(chunk_size=32768), b"")
-                    extension = detectar_extension(url, descripcion, primeros_bytes)
+    tabla = seccion.find_next("table")
+    if not tabla:
+        return 0
 
-                    # Limpiar nombre
-                    nombre_limpio = re.sub(
-                        r'[<>:"/\\|?*]', "_", nombre_original
-                    ).strip()
-                    if not nombre_limpio:
-                        nombre_limpio = "documento"
+    descargados = 0
 
-                    temp_file = f"{nombre_limpio}{extension}.part"
-                    final_file = f"{nombre_limpio}{extension}"
-
-                    # Guardar temporal
-                    with open(temp_file, "wb") as f:
-                        if primeros_bytes:
-                            f.write(primeros_bytes)
-                        for chunk in r.iter_content(chunk_size=32768):
-                            if chunk:
-                                f.write(chunk)
-
-                    # Renombrar
-                    if os.path.exists(final_file):
-                        os.remove(final_file)
-                    os.rename(temp_file, final_file)
-
-                    # Subir al bucket
-                    ruta_bucket = f"Documentos de contratación/{codigo}/{final_file}"
-                    subir_a_bucket(BUCKET_NAME, final_file, ruta_bucket)
-
-                    os.remove(final_file)
-                    return ruta_bucket
-
-            except Exception as e:
-                print(f"[WARNING] Intento {intento} descarga {url}: {e}")
-                time.sleep(5 * intento)
-
-        print(f"[ERROR] No se pudo descargar: {url}")
-        return None
-
-    except Exception as e:
-        print(f"[ERROR] General descarga: {url}: {e}")
-        return None
-
-
-# =====================================================
-# 5B. OBTENER Y SUBIR TODOS LOS DOCUMENTOS
-# =====================================================
-def obtener_y_subir_todos_documentos(html_content, base_url, codigo):
-    """
-    Recorre todas las secciones de documentos y sube todos los archivos
-    al bucket manteniendo el nombre original y extensión correcta.
-    """
-    soup = BeautifulSoup(html_content, "html.parser")
-    subidos = 0
-
-    secciones = soup.find_all(
-        string=lambda t: t
-        and any(
-            texto in str(t).upper()
-            for texto in [
-                "DOCUMENTOS ANEXOS",
-                "ARCHIVO QUE CONTIENE LAS ESPECIFICACIONES",
-                "TÉRMINOS DE REFERENCIA",
-                "ANEXOS",
-                "DOCUMENTOS ADJUNTOS",
-            ]
-        )
-    )
-
-    for seccion in secciones:
-        tabla = seccion.find_next("table")
-        if not tabla:
+    for fila in tabla.find_all("tr"):
+        celdas = fila.find_all("td")
+        if len(celdas) < 2:
             continue
 
-        filas = tabla.find_all("tr")
-        for fila in filas:
-            celdas = fila.find_all("td")
-            if not celdas:
-                continue
+        descripcion = celdas[0].get_text(strip=True)
+        link = celdas[1].find("a", href=True)
+        if not link:
+            continue
 
-            # Buscar enlaces en cualquier celda
-            enlaces = []
-            for celda in celdas:
-                enlaces.extend(celda.find_all("a", href=True))
+        url_archivo = urljoin(base_url, link["href"])
+        nombre = (
+            re.sub(r'[<>:"/\\|?*]', "_", descripcion) or f"documento_{descargados + 1}"
+        )
+        ruta_base = os.path.join(carpeta_destino, nombre)
 
-            for enlace in enlaces:
-                url_archivo = urljoin(base_url, enlace["href"])
-                nombre_original = os.path.basename(urlparse(enlace["href"]).path)
-                if nombre_original.lower().endswith(".cpe"):
-                    nombre_original = nombre_original + ".pdf"
+        resultado = descargar_archivo(url_archivo, ruta_base, descripcion)
+        if resultado:
+            subir_archivo_a_gcs_temporal(resultado, os.path.basename(carpeta_destino))
+            try:
+                os.remove(resultado)
+            except Exception:
+                pass
+            descargados += 1
 
-                resultado = descargar_y_subir_archivo(
-                    url_archivo, codigo, nombre_original
-                )
-                if resultado:
-                    subidos += 1
+        time.sleep(PAUSA_ENTRE_ARCHIVOS)
 
-                time.sleep(PAUSA_ENTRE_ARCHIVOS)
-
-    return subidos
+    return descargados
 
 
 # =====================================================
@@ -233,38 +233,34 @@ def obtener_y_subir_todos_documentos(html_content, base_url, codigo):
 # =====================================================
 def main():
     df = obtener_datos_preseleccionados()
-    if df is None or df.empty:
-        print("ERROR: No se pudieron obtener datos o no hay registros.")
-        return
+    if df is None:
+        return "ERROR: sin datos"
 
-    total_procesos = len(df)
-    archivos_totales = 0
-
-    for index, row in df.iterrows():
+    total = 0
+    for _, row in df.iterrows():
         codigo = safe_value(row["codigo_necesidad"])
         url = safe_value(row["entidad_contratante_url"])
-
         if url == "SIN_VALOR":
             continue
 
         try:
-            resp = session.get(url, timeout=TIMEOUT_PAGINA)
-            if resp.status_code != 200:
+            r = session.get(url, timeout=TIMEOUT_PAGINA)
+            if r.status_code != 200:
                 continue
 
-            # Subimos todos los documentos del código
-            subidos = obtener_y_subir_todos_documentos(resp.text, url, codigo)
-            archivos_totales += subidos
+            if not obtener_suma_cantidades(r.text):
+                continue
 
-        except Exception as e:
-            print(f"[ERROR PROCESO {codigo}] {e}")
+            carpeta = os.path.join(BASE_DOWNLOAD_PATH, codigo)
+            os.makedirs(carpeta, exist_ok=True)
+
+            total += obtener_y_descargar_documentos(r.text, url, carpeta)
+        except Exception:
             continue
 
         time.sleep(PAUSA_ENTRE_PROCESOS)
 
-    print(
-        f"COMPLETADO: {archivos_totales} archivos subidos de {total_procesos} procesos."
-    )
+    return f"COMPLETADO: {total} archivos subidos temporalmente a GCS"
 
 
 if __name__ == "__main__":
