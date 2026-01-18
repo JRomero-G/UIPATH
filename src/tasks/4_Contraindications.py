@@ -193,7 +193,7 @@ def calcular_peso(contra_encontradas, pesos_individuales):
 def actualizar_peso(cursor, conexion, codigo_necesidad, peso):
     cursor.execute("""
         UPDATE infimas
-        SET Peso = %s
+        SET peso = %s
         WHERE codigo_necesidad = %s
     """, (peso, codigo_necesidad))
     conexion.commit()
