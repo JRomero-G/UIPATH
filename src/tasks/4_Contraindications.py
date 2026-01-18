@@ -15,7 +15,7 @@ LOCATION = "us-central1"
 BUCKET_NAME = "nexusbucket1"
 
 vertexai.init(project=PROJECT_ID, location=LOCATION)
-model = GenerativeModel("gemini-1.5-flash")
+model = GenerativeModel("gemini-2.5-flash")
 
 # ===========================================================
 # SECCIÓN 2 — IMPORTACIONES ADICIONALES
