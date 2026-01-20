@@ -2,5 +2,11 @@
   "6556afa6f7184b65598bfd8cdd0b69d0214ebaf01043defc2f02b61552b5e1fa": [
     "Procesos que requieran contratistas más de 3 días",
     "Procesos con instalaciones de sistemas eléctricos o similares"
-  ]
+  ],
+  "496ebc64a2d5102526493975d1487caa30546e4cf29073a89e52ce42712b7b21": {
+    "contras": [
+      "Procesos que requieran contratistas más de 3 días"
+    ],
+    "pac": 0.0
+  }
 }

@@ -129,7 +129,7 @@ def analizar_documento(blob, lista_contraindicaciones):
     Devuelve únicamente las contraindicaciones encontradas,
     separadas por coma, o vacío si no hay ninguna.
 
-    Adicionalmente, extrae el valor total del presupuesto o PAC para esta necesidad, si se menciona, relacionado con el Plan Anual de Contratación de Ecuador.
+    Adicionalmente, extrae el valor total del presupuesto o partida PAC para esta necesidad, si se menciona.
     Devuélvelo en la siguiente línea como 'PAC: <valor>' o 'PAC: 0' si no se encuentra.
     """
 
