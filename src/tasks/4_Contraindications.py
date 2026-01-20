@@ -85,9 +85,9 @@ def obtener_contraindicaciones(cursor):
 
 def obtener_codigos_infimas(cursor):
     cursor.execute("""
-        SELECT codigo_necesidad, PAC
+        SELECT codigo_necesidad, etapa
         FROM infimas
-        WHERE PAC > 0
+        WHERE etapa = 'seleccionada'
     """)
     return cursor.fetchall()
 
@@ -113,7 +113,7 @@ def analizar_documento(blob, lista_contraindicaciones):
 
     with cache_lock:
         if doc_hash in CACHE_IA:
-            return CACHE_IA[doc_hash]
+            return CACHE_IA[doc_hash].get('contras', []), CACHE_IA[doc_hash].get('pac', 0.0)
 
     document_part = Part.from_uri(
         uri=f"gs://{BUCKET_NAME}/{blob.name}",
@@ -128,18 +128,29 @@ def analizar_documento(blob, lista_contraindicaciones):
 
     Devuelve únicamente las contraindicaciones encontradas,
     separadas por coma, o vacío si no hay ninguna.
+
+    Adicionalmente, extrae el valor total del presupuesto o PAC para esta necesidad, si se menciona, relacionado con el Plan Anual de Contratación de Ecuador.
+    Devuélvelo en la siguiente línea como 'PAC: <valor>' o 'PAC: 0' si no se encuentra.
     """
 
     response = model.generate_content([document_part, prompt])
 
     encontrados = []
+    pac_found = 0.0
     if response.text:
-        encontrados = [x.strip() for x in response.text.split(",") if x.strip()]
+        lines = response.text.strip().split('\n')
+        if lines:
+            encontrados = [x.strip() for x in lines[0].split(",") if x.strip()]
+        if len(lines) > 1 and lines[1].startswith('PAC:'):
+            try:
+                pac_found = float(lines[1].split(':', 1)[1].strip())
+            except ValueError:
+                pac_found = 0.0
 
     with cache_lock:
-        CACHE_IA[doc_hash] = encontrados
+        CACHE_IA[doc_hash] = {"contras": encontrados, "pac": pac_found}
 
-    return encontrados
+    return encontrados, pac_found
 
 # ===========================================================
 # SECCIÓN 9 — ANÁLISIS POR CÓDIGO DE CONTRATACIÓN (PARALELO)
@@ -156,6 +167,7 @@ def analizar_codigo_necesidad(codigo_necesidad, lista_contraindicaciones):
     ][:MAX_DOCUMENTS_PER_FOLDER]
 
     contra_encontradas = set()
+    pacs = []
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [
@@ -164,10 +176,14 @@ def analizar_codigo_necesidad(codigo_necesidad, lista_contraindicaciones):
         ]
 
         for future in as_completed(futures):
-            resultado = future.result()
-            contra_encontradas.update(resultado)
+            encontrados, pac_found = future.result()
+            contra_encontradas.update(encontrados)
+            if pac_found > 0:
+                pacs.append(pac_found)
 
-    return list(contra_encontradas)
+    pac = max(pacs) if pacs else 0.0
+
+    return list(contra_encontradas), pac
 
 # ===========================================================
 # SECCIÓN 10 — CÁLCULO DEL PESO FINAL
@@ -190,12 +206,19 @@ def calcular_peso(contra_encontradas, pesos_individuales):
 # SECCIÓN 11 — ACTUALIZACIÓN EN BASE DE DATOS
 # ===========================================================
 
-def actualizar_peso(cursor, conexion, codigo_necesidad, peso):
+def insertar_evaluacion(cursor, conexion, codigo_necesidad, peso, justificacion):
+    cursor.execute("""
+        INSERT INTO evaluaciones (codigo_necesidad, peso_total, justificacion)
+        VALUES (%s, %s, %s)
+    """, (codigo_necesidad, peso, justificacion))
+    conexion.commit()
+
+def actualizar_pac(cursor, conexion, codigo_necesidad, pac):
     cursor.execute("""
         UPDATE infimas
-        SET peso = %s
+        SET PAC = %s
         WHERE codigo_necesidad = %s
-    """, (peso, codigo_necesidad))
+    """, (pac, codigo_necesidad))
     conexion.commit()
 
 # ===========================================================
@@ -209,21 +232,31 @@ def main():
     lista_contra, pesos_contra = obtener_contraindicaciones(cursor)
     codigos = obtener_codigos_infimas(cursor)
 
-    for codigo_necesidad, pac in codigos:
+    for codigo_necesidad, etapa in codigos:
         print(f"Procesando código: {codigo_necesidad}")
 
-        contra_encontradas = analizar_codigo_necesidad(
+        contra_encontradas, pac = analizar_codigo_necesidad(
             codigo_necesidad,
             lista_contra
         )
 
         peso_final = calcular_peso(contra_encontradas, pesos_contra)
 
-        actualizar_peso(
+        justificacion = ", ".join(contra_encontradas)
+
+        insertar_evaluacion(
             cursor,
             conexion,
             codigo_necesidad,
-            peso_final
+            peso_final,
+            justificacion
+        )
+
+        actualizar_pac(
+            cursor,
+            conexion,
+            codigo_necesidad,
+            pac
         )
 
         print(f"Peso calculado: {peso_final}\n")
