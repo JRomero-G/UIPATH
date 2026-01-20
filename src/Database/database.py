@@ -2,21 +2,22 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL = "mysql+pymysql://root@127.0.0.1:3306/gestorex?charset=utf8mb4"
+# ================= CONFIGURACIÓN DE LA BASE =================
+USER = "Jason"
+PASSWORD = "Admin02%"
+HOST = "35.225.240.246"  # IP pública de tu instancia
+PORT = "3306"
+DATABASE = "gestorex"
 
+# Usando mysql-connector-python como driver
+DATABASE_URL = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
 
+# ================= BASE DE DATOS =================
 class Base(DeclarativeBase):
     pass
 
-
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_recycle=3600,  # helps with cloud idle timeouts
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-)
+# ================= MOTOR y SESIÓN =================
+engine = create_engine(DATABASE_URL, echo=True, future=True)
 
 SessionLocal = sessionmaker(
     bind=engine,
@@ -25,7 +26,14 @@ SessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
+# ================= PRUEBA DE CONEXIÓN =================
+try:
+    with engine.connect() as conn:
+        print("✅ Conexión SQLAlchemy exitosa")
+except Exception as e:
+    print(f"❌ Error SQLAlchemy: {e}")
 
+# ================= FUNCION GET_DB =================
 def get_db():
     db = SessionLocal()
     try:

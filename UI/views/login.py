@@ -10,6 +10,12 @@ from components.animated_input import AnimatedInput
 from components.neon_button import NeonButton
 from views.loading import LoadingUI
 
+# Importaciones nuevas
+import requests  # se instalara esto
+from PyQt5.QtWidgets import QMessageBox
+from views.workspace_manager import WorkspaceManagerUI
+from views.workspace_user import WorkspaceUserUI
+
 
 class LoginUI(BaseWindow):
     def __init__(self):
@@ -21,20 +27,11 @@ class LoginUI(BaseWindow):
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
         # ================= LÍNEAS ANIMADAS (COMO ANTES) =================
-        AnimatedCurvedLine(
-            [(0, 70), (320, 20), (650, 140), (1000, 90)],
-            self
-        )
+        AnimatedCurvedLine([(0, 70), (320, 20), (650, 140), (1000, 90)], self)
 
-        AnimatedCurvedLine(
-            [(0, 520), (300, 560), (650, 520), (1000, 560)],
-            self
-        )
+        AnimatedCurvedLine([(0, 520), (300, 560), (650, 520), (1000, 560)], self)
 
-        AnimatedCurvedLine(
-            [(0, 560), (350, 600), (700, 560), (1000, 600)],
-            self
-        )
+        AnimatedCurvedLine([(0, 560), (350, 600), (700, 560), (1000, 600)], self)
 
         # ================= TEXTO SUPERIOR =================
         powered = QLabel("Powered by Nexus Ingeniería", self)
@@ -69,10 +66,63 @@ class LoginUI(BaseWindow):
                 self.width() - pm.width() - 80,
                 (self.height() - pm.height()) // 2,
                 pm.width(),
-                pm.height()
+                pm.height(),
             )
 
     def open_loading(self):
+        usuario = self.user.text().strip()
+        password = self.pwd.text().strip()
+
+        if not usuario or not password:
+            QMessageBox.warning(self, "Error", "Debe ingresar usuario y contraseña.")
+            return
+
+        try:
+            response = requests.post(
+                "http://127.0.0.1:8000/auth/login",
+                json={  # <-- IMPORTANTE: enviar JSON
+                    "username": usuario,
+                    "password": password
+                },
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                },
+                timeout=10,
+            )
+
+            if response.status_code != 200:
+                QMessageBox.critical(
+                    self, "Login fallido", "Usuario o contraseña incorrectos."
+                )
+                return
+
+            data = response.json()
+
+            token = data["access_token"]
+            user_info = data["usuario"]
+
+            # Guardar sesión
+            from config import set_session
+            set_session({"token": token, "usuario": user_info})
+
+            # Redirección por rol
+            if user_info["es_admin"]:
+                self.workspace = WorkspaceManagerUI()
+            else:
+                self.workspace = WorkspaceUserUI()
+
+            self.workspace.show()
+            self.close()
+
+        except requests.RequestException:
+            QMessageBox.critical(
+            self, "Error de conexión", "No se pudo conectar con el servidor."
+        )
+            
+""" Comentado para pruebas de login real
+def open_loading(self):
         self.loading = LoadingUI()   # referencia viva
         self.loading.show()
         self.close()
+"""
