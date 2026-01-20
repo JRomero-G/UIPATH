@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from Models.contraindicaciones_model import Contraindicacion
+from ..Models.contraindicaciones_model import Contraindicacion
 
 
 def registrar_contraindicacion(db: Session, data: dict):
