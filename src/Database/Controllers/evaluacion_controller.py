@@ -1,12 +1,12 @@
 from sqlalchemy.orm import Session
-from Models.evaluacion_model import Evaluacion
+from ..Models.evaluacion_model import Evaluacion
 
 
 def registrar_evaluacion(db: Session, data: dict):
     evaluacion = Evaluacion(
         codigo_necesidad=data["codigo_necesidad"],
         peso_total=data["peso_total"],
-        justificacion=data["justificacion"]
+        justificacion=data["justificacion"],
     )
     db.add(evaluacion)
     db.commit()
