@@ -87,7 +87,7 @@ def obtener_codigos_infimas(cursor):
     cursor.execute("""
         SELECT codigo_necesidad, etapa
         FROM infimas
-        WHERE etapa = 'seleccionada'
+        WHERE etapa = 'preseleccionada'
     """)
     return cursor.fetchall()
 
