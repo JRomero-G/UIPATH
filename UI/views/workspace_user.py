@@ -1,3 +1,6 @@
+from tkinter import messagebox
+from PyQt5.QtWidgets import QMessageBox
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtWidgets import (
@@ -10,6 +13,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QHeaderView,
 )
+import requests
 
 from config import *
 from components.base_window import BaseWindow
@@ -51,12 +55,46 @@ class WorkspaceUserUI(BaseWindow):
         # ================== TABLA ==================
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Descripción", "Grado de recomendación", "Acción"]
+            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","Accion"]
         )
 
+        # ===== AJUSTE DE COLUMNAS =====
+        self.table.setWordWrap(True)
+        self.table.setTextElideMode(Qt.ElideNone)
+
+        header = self.table.horizontalHeader()
+
+        # Col 0: checkbox (muy pequeña)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 32)
+
+        # Col 1: NIC (auto por contenido)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+
+        # Col 2: Descripción (ocupa lo restante)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+
+        # Col 3: Grado (auto)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+        # Col 4: Nivel (fija)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table.setColumnWidth(4, 60)
+
+        # Col 5: Acción (fija)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        self.table.setColumnWidth(5, 110)
+
+        # Altura de filas
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.verticalHeader().setMinimumSectionSize(38)
+        self.table.verticalHeader().setVisible(False)
+        """
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
+        """
+        
 
         self.table.setStyleSheet("""
             QTableWidget {
@@ -74,6 +112,7 @@ class WorkspaceUserUI(BaseWindow):
             }
         """)
 
+       
         self.load_demo_data()
         self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
@@ -168,66 +207,122 @@ class WorkspaceUserUI(BaseWindow):
 
     # ================== DATOS ==================
     def load_demo_data(self):
-        data = [
-            (
-                "NIC:05601970001-2026-00001",
-                "adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado para el fortalecimiento de los procesos internos",
-                "Recomendado",
-                1,
-            ),
-            (
-                "NIC:05601970001-2026-00002",
-                "materiales de construcción",
-                "Recomendado",
-                1,
-            ),
-            (
-                "NIC:1160020493001-2026-00001",
-                "material educativo extenso",
-                "Recomendado",
-                2,
-            ),
-            ("NIC:04600600001-2026-00001", "material de oficina", "Recomendado", 3),
-            (
-                "NIC:706007246001-2026-00001",
-                "transporte institucional",
-                "Poco recomendado",
-                6,
-            ),
-        ]
+        
+        try:
+            response = requests.get(
+                #No hay infimas con etapa de seleccionadas, liste todas para pruebas
+                "http://127.0.0.1:8000/infimas/Todas",
+                headers={
+                    "Authorization": f"Bearer {get_session().get('token')}"
+                },
+                timeout=10
+            )
 
-        self.table.setRowCount(len(data))
+            print("STATUS:", response.status_code)
+
+            if response.status_code != 200:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Error al obtener ínfimas.\nCódigo: {response.status_code}"
+                )
+                return
+
+            data = response.json()
+            print("INFIMAS RECIBIDA:", len(data))
+
+            # 🔒 Si la API devuelve {"data": [...]}
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
+
+            if not isinstance(data, list):
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "La API no devolvió una lista de registros."
+                )
+                print("DATA INVALIDA:", data)
+                return
+
+        except requests.RequestException as e:
+            messagebox.warning(self, "Error", "No se pudo conectar al servidor.")
+            print("EXCEPTION:", e)
+            return
+        
+      
+        # limpiar tabla
+        self.table.setRowCount(0)
+
+        if not data:
+            print("⚠️ No hay registros para mostrar")
+            return
 
         for row, item in enumerate(data):
-            self.table.setItem(row, 1, QTableWidgetItem(item[0]))
-            self.table.setItem(row, 2, QTableWidgetItem(item[1]))
+            self.table.insertRow(row)
 
-            grade_item = QTableWidgetItem(item[2])
-            grade_item.setTextAlignment(Qt.AlignCenter)
+            nivel = item.get("nivel_de_oportunidad") or 1 #no tiene nivel asignado
 
-            if item[2] == "Recomendado":
-                grade_item.setBackground(QColor(90, 160, 110))
-            elif item[2] == "Poco recomendado":
-                grade_item.setBackground(QColor(190, 170, 90))
+            if nivel == 1:
+                row_color = QColor(150, 215, 175)
+                grado = "Recomendado"
+            elif nivel == 2:
+                row_color = QColor(220, 200, 140)
+                grado = "Poco recomendado"
             else:
-                grade_item.setBackground(QColor(180, 90, 90))
+                row_color = QColor(220, 170, 170)
+                grado = "No recomendado"
 
-                if col == 3:
-                    cell.setText(
-                        "✅  Recomendado"
-                        if value == "Recomendado"
-                        else "⚠️  Poco recomendado"
-                    )
-                    cell.setTextAlignment(Qt.AlignCenter)
-                    cell.setFont(QFont("Arial", 9, QFont.Bold))
-                elif col == 4:
-                    cell.setTextAlignment(Qt.AlignCenter)
-                elif col == 2:
-                    cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            text_color = QColor(0, 0, 0)
 
-                self.table.setItem(row, col, cell)
+            # Col 0: Check
+            check_item = QTableWidgetItem()
+            
+            check_item.setCheckState(Qt.Unchecked)
+            check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            check_item.setBackground(row_color)
+            self.table.setItem(row, 0, check_item)
 
+            # Col 1: NIC
+            nic = item.get("codigo_necesidad", "")
+            cell = QTableWidgetItem(nic)
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setForeground(text_color)
+            cell.setBackground(row_color)
+            self.table.setItem(row, 1, cell)
+
+            # Col 2: Descripción
+            descripcion = item.get("descripcion_objeto_compra", "")
+            cell = QTableWidgetItem(descripcion)
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setForeground(text_color)
+            cell.setBackground(row_color)
+            cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.table.setItem(row, 2, cell)
+
+            # Col 3: Grado
+            cell = QTableWidgetItem(
+                "✅ Recomendado" if grado == "Recomendado"
+                else "⚠️ Poco recomendado" if grado == "Poco recomendado"
+                else "❌ No recomendado"
+            )
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setForeground(text_color)
+            cell.setBackground(row_color)
+            cell.setTextAlignment(Qt.AlignCenter)
+            cell.setFont(QFont("Arial", 9, QFont.Bold))
+            self.table.setItem(row, 3, cell)
+
+            # Col 4: Nivel
+            cell = QTableWidgetItem(str(nivel))
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setForeground(text_color)
+            cell.setBackground(row_color)
+            cell.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 4, cell)
+
+            # Col 5: Acción
             self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
+
 
     # llamar al RE
     def open_workspace_userRE(self):

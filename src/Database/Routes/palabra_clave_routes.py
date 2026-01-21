@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from Controllers.palabra_clave_controller import (
+from ..Controllers.palabra_clave_controller import (
     registrar_palabra_clave,
     listar_palabras_clave
 )
-from database import get_db
+from ..database import get_db
 
 router = APIRouter(prefix="/palabras-clave", tags=["Palabras Clave"])
 

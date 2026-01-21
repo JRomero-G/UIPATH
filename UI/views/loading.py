@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import QLabel, QWidget
 
 from config import *
 from components.base_window import BaseWindow
+from views.workspace_user import WorkspaceUserUI  
+from views.workspace_manager import WorkspaceManagerUI
 
 
 # ================== PUNTOS TIPO VIDEO (ONDA REAL) ==================
@@ -71,8 +73,9 @@ class LoadingDots(QWidget):
 
 # ================== LOADING UI ==================
 class LoadingUI(BaseWindow):
-    def __init__(self, duration_ms=5000):
+    def __init__(self, duration_ms, rol = bool):
         super().__init__()
+        self.rol = rol
 
         self.duration_ms = duration_ms  # ⏱ duración configurable
 
@@ -104,14 +107,14 @@ class LoadingUI(BaseWindow):
         QTimer.singleShot(self.duration_ms, self.finish_loading)
 
     def finish_loading(self):
-        from views.workspace_user import WorkspaceUserUI  # import local
-
-        self.workspace = WorkspaceUserUI()
+        if self.rol is True:
+            #ABRIR WORKSPACE ADMIN
+            self.workspace = WorkspaceManagerUI()
+        else:
+            #ABRIR WORKSPACE USER
+            self.workspace = WorkspaceUserUI()
+            
         self.workspace.show()
         self.hide()
-<<<<<<< HEAD
-=======
 
 
-S
->>>>>>> 63f7ecde107ef03e8bf5bb4946fefe95b7f92abd

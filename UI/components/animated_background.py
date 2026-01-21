@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QWidget
 
 
 class AnimatedCurvedLine(QWidget):
-    def __init__(self, points, parent=None):
+    def __init__(self, points, parent=None,delay=0.0):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setGeometry(0, 0, parent.width(), parent.height())
