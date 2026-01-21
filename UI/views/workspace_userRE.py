@@ -12,7 +12,7 @@ from config import *
 from components.base_window import BaseWindow
 
 
-class WorkspaceUserUI(BaseWindow):
+class WorkspaceUserREUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
@@ -20,7 +20,6 @@ class WorkspaceUserUI(BaseWindow):
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
-        # ================== LAYOUT PRINCIPAL ==================
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 20, 30, 20)
         main_layout.setSpacing(18)
@@ -30,8 +29,8 @@ class WorkspaceUserUI(BaseWindow):
         menu_layout.setSpacing(12)
 
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
-        self.btn_recomendados = self.menu_tab("Recomendados", active=True)
-        self.btn_revision = self.menu_tab("Revisión y Envío")
+        self.btn_recomendados = self.menu_tab("Recomendados", active=False)
+        self.btn_revision = self.menu_tab("Revisión y Envío", active=True)
 
         menu_layout.addWidget(self.btn_actualizar)
         menu_layout.addWidget(self.btn_recomendados)
@@ -65,17 +64,16 @@ class WorkspaceUserUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Descripción",
-            "Grado de recomendación", "Nivel", "Acción"
+            "", "NIC", "Resumen",
+            "Documento de contratación", "Acción"
         ])
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
 
         header = self.table.horizontalHeader()
-
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 32)
 
@@ -84,10 +82,7 @@ class WorkspaceUserUI(BaseWindow):
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
         header.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table.setColumnWidth(4, 60)
-
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 110)
+        self.table.setColumnWidth(4, 110)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -111,40 +106,17 @@ class WorkspaceUserUI(BaseWindow):
                 font-weight: bold;
                 border-bottom: 2px solid rgba(255,255,255,120);
             }
-            QScrollBar:vertical {
-                background: rgba(255,255,255,40);
-                width: 14px;
-                margin: 2px;
-                border-radius: 7px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(255,255,255,190);
-                min-height: 40px;
-                border-radius: 7px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: rgba(255,255,255,230);
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: transparent;
-            }
         """)
 
         self.load_demo_data()
-        self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
 
         # ================== BOTÓN INFERIOR ==================
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
 
-        self.btn_analizar = self.action_button("📊  Analizar")
-        self.btn_analizar.clicked.connect(self.open_workspace_userRE)
+        self.btn_analizar = self.action_button("📤  Enviar")
+        self.btn_analizar.clicked.connect(self.open_loading)
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
@@ -227,6 +199,35 @@ class WorkspaceUserUI(BaseWindow):
         """)
         return btn
 
+    # ================== DOCUMENTOS ==================
+    def document_links(self, bg_color):
+        container = QWidget()
+        container.setStyleSheet(f"background-color: {bg_color};")
+
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(2)
+
+        def link(text):
+            lbl = QLabel(text)
+            lbl.setCursor(Qt.PointingHandCursor)
+            lbl.setStyleSheet("""
+                QLabel {
+                    color: rgb(90, 160, 220);
+                    font-weight: bold;
+                }
+                QLabel:hover {
+                    color: rgb(120, 190, 255);
+                    text-decoration: underline;
+                }
+            """)
+            return lbl
+
+        layout.addWidget(link("📄 Informe de necesidad"))
+        layout.addWidget(link("📎 Proforma"))
+        return container
+
+    # ================== ELIMINAR ==================
     def delete_button(self, bg_color):
         container = QWidget()
         container.setStyleSheet(f"background-color: {bg_color};")
@@ -264,18 +265,15 @@ class WorkspaceUserUI(BaseWindow):
     # ================== DATOS ==================
     def load_demo_data(self):
         data = [
-            ("NIC:05601970001-2026-00001", "adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado para el fortalecimiento de los procesos internos", "Recomendado", 1),
-            ("NIC:05601970001-2026-00002", "materiales de construcción", "Recomendado", 1),
-            ("NIC:1160020493001-2026-00001", "material educativo extenso", "Recomendado", 2),
-            ("NIC:04600600001-2026-00001", "material de oficina", "Recomendado", 3),
-            ("NIC:706007246001-2026-00001", "transporte institucional", "Poco recomendado", 6),
+            ("NIC:05601970001-2026-00001", "Equipo tecnológico especializado"),
+            ("NIC:05601970001-2026-00002", "Materiales de construcción"),
+            ("NIC:1160020493001-2026-00001", "Material educativo"),
         ]
 
         self.table.setRowCount(len(data))
 
         for row, item in enumerate(data):
-            row_color = QColor(150, 215, 175) if item[2] == "Recomendado" else QColor(220, 200, 140)
-            text_color = QColor(0, 0, 0)
+            row_color = QColor(150, 215, 175)
 
             check_item = QTableWidgetItem()
             check_item.setCheckState(Qt.Unchecked)
@@ -286,25 +284,15 @@ class WorkspaceUserUI(BaseWindow):
             for col, value in enumerate(item, start=1):
                 cell = QTableWidgetItem(str(value))
                 cell.setFlags(Qt.ItemIsEnabled)
-                cell.setForeground(text_color)
                 cell.setBackground(row_color)
-
-                if col == 3:
-                    cell.setText("✅  Recomendado" if value == "Recomendado" else "⚠️  Poco recomendado")
-                    cell.setTextAlignment(Qt.AlignCenter)
-                    cell.setFont(QFont("Arial", 9, QFont.Bold))
-                elif col == 4:
-                    cell.setTextAlignment(Qt.AlignCenter)
-                elif col == 2:
-                    cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
+                cell.setForeground(QColor(0, 0, 0))
                 self.table.setItem(row, col, cell)
 
-            self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
+            self.table.setCellWidget(row, 3, self.document_links(row_color.name()))
+            self.table.setCellWidget(row, 4, self.delete_button(row_color.name()))
 
-   # llamar al RE
-    def open_workspace_userRE(self):
-        from views.workspace_userRE import WorkspaceUserREUI
-        self.workspace_re = WorkspaceUserREUI()
-        self.workspace_re.show()
-        self.hide()
+    # ================== LLAMAR AL LOADING ==================
+    def open_loading(self):
+        from views.loading import LoadingUI
+        self.loading = LoadingUI(duration_ms=3000)
+        self.loading.show()
