@@ -26,12 +26,27 @@ class LoginUI(BaseWindow):
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
+<<<<<<< HEAD
         # ================= LÍNEAS ANIMADAS (COMO ANTES) =================
         AnimatedCurvedLine([(0, 70), (320, 20), (650, 140), (1000, 90)], self)
 
         AnimatedCurvedLine([(0, 520), (300, 560), (650, 520), (1000, 560)], self)
 
         AnimatedCurvedLine([(0, 560), (350, 600), (700, 560), (1000, 600)], self)
+=======
+        # ================= LÍNEAS ANIMADAS  =================
+        AnimatedCurvedLine(
+            [(0, 70), (320, 20), (650, 140), (1000, 90)], self, delay=0.0
+        )
+
+        AnimatedCurvedLine(
+            [(0, 520), (300, 560), (650, 520), (1000, 560)], self, delay=0.6
+        )
+
+        AnimatedCurvedLine(
+            [(0, 560), (350, 600), (700, 560), (1000, 600)], self, delay=0.0
+        )
+>>>>>>> 52fab23767d5be222eb0638e19d3a68562b16264
 
         # ================= TEXTO SUPERIOR =================
         powered = QLabel("Powered by Nexus Ingeniería", self)
@@ -70,6 +85,7 @@ class LoginUI(BaseWindow):
             )
 
     def open_loading(self):
+<<<<<<< HEAD
         usuario = self.user.text().strip()
         password = self.pwd.text().strip()
 
@@ -126,3 +142,16 @@ def open_loading(self):
         self.loading.show()
         self.close()
 """
+=======
+        # ===== VALIDACIÓN =====
+        if not self.user.text().strip():
+            return
+
+        if not self.pwd.text().strip():
+            return
+
+        # ===== ABRIR LOADING =====
+        self.loading = LoadingUI()
+        self.loading.show()
+        self.hide()
+>>>>>>> 52fab23767d5be222eb0638e19d3a68562b16264
