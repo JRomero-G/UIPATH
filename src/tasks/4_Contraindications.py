@@ -113,6 +113,7 @@ def generar_hash_documento(blob_name, tipo):
 # SECCIÓN 7.1 — MIME TYPE (NUEVO)
 # ===========================================================
 
+
 def obtener_mime_type(blob_name):
     nombre = blob_name.lower()
     if nombre.endswith(".pdf"):
@@ -122,6 +123,7 @@ def obtener_mime_type(blob_name):
     elif nombre.endswith(".docx"):
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return None
+
 
 # ===========================================================
 # SECCIÓN 8 — EXTRACCIÓN PAC (FASE 1)
@@ -140,12 +142,7 @@ def analizar_documento_pac(blob):
         return 0.0
 
     document_part = Part.from_uri(
-<<<<<<< HEAD
-        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
-=======
-        uri=f"gs://{BUCKET_NAME}/{blob.name}",
-        mime_type=mime_type
->>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
+        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type=mime_type
     )
 
     prompt = """
@@ -212,12 +209,7 @@ def analizar_documento_contra(blob, lista_contra):
         return []
 
     document_part = Part.from_uri(
-<<<<<<< HEAD
-        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
-=======
-        uri=f"gs://{BUCKET_NAME}/{blob.name}",
-        mime_type=mime_type
->>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
+        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type=mime_type
     )
 
     prompt = f"""
@@ -293,14 +285,9 @@ def actualizar_pac(cursor, conexion, codigo, pac):
 
 
 def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
-<<<<<<< HEAD
     cursor.execute(
         """
-        INSERT INTO evaluaciones (codigo_necesidad, peso, justificacion)
-=======
-    cursor.execute("""
         INSERT INTO evaluaciones (codigo_necesidad, peso_total, justificacion)
->>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
         VALUES (%s, %s, %s)
     """,
         (codigo, peso, justificacion),
@@ -309,15 +296,7 @@ def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
 
 
 def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
-<<<<<<< HEAD
-    """
-    Actualiza la columna 'etapa' en la tabla infimas según el valor del PAC.
-    - PAC > 0  -> 'seleccionada'
-    - PAC = 0  -> 'no seleccionada'
-    """
-
     etapa = "seleccionada" if pac > 0 else "no seleccionada"
-
     cursor.execute(
         """
         UPDATE infimas
@@ -326,15 +305,6 @@ def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
     """,
         (etapa, codigo_necesidad),
     )
-
-=======
-    nueva_etapa = "seleccionada" if pac > 0 else "no seleccionada"
-    cursor.execute("""
-        UPDATE infimas
-        SET etapa = %s
-        WHERE codigo_necesidad = %s
-    """, (nueva_etapa, codigo_necesidad))
->>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
     conexion.commit()
 
 
