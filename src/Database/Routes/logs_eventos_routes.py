@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from Controllers.logs_eventos_controller import (
+from ..Controllers.logs_eventos_controller import (
     registrar_log,
     listar_logs
 )
-from database import get_db
+from ..database import get_db
 
 router = APIRouter(prefix="/logs", tags=["Logs"])
 

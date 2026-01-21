@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from Controllers.bucket_url_controller import (
+from ..Controllers.bucket_url_controller import (
     registrar_bucket_url,
     listar_bucket_urls,
     listar_bucket_urls_por_codigo
 )
-from database import get_db
+from ..database import get_db
 
 router = APIRouter(prefix="/bucket-url", tags=["Bucket URL"])
 
