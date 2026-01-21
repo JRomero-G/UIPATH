@@ -3,8 +3,9 @@ import sys
 
 SCRIPTS = [
     "src/tasks/1_Recolector.py",
-    "src/tasks/3_keywords.py",
-    "src/tasks/4_download_PDFs.py",
+    "src/tasks/2_Keywords.py",
+    "src/tasks/3_Download_PDFs.py",
+    "src/tasks/4_Contraindications.py",
 ]
 
 

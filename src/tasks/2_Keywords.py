@@ -110,9 +110,9 @@ def actualizar_etapa(df, resultados):
             UPDATE infimas
             SET etapa = %s,
                 actualizado_en = NOW()
-            WHERE id = %s
+            WHERE id_infima = %s
         """,
-            (etapa, row["id"]),
+            (etapa, row["id_infima"]),
         )
 
     conn.commit()

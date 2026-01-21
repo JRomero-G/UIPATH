@@ -8,7 +8,9 @@ from vertexai.generative_models import GenerativeModel, Part
 import vertexai
 
 # Credenciales GCP (SIN CAMBIOS)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "src/Credentials/Clave_bucket_AIgemini.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
+    "src/Credentials/Clave_bucket_AIgemini.json"
+)
 
 PROJECT_ID = "moonlit-oven-483902-e4"
 LOCATION = "us-central1"
@@ -44,15 +46,18 @@ cache_lock = threading.Lock()
 # SECCIÓN 4 — CACHE LOCAL DE RESULTADOS IA
 # ===========================================================
 
+
 def cargar_cache():
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
+
 def guardar_cache(cache):
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=2, ensure_ascii=False)
+
 
 CACHE_IA = cargar_cache()
 
@@ -60,18 +65,18 @@ CACHE_IA = cargar_cache()
 # SECCIÓN 5 — CONEXIÓN A BASE DE DATOS
 # ===========================================================
 
+
 def conectar_base_datos():
     # ⚠️ MODIFICADO: nuevas credenciales solicitadas
     return mysql.connector.connect(
-        host="35.225.240.246",
-        user="root",
-        password="Admin123%",
-        database="gestorex"
+        host="35.225.240.246", user="root", password="Admin123%", database="gestorex"
     )
+
 
 # ===========================================================
 # SECCIÓN 6 — EXTRACCIÓN DE DATOS BASE
 # ===========================================================
+
 
 def obtener_contraindicaciones(cursor):
     cursor.execute("""
@@ -88,6 +93,7 @@ def obtener_contraindicaciones(cursor):
 
     return lista_texto, pesos
 
+
 def obtener_codigos_preseleccionados(cursor):
     # MODIFICADO: solo etapa = preseleccionada
     cursor.execute("""
@@ -97,16 +103,20 @@ def obtener_codigos_preseleccionados(cursor):
     """)
     return [f[0] for f in cursor.fetchall()]
 
+
 # ===========================================================
 # SECCIÓN 7 — HASH PARA CACHEO
 # ===========================================================
 
+
 def generar_hash_documento(blob_name, tipo):
     return hashlib.sha256(f"{tipo}:{blob_name}".encode("utf-8")).hexdigest()
+
 
 # ===========================================================
 # SECCIÓN 8 — EXTRACCIÓN PAC (FASE 1)
 # ===========================================================
+
 
 def analizar_documento_pac(blob):
     doc_hash = generar_hash_documento(blob.name, "PAC")
@@ -116,8 +126,7 @@ def analizar_documento_pac(blob):
             return CACHE_IA[doc_hash]
 
     document_part = Part.from_uri(
-        uri=f"gs://{BUCKET_NAME}/{blob.name}",
-        mime_type="application/pdf"
+        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
     )
 
     prompt = """
@@ -139,9 +148,11 @@ def analizar_documento_pac(blob):
 
     return pac
 
+
 # ===========================================================
 # SECCIÓN 9 — FUNCIÓN PAC POR CÓDIGO
 # ===========================================================
+
 
 def obtener_pac_codigo(codigo_necesidad):
     storage_client = storage.Client()
@@ -149,7 +160,8 @@ def obtener_pac_codigo(codigo_necesidad):
 
     prefijo = f"Documentos de contratación/{codigo_necesidad}/"
     blobs = [
-        b for b in bucket.list_blobs(prefix=prefijo)
+        b
+        for b in bucket.list_blobs(prefix=prefijo)
         if b.name.lower().endswith((".pdf", ".docx", ".txt"))
     ][:MAX_DOCUMENTS_PER_FOLDER]
 
@@ -164,9 +176,11 @@ def obtener_pac_codigo(codigo_necesidad):
 
     return max(pacs) if pacs else 0.0
 
+
 # ===========================================================
 # SECCIÓN 10 — CONTRAINDICACIONES (FASE 2)
 # ===========================================================
+
 
 def analizar_documento_contra(blob, lista_contra):
     doc_hash = generar_hash_documento(blob.name, "CONTRA")
@@ -176,8 +190,7 @@ def analizar_documento_contra(blob, lista_contra):
             return CACHE_IA[doc_hash]
 
     document_part = Part.from_uri(
-        uri=f"gs://{BUCKET_NAME}/{blob.name}",
-        mime_type="application/pdf"
+        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
     )
 
     prompt = f"""
@@ -196,13 +209,15 @@ def analizar_documento_contra(blob, lista_contra):
 
     return encontrados
 
+
 def obtener_contraindicaciones_codigo(codigo_necesidad, lista_contra):
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
 
     prefijo = f"Documentos de contratación/{codigo_necesidad}/"
     blobs = [
-        b for b in bucket.list_blobs(prefix=prefijo)
+        b
+        for b in bucket.list_blobs(prefix=prefijo)
         if b.name.lower().endswith((".pdf", ".docx", ".txt"))
     ][:MAX_DOCUMENTS_PER_FOLDER]
 
@@ -210,17 +225,18 @@ def obtener_contraindicaciones_codigo(codigo_necesidad, lista_contra):
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = [
-            executor.submit(analizar_documento_contra, b, lista_contra)
-            for b in blobs
+            executor.submit(analizar_documento_contra, b, lista_contra) for b in blobs
         ]
         for f in as_completed(futures):
             encontradas.update(f.result())
 
     return list(encontradas)
 
+
 # ===========================================================
 # SECCIÓN 11 — CÁLCULO DEL PESO
 # ===========================================================
+
 
 def calcular_peso(contras, pesos):
     valores = [pesos[c] for c in contras if c in pesos]
@@ -229,24 +245,34 @@ def calcular_peso(contras, pesos):
     producto = reduce(lambda a, p: a * (1 - p), valores, 1)
     return round(1 - producto, 6)
 
+
 # ===========================================================
 # SECCIÓN 12 — ACTUALIZACIONES BD
 # ===========================================================
 
+
 def actualizar_pac(cursor, conexion, codigo, pac):
-    cursor.execute("""
+    cursor.execute(
+        """
         UPDATE infimas
         SET PAC = %s
         WHERE codigo_necesidad = %s
-    """, (pac, codigo))
+    """,
+        (pac, codigo),
+    )
     conexion.commit()
 
+
 def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
-    cursor.execute("""
+    cursor.execute(
+        """
         INSERT INTO evaluaciones (codigo_necesidad, peso, justificacion)
         VALUES (%s, %s, %s)
-    """, (codigo, peso, justificacion))
+    """,
+        (codigo, peso, justificacion),
+    )
     conexion.commit()
+
 
 def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
     """
@@ -255,19 +281,24 @@ def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
     - PAC = 0  -> 'no seleccionada'
     """
 
-    nueva_etapa = "seleccionada" if pac > 0 else "no seleccionada"
+    etapa = "seleccionada" if pac > 0 else "no seleccionada"
 
-    cursor.execute("""
+    cursor.execute(
+        """
         UPDATE infimas
         SET etapa = %s
         WHERE codigo_necesidad = %s
-    """, (nueva_etapa, codigo_necesidad))
+    """,
+        (etapa, codigo_necesidad),
+    )
 
     conexion.commit()
+
 
 # ===========================================================
 # SECCIÓN 13 — FLUJO PRINCIPAL
 # ===========================================================
+
 
 def main():
     conexion = conectar_base_datos()
@@ -295,6 +326,7 @@ def main():
     guardar_cache(CACHE_IA)
     cursor.close()
     conexion.close()
+
 
 # ===========================================================
 # PUNTO DE ENTRADA
