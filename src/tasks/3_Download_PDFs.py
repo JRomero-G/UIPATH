@@ -19,7 +19,7 @@ MYSQL_CONFIG = {
 }
 
 # Carpeta local dentro del proyecto
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_file_))))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BASE_DOWNLOAD_PATH = os.path.join(BASE_DIR, "data")  # Carpeta temporal de descarga
 
 HEADERS = {
@@ -287,5 +287,5 @@ def main():
     return f"COMPLETADO: {total} archivos subidos temporalmente a GCS"
 
 
-if _name_ == "_main_":
+if __name__ == "_main_":
     main()
