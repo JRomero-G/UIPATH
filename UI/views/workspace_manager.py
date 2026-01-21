@@ -62,10 +62,9 @@ class WorkspaceManagerUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels([
-            "Usuario", "NIC", "Descripción",
-            "Grado de recomendación", "Nivel", "Acción"
+            "Usuario", "NIC", "Descripción", "Etapa"
         ])
 
         self.table.setWordWrap(True)
@@ -80,15 +79,8 @@ class WorkspaceManagerUI(BaseWindow):
         header.setSectionResizeMode(2, QHeaderView.Stretch)
 
         header.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 170)
+        self.table.setColumnWidth(3, 120)
 
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table.setColumnWidth(4, 60)
-
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 110)
-
-        # 👉 CAMBIO CLAVE (igual que User)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
         self.table.verticalHeader().setVisible(False)
@@ -143,8 +135,6 @@ class WorkspaceManagerUI(BaseWindow):
         """)
 
         self.load_demo_data()
-        self.table.sortItems(4, Qt.AscendingOrder)
-
         main_layout.addWidget(self.table)
 
     # ================== BOTÓN ACTUALIZAR ==================
@@ -206,68 +196,36 @@ class WorkspaceManagerUI(BaseWindow):
             """)
         return btn
 
-    # ================== BOTÓN ELIMINAR ==================
-    def delete_button(self, bg_color):
-        container = QWidget()
-        container.setStyleSheet(f"background-color: {bg_color};")
-
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.setAlignment(Qt.AlignCenter)
-
-        icon = QLabel("🗑")
-        icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
-
-        text = QLabel("Eliminar")
-        text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
-
-        def enter_event(event):
-            icon.setStyleSheet("color: rgb(220, 20, 20); font-size: 17px;")
-            text.setStyleSheet("""
-                color: rgb(220, 60, 60);
-                font-weight: bold;
-                text-decoration: underline;
-            """)
-
-        def leave_event(event):
-            icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
-            text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
-
-        container.enterEvent = enter_event
-        container.leaveEvent = leave_event
-
-        layout.addWidget(icon)
-        layout.addWidget(text)
-        return container
-
-    # ================== DATOS de tabla ==================
+    # ================== DATOS DE TABLA ==================
     def load_demo_data(self):
-        data = []
+        data = [
+            ("Admin01", "NIC-001",
+             "adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos",
+             "Inicial"),
+            ("Admin02", "NIC-002",
+             "materiales de construcción",
+             "Intermedia"),
+            ("Admin03", "NIC-003",
+             "adquisición de material didáctico y educativo para programas de formación institucional",
+             "Final"),
+        ]
 
         self.table.setRowCount(len(data))
 
         for row, item in enumerate(data):
-            row_color = QColor(150, 215, 175) if item[3] == "Recomendado" else QColor(220, 200, 140)
+            row_color = QColor(150, 215, 175)
             text_color = QColor(0, 0, 0)
 
             for col, value in enumerate(item):
+                cell = QTableWidgetItem(str(value))
+
                 if col == 3:
-                    value = "✅  Recomendado" if value == "Recomendado" else "⚠️  Poco recomendado"
-                    cell = QTableWidgetItem(value)
                     cell.setTextAlignment(Qt.AlignCenter)
                     cell.setFont(QFont("Arial", 9, QFont.Bold))
-                elif col == 4:
-                    cell = QTableWidgetItem(str(value))
-                    cell.setTextAlignment(Qt.AlignCenter)
-                else:
-                    cell = QTableWidgetItem(str(value))
-                    if col == 2:
-                        cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                elif col == 2:
+                    cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setForeground(text_color)
                 cell.setBackground(row_color)
                 self.table.setItem(row, col, cell)
-
-            self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
