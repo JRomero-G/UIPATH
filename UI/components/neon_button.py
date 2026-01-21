@@ -10,7 +10,7 @@ class NeonButton(QPushButton):
         self.setFont(QFont("Arial", 12, QFont.Bold))
 
         self.anim = QPropertyAnimation(self, b"geometry")
-        self.anim.setDuration(160)
+        self.anim.setDuration(160) ######
         self.anim.setEasingCurve(QEasingCurve.OutCubic)
 
         self.normal_rect = self.geometry()
