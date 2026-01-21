@@ -248,6 +248,23 @@ def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
     """, (codigo, peso, justificacion))
     conexion.commit()
 
+def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
+    """
+    Actualiza la columna 'etapa' en la tabla infimas según el valor del PAC.
+    - PAC > 0  -> 'seleccionada'
+    - PAC = 0  -> 'no seleccionada'
+    """
+
+    nueva_etapa = "seleccionada" if pac > 0 else "no seleccionada"
+
+    cursor.execute("""
+        UPDATE infimas
+        SET etapa = %s
+        WHERE codigo_necesidad = %s
+    """, (nueva_etapa, codigo_necesidad))
+
+    conexion.commit()
+
 # ===========================================================
 # SECCIÓN 13 — FLUJO PRINCIPAL
 # ===========================================================
@@ -265,6 +282,7 @@ def main():
         pac = obtener_pac_codigo(codigo)
         pac_por_codigo[codigo] = pac
         actualizar_pac(cursor, conexion, codigo, pac)
+        actualizar_etapa_por_pac(cursor, conexion, codigo, pac)
 
     # FASE 2 — CONTRAINDICACIONES + PESO
     for codigo, pac in pac_por_codigo.items():
