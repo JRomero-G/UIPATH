@@ -109,3 +109,9 @@ class LoadingUI(BaseWindow):
         self.workspace = WorkspaceUserUI()
         self.workspace.show()
         self.hide()
+<<<<<<< HEAD
+=======
+
+
+S
+>>>>>>> 63f7ecde107ef03e8bf5bb4946fefe95b7f92abd

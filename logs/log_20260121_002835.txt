@@ -1,0 +1,8 @@
+Iniciando proceso a las  0:28:35.28... 
+Traceback (most recent call last):
+  File "C:\Users\Marissa\Documents\UIPATH_API\src\tasks\1_Recolector.py", line 4, in <module>
+    from selenium import webdriver
+ModuleNotFoundError: No module named 'selenium'
+
+Ejecutando: src/tasks/1_Recolector.py
+Error en src/tasks/1_Recolector.py (código 1)
