@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "moonlit-oven-483902-e4",
+  "private_key_id": "9b4ea2e7c68ffe5f4b6ba3566614ce570c1f5cd9",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDwcQjfnza5+RnL\ndls+4tjcQp9nlzQAdmHRrMF8rax2xubfFXLWGPTEMrLikSyzFRN6H7hEG2GHKjKX\n/OlqM/aIlN+INeG232jAOgnUe0qVXlE4Zvfh4+N6XWQrW0X4FNQVb9GHgR/bg/V/\nHQSVHZBEzLc1XhLnGRk/0ZJfbxnq6kEFzE7lPnLXZl4SwEjtEZX11KkatiWjvx4d\nsuzDsTfwm/+nFUqPE/98STs3dDvC3KNWRY2irctXa8OD4WpU/K00azCV0x19mHmI\nEvnkIwdE8hbwcfynPlp30JOlr1AeTmCiQZkGmIsnOoFnQtNLv0VaTzi3nhAUuiVU\ns7f+HA4lAgMBAAECggEAMCkD9P7IEHIjx4w6dJstgtjZYv93TAxqRXxL+TQ0Uko+\n3jpGmTnAdTgOerFHectj7ldCKmotm8xI/AaNnlcwL2VabMcWIfIX4kD9zRCw/MA6\nloiRaC6kVtM0CDctCabqYCzYlEK55ddFqiNe0ptsVUuH+umP8bgmRZEtt23ijBni\nZ9GANmndXvKR2sFGYcFHYZIx3PhTHFJHSjDw6ot2ZE7U8MeDELWmuTtEWJSUTIlM\nlAD4+eHPM4VhEimkMgQv5dZKL2bHPvvSzdedbQF7cyjFLZDzyOmHhR489FpQMZyc\nHyC7SSDGgO7y7MsXGuswvWpgA62fALu+Svt2gRAIgQKBgQD95VNlcV3ckUaCWNzb\nuQqpQ+YF0H0QkvpbzcqWN9DfbRCy3owZEksUG9VDFGSmzK9z6112Kl4DnvxxGam7\nZwgtPajlXAu40wLJn8C+1Z5JizroxlsQHz6lkbecKDRU8LhIaLAnTH2tla+CI+hV\nqDGw1Vx9bSqndpTzYQNOv2Gq4QKBgQDybyny1a1hJ5r1HHKqIFE+RiJyFW2PXj3a\nbTvXt36Vow3+/4+mxFKr8JJIhrxourQxoojTaVuiuBeNZbLegEUBQqMDNiv4iJd8\nRfXsadPj1sTYMadY7MIriPsvpM9uyUDgg2yd5rlOI3dNllpRNrAz1k6xk/DPt4Co\nczxOtlxvxQKBgG1RonjZOSrROmTBUkchA2AiJhZ20IKkZjvE/ed0HPE2iqwZeoUJ\nBV6hJU/+pd/T3e+xdcp9L4GroNIp1JUmJbUlCWXIHhv0bwzVRi5k2ASeeDzluyvT\n6Ctt9Hq+LNot04sJ2F7zZmGpQ6prP4wyIUMcevheWrFEM5ofOUdcy/bBAoGAYN39\n+uNZ9Xnntox5XHSxQZqwZLkfH6veNwpyYM0WrR+LlhnzAgVrqvvi10vOuGHxYeu5\nlA+C5896yaqa/8Bs0gYYME5S32lkbeleS+o1GdJUsLWWUje3lcGT7AOERpXvcEXS\n/nyUCh6tqriqucyKNwwoQVgFXlnJ9ISm0iSXZqkCgYEA4uLqHzg3jsUXWc26KvM3\numUD84Hd3tXcXl3HOdyY4L/r8fsqfWjPvleuKjjmKAo7PSBWSI9pbHl3IgTy5o4Q\ne05ceWeeabxH6tQafZMNH3L+idJg+AxdDfQa2N0pwkh6Z242GC+rLgRdlQHYORKa\nX61tWn0izmexv+3S3K9Fy5w=\n-----END PRIVATE KEY-----\n",
+  "client_email": "nexus-bucket-cloud@moonlit-oven-483902-e4.iam.gserviceaccount.com",
+  "client_id": "108946347413666221668",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/nexus-bucket-cloud%40moonlit-oven-483902-e4.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
