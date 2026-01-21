@@ -6,9 +6,10 @@ from PyQt5.QtWidgets import QLabel, QWidget
 
 from config import *
 from components.base_window import BaseWindow
+from views.workspace_user import WorkspaceUserUI  
 
 
-# ================== PUNTOS TIPO VIDEO (ONDA REAL) ==================
+# ================== PUNTOS TIPO VIDEO ONDA REAL ==================
 class LoadingDots(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -105,7 +106,7 @@ class LoadingUI(BaseWindow):
                 pm.height()
             )
 
-        # ===== PUNTOS (COMO EL VIDEO) =====
+        # ===== PUNTOS =====
         self.dots = LoadingDots(self)
         self.dots.setGeometry(0, 470, self.width(), 40)
 
@@ -125,4 +126,7 @@ class LoadingUI(BaseWindow):
         QTimer.singleShot(10000, self.finish_loading)
 
     def finish_loading(self):
-        self.close()
+        #ABRIR WORKSPACE USER
+        self.workspace = WorkspaceUserUI()
+        self.workspace.show()
+        self.hide()

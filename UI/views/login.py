@@ -15,25 +15,28 @@ class LoginUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
+        # CLAVE: destruir esta ventana al cerrarse
+        self.setAttribute(Qt.WA_DeleteOnClose)
+
         # ================= CONFIGURACIÓN =================
         self.setWindowTitle("Neon Login")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
-        # ================= LÍNEAS ANIMADAS (COMO ANTES) =================
+        # ================= LÍNEAS ANIMADAS  =================
         AnimatedCurvedLine(
             [(0, 70), (320, 20), (650, 140), (1000, 90)],
-            self
+            self, delay=0.0
         )
 
         AnimatedCurvedLine(
             [(0, 520), (300, 560), (650, 520), (1000, 560)],
-            self
+            self, delay=0.6
         )
 
         AnimatedCurvedLine(
             [(0, 560), (350, 600), (700, 560), (1000, 600)],
-            self
+            self, delay=0.0
         )
 
         # ================= TEXTO SUPERIOR =================
@@ -73,6 +76,14 @@ class LoginUI(BaseWindow):
             )
 
     def open_loading(self):
-        self.loading = LoadingUI()   # referencia viva
+        # ===== VALIDACIÓN =====
+        if not self.user.text().strip():
+            return
+
+        if not self.pwd.text().strip():
+            return
+
+        # ===== ABRIR LOADING =====
+        self.loading = LoadingUI()
         self.loading.show()
-        self.close()
+        self.hide()
