@@ -24,7 +24,7 @@ class LoadingDots(QWidget):
 
         # Onda
         self.phase = 0.0
-        self.speed = 0.22   # velocidad equilibrada
+        self.speed = 0.22  # velocidad equilibrada
 
         self.spacing = 30
         total_width = (self.dot_count - 1) * self.spacing
@@ -37,20 +37,16 @@ class LoadingDots(QWidget):
                 self.start_x + i * self.spacing,
                 self.center_y,
                 self.min_size,
-                self.min_size
+                self.min_size,
             )
-            # estilo inicial (intensidad mínima)
             dot.setStyleSheet(self.style(0.0))
             self.dots.append(dot)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.animate)
-        self.timer.start(60)  # fluido tipo video
+        self.timer.start(60)
 
     def style(self, intensity: float):
-        """
-        intensity: valor entre 0.0 y 1.0
-        """
         alpha = int(80 + intensity * 170)
         radius = int(4 + intensity * 6)
         return f"""
@@ -60,12 +56,8 @@ class LoadingDots(QWidget):
 
     def animate(self):
         for i, dot in enumerate(self.dots):
-            # Onda senoidal desplazada
             wave = math.sin(self.phase - i * 0.7)
-
-            # Normalizar a 0..1
             intensity = (wave + 1) / 2
-
             size = int(self.min_size + intensity * (self.max_size - self.min_size))
 
             x = self.start_x + i * self.spacing
@@ -79,8 +71,10 @@ class LoadingDots(QWidget):
 
 # ================== LOADING UI ==================
 class LoadingUI(BaseWindow):
-    def __init__(self):
+    def __init__(self, duration_ms=5000):
         super().__init__()
+
+        self.duration_ms = duration_ms  # ⏱ duración configurable
 
         self.setWindowTitle("Gestorex - Iniciando")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -90,20 +84,10 @@ class LoadingUI(BaseWindow):
         self.logo = QLabel(self)
         pm = QPixmap(os.path.join(ASSETS_DIR, "logo.png"))
         if not pm.isNull():
-            pm = pm.scaled(
-                300,
-                300,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation
-            )
+            pm = pm.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.logo.setPixmap(pm)
             self.logo.setAlignment(Qt.AlignCenter)
-            self.logo.setGeometry(
-                0,
-                140,
-                self.width(),
-                pm.height()
-            )
+            self.logo.setGeometry(0, 140, self.width(), pm.height())
 
         # ===== PUNTOS (COMO EL VIDEO) =====
         self.dots = LoadingDots(self)
@@ -114,15 +98,17 @@ class LoadingUI(BaseWindow):
         self.text.setFont(QFont("Arial", 16))
         self.text.setStyleSheet("color: rgba(255,255,255,180);")
         self.text.setAlignment(Qt.AlignCenter)
-        self.text.setGeometry(
-            0,
-            525,
-            self.width(),
-            30
-        )
+        self.text.setGeometry(0, 525, self.width(), 30)
 
-        # ===== DURACIÓN: 10 SEGUNDOS =====
-        QTimer.singleShot(10000, self.finish_loading)
+        # ===== DURACIÓN CONFIGURABLE =====
+        QTimer.singleShot(self.duration_ms, self.finish_loading)
 
     def finish_loading(self):
-        self.close()
+        from views.workspace_user import WorkspaceUserUI  # import local
+
+        self.workspace = WorkspaceUserUI()
+        self.workspace.show()
+        self.hide()
+
+
+S

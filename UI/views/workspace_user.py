@@ -1,8 +1,14 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtWidgets import (
-    QWidget, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHBoxLayout, QVBoxLayout, QHeaderView
+    QWidget,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHBoxLayout,
+    QVBoxLayout,
+    QHeaderView,
 )
 
 from config import *
@@ -17,6 +23,7 @@ class WorkspaceUserUI(BaseWindow):
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
+        # ================== LAYOUT PRINCIPAL ==================
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 20, 30, 20)
         main_layout.setSpacing(15)
@@ -42,10 +49,10 @@ class WorkspaceUserUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(6, 5)
-        self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Descripción", "Grado de recomendación", "Acción"
-        ])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["", "NIC", "Descripción", "Grado de recomendación", "Acción"]
+        )
 
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -68,16 +75,16 @@ class WorkspaceUserUI(BaseWindow):
         """)
 
         self.load_demo_data()
+        self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
 
         # ================== BOTONES ==================
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
 
-        self.btn_guardar = self.action_button("Guardar")
-        self.btn_analizar = self.action_button("Analizar")
+        self.btn_analizar = self.action_button("📊  Analizar")
+        self.btn_analizar.clicked.connect(self.open_workspace_userRE)
 
-        bottom_layout.addWidget(self.btn_guardar)
         bottom_layout.addWidget(self.btn_analizar)
 
         main_layout.addLayout(bottom_layout)
@@ -125,32 +132,68 @@ class WorkspaceUserUI(BaseWindow):
         """)
         return btn
 
-    # ================== DATOS DEMO ==================
+    def delete_button(self, bg_color):
+        container = QWidget()
+        container.setStyleSheet(f"background-color: {bg_color};")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignCenter)
+
+        icon = QLabel("🗑")
+        icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
+
+        text = QLabel("Eliminar")
+        text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
+
+        def enter_event(event):
+            icon.setStyleSheet("color: rgb(220, 20, 20); font-size: 17px;")
+            text.setStyleSheet("""
+                color: rgb(220, 60, 60);
+                font-weight: bold;
+                text-decoration: underline;
+            """)
+
+        def leave_event(event):
+            icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
+            text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
+
+        container.enterEvent = enter_event
+        container.leaveEvent = leave_event
+
+        layout.addWidget(icon)
+        layout.addWidget(text)
+        return container
+
+    # ================== DATOS ==================
     def load_demo_data(self):
         data = [
-            ("NIC:04600600001-2026-00001",
-             "adquisición de material de mejoramiento para trabajos en la vía...",
-             "Recomendado"),
-
-            ("NIC:05601970001-2026-00001",
-             "adquisición de equipo de informática para el GAD parroquial...",
-             "Recomendado"),
-
-            ("NIC:05601970001-2026-00002",
-             "materiales de construcción para puente comunitario...",
-             "Recomendado"),
-
-            ("NIC:706007246001-2026-00001",
-             "adquisición de transporte y recreación...",
-             "Poco recomendado"),
-
-            ("NIC:086019990001-2026-00001",
-             "adquisición de limpieza de cantón...",
-             "Poco recomendado"),
-
-            ("NIC:1160020493001-2026-00001",
-             "adquisición de material de mejoramiento...",
-             "No recomendado"),
+            (
+                "NIC:05601970001-2026-00001",
+                "adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado adquisición  de equipo tecnológico especializado para el fortalecimiento de los procesos internos",
+                "Recomendado",
+                1,
+            ),
+            (
+                "NIC:05601970001-2026-00002",
+                "materiales de construcción",
+                "Recomendado",
+                1,
+            ),
+            (
+                "NIC:1160020493001-2026-00001",
+                "material educativo extenso",
+                "Recomendado",
+                2,
+            ),
+            ("NIC:04600600001-2026-00001", "material de oficina", "Recomendado", 3),
+            (
+                "NIC:706007246001-2026-00001",
+                "transporte institucional",
+                "Poco recomendado",
+                6,
+            ),
         ]
 
         self.table.setRowCount(len(data))
@@ -169,4 +212,27 @@ class WorkspaceUserUI(BaseWindow):
             else:
                 grade_item.setBackground(QColor(180, 90, 90))
 
-            self.table.setItem(row, 3, grade_item)
+                if col == 3:
+                    cell.setText(
+                        "✅  Recomendado"
+                        if value == "Recomendado"
+                        else "⚠️  Poco recomendado"
+                    )
+                    cell.setTextAlignment(Qt.AlignCenter)
+                    cell.setFont(QFont("Arial", 9, QFont.Bold))
+                elif col == 4:
+                    cell.setTextAlignment(Qt.AlignCenter)
+                elif col == 2:
+                    cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+                self.table.setItem(row, col, cell)
+
+            self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
+
+    # llamar al RE
+    def open_workspace_userRE(self):
+        from views.workspace_userRE import WorkspaceUserREUI
+
+        self.workspace_re = WorkspaceUserREUI()
+        self.workspace_re.show()
+        self.hide()
