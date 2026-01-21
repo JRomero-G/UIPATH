@@ -44,7 +44,7 @@ session.headers.update(HEADERS)
 # 1.1 GOOGLE CLOUD STORAGE (TEMPORAL)
 # =====================================================
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-    BASE_DIR, "data", "moonlit-oven-483902-e4-c3e17a7fda32.json"
+    BASE_DIR, "data", "Acceso_bucket_nexus.json"
 )
 BUCKET_NAME = "nexusbucket1"
 
