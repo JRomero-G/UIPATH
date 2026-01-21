@@ -8,9 +8,8 @@ from components.base_window import BaseWindow
 from components.animated_background import AnimatedCurvedLine
 from components.animated_input import AnimatedInput
 from components.neon_button import NeonButton
-from views.loading import LoadingUI
 
-# Importaciones nuevas
+# Importaciones nuevas Jason modif
 import requests  # se instalara esto
 from PyQt5.QtWidgets import QMessageBox
 from views.workspace_manager import WorkspaceManagerUI
@@ -21,6 +20,9 @@ class LoginUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
+        # CLAVE: destruir esta ventana al cerrarse
+        self.setAttribute(Qt.WA_DeleteOnClose)
+
         # ================= CONFIGURACIÓN =================
         self.setWindowTitle("Neon Login")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -28,15 +30,18 @@ class LoginUI(BaseWindow):
 
         # ================= LÍNEAS ANIMADAS  =================
         AnimatedCurvedLine(
-            [(0, 70), (320, 20), (650, 140), (1000, 90)], self, delay=0.0
+            [(0, 70), (320, 20), (650, 140), (1000, 90)],
+            self, delay=0.0
         )
 
         AnimatedCurvedLine(
-            [(0, 520), (300, 560), (650, 520), (1000, 560)], self, delay=0.6
+            [(0, 520), (300, 560), (650, 520), (1000, 560)],
+            self, delay=0.6
         )
 
         AnimatedCurvedLine(
-            [(0, 560), (350, 600), (700, 560), (1000, 600)], self, delay=0.0
+            [(0, 560), (350, 600), (700, 560), (1000, 600)],
+            self, delay=0.0
         )
 
         # ================= TEXTO SUPERIOR =================
@@ -72,9 +77,10 @@ class LoginUI(BaseWindow):
                 self.width() - pm.width() - 80,
                 (self.height() - pm.height()) // 2,
                 pm.width(),
-                pm.height(),
+                pm.height()
             )
 
+# ================= ABRIR LOADING - Jason  =================
     def open_loading(self):
         # ===== VALIDACIÓN =====
         USUARIO = self.user.text().strip()
@@ -110,7 +116,7 @@ class LoginUI(BaseWindow):
                     set_session({"token": token, "usuario": user_info})
                     # Abrir workspace según rol
                     # ===== ABRIR LOADING =====
-                    self.loading = LoadingUI(5000,rol)
+                    self.loading = LoginUI(duration_ms=3000, rol=rol)  # robar con jason
                     self.loading.show()
                     self.hide()
                 else:
