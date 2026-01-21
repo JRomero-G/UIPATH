@@ -18,11 +18,13 @@ MYSQL_CONFIG = {
     "database": "gestorex",
 }
 
-BASE_DOWNLOAD_PATH = r"C:\\Users\\Marissa\\Downloads\\Contratación\\"
+# Carpeta local dentro del proyecto
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_file_))))
+BASE_DOWNLOAD_PATH = os.path.join(BASE_DIR, "data")  # Carpeta temporal de descarga
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "*/*",
+    "Accept": "/",
     "Accept-Language": "es-EC,es;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
@@ -41,7 +43,6 @@ session.headers.update(HEADERS)
 # =====================================================
 # 1.1 GOOGLE CLOUD STORAGE (TEMPORAL)
 # =====================================================
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
     BASE_DIR, "data", "moonlit-oven-483902-e4-c3e17a7fda32.json"
 )
@@ -54,13 +55,14 @@ bucket = storage_client.bucket(BUCKET_NAME)
 def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
     try:
         nombre_archivo = os.path.basename(ruta_local)
-        blob_path = f"{codigo_necesidad}/{nombre_archivo}"
+        blob_path = f"Documentos de Contratación/{codigo_necesidad}/{nombre_archivo}"
 
         blob = bucket.blob(blob_path)
         blob.upload_from_filename(ruta_local)
 
         return f"gs://{BUCKET_NAME}/{blob_path}"
-    except Exception:
+    except Exception as e:
+        print(f"Error subiendo a GCS: {e}")
         return None
 
 
@@ -76,7 +78,7 @@ def obtener_datos_preseleccionados():
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT codigo_necesidad, entidad_contratante_url FROM infimas where etapa = 'preseleccionada'"
+            "SELECT codigo_necesidad, entidad_contratante_url FROM infimas WHERE etapa = 'preseleccionada'"
         )
         datos = cursor.fetchall()
         cursor.close()
@@ -85,7 +87,8 @@ def obtener_datos_preseleccionados():
         if df.empty:
             return None
         return df
-    except Exception:
+    except Exception as e:
+        print(f"Error obteniendo datos: {e}")
         return None
 
 
@@ -124,7 +127,7 @@ def extraer_y_limpiar_cantidad(celda):
         return None
 
 
-def obtener_suma_cantidades(html_content):
+def obtener_suma_cantidades(html_content, codigo_necesidad):
     tabla, col_index = encontrar_tabla_cantidad(html_content)
     if not tabla:
         return None
@@ -136,6 +139,22 @@ def obtener_suma_cantidades(html_content):
             valor = extraer_y_limpiar_cantidad(celdas[col_index])
             if valor:
                 suma += valor
+
+    # Si la suma es mayor a 10, actualizamos la etapa en la BD
+    if suma > 10:
+        try:
+            conn = mysql.connector.connect(**MYSQL_CONFIG)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s",
+                ("no seleccionada", codigo_necesidad),
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+        except Exception as e:
+            print(f"Error actualizando etapa en BD: {e}")
+        return "no seleccionada"
 
     return suma if 0 < suma <= 10 else None
 
@@ -210,17 +229,21 @@ def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
 
         url_archivo = urljoin(base_url, link["href"])
         nombre = (
-            re.sub(r'[<>:"/\\|?*]', "_", descripcion) or f"documento_{descargados + 1}"
+            re.sub(r'[<>:"/\\|?*]', "", descripcion) or f"documento{descargados + 1}"
         )
         ruta_base = os.path.join(carpeta_destino, nombre)
 
         resultado = descargar_archivo(url_archivo, ruta_base, descripcion)
         if resultado:
+            # Primero guarda temporalmente en data
+            # Luego sube a GCS
             subir_archivo_a_gcs_temporal(resultado, os.path.basename(carpeta_destino))
+            # Puedes borrar el archivo local si quieres liberar espacio
             try:
                 os.remove(resultado)
             except Exception:
                 pass
+
             descargados += 1
 
         time.sleep(PAUSA_ENTRE_ARCHIVOS)
@@ -248,7 +271,8 @@ def main():
             if r.status_code != 200:
                 continue
 
-            if not obtener_suma_cantidades(r.text):
+            etapa = obtener_suma_cantidades(r.text, codigo)
+            if not etapa:
                 continue
 
             carpeta = os.path.join(BASE_DOWNLOAD_PATH, codigo)
@@ -263,5 +287,5 @@ def main():
     return f"COMPLETADO: {total} archivos subidos temporalmente a GCS"
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
