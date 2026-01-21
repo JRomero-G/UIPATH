@@ -1,3 +1,4 @@
+#                     BÚSQUEDA DE CONTRAINDICACIONES
 # ===========================================================
 # SECCIÓN 1 — IMPORTACIONES BASE (ORIGINALES)
 # ===========================================================
@@ -67,7 +68,6 @@ CACHE_IA = cargar_cache()
 
 
 def conectar_base_datos():
-    # ⚠️ MODIFICADO: nuevas credenciales solicitadas
     return mysql.connector.connect(
         host="35.225.240.246", user="root", password="Admin123%", database="gestorex"
     )
@@ -85,17 +85,13 @@ def obtener_contraindicaciones(cursor):
     """)
     filas = cursor.fetchall()
 
-    # Lista separada por comas (uso IA)
     lista_texto = ", ".join([f[0] for f in filas])
-
-    # Diccionario contraindicación → peso
     pesos = {f[0]: float(f[1]) for f in filas}
 
     return lista_texto, pesos
 
 
 def obtener_codigos_preseleccionados(cursor):
-    # MODIFICADO: solo etapa = preseleccionada
     cursor.execute("""
         SELECT codigo_necesidad
         FROM infimas
@@ -114,6 +110,20 @@ def generar_hash_documento(blob_name, tipo):
 
 
 # ===========================================================
+# SECCIÓN 7.1 — MIME TYPE (NUEVO)
+# ===========================================================
+
+def obtener_mime_type(blob_name):
+    nombre = blob_name.lower()
+    if nombre.endswith(".pdf"):
+        return "application/pdf"
+    elif nombre.endswith(".txt"):
+        return "text/plain"
+    elif nombre.endswith(".docx"):
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return None
+
+# ===========================================================
 # SECCIÓN 8 — EXTRACCIÓN PAC (FASE 1)
 # ===========================================================
 
@@ -125,8 +135,17 @@ def analizar_documento_pac(blob):
         if doc_hash in CACHE_IA:
             return CACHE_IA[doc_hash]
 
+    mime_type = obtener_mime_type(blob.name)
+    if blob.size == 0 or mime_type is None:
+        return 0.0
+
     document_part = Part.from_uri(
+<<<<<<< HEAD
         uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
+=======
+        uri=f"gs://{BUCKET_NAME}/{blob.name}",
+        mime_type=mime_type
+>>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
     )
 
     prompt = """
@@ -136,11 +155,10 @@ def analizar_documento_pac(blob):
     Si no existe, devuelve 0.
     """
 
-    response = model.generate_content([document_part, prompt])
-
     try:
+        response = model.generate_content([document_part, prompt])
         pac = float(response.text.strip())
-    except:
+    except Exception:
         pac = 0.0
 
     with cache_lock:
@@ -189,8 +207,17 @@ def analizar_documento_contra(blob, lista_contra):
         if doc_hash in CACHE_IA:
             return CACHE_IA[doc_hash]
 
+    mime_type = obtener_mime_type(blob.name)
+    if blob.size == 0 or mime_type is None:
+        return []
+
     document_part = Part.from_uri(
+<<<<<<< HEAD
         uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type="application/pdf"
+=======
+        uri=f"gs://{BUCKET_NAME}/{blob.name}",
+        mime_type=mime_type
+>>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
     )
 
     prompt = f"""
@@ -200,9 +227,11 @@ def analizar_documento_contra(blob, lista_contra):
     Devuelve solo las encontradas separadas por coma.
     """
 
-    response = model.generate_content([document_part, prompt])
-
-    encontrados = [x.strip() for x in response.text.split(",") if x.strip()]
+    try:
+        response = model.generate_content([document_part, prompt])
+        encontrados = [x.strip() for x in response.text.split(",") if x.strip()]
+    except Exception:
+        encontrados = []
 
     with cache_lock:
         CACHE_IA[doc_hash] = encontrados
@@ -264,9 +293,14 @@ def actualizar_pac(cursor, conexion, codigo, pac):
 
 
 def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
+<<<<<<< HEAD
     cursor.execute(
         """
         INSERT INTO evaluaciones (codigo_necesidad, peso, justificacion)
+=======
+    cursor.execute("""
+        INSERT INTO evaluaciones (codigo_necesidad, peso_total, justificacion)
+>>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
         VALUES (%s, %s, %s)
     """,
         (codigo, peso, justificacion),
@@ -275,6 +309,7 @@ def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
 
 
 def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
+<<<<<<< HEAD
     """
     Actualiza la columna 'etapa' en la tabla infimas según el valor del PAC.
     - PAC > 0  -> 'seleccionada'
@@ -292,6 +327,14 @@ def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
         (etapa, codigo_necesidad),
     )
 
+=======
+    nueva_etapa = "seleccionada" if pac > 0 else "no seleccionada"
+    cursor.execute("""
+        UPDATE infimas
+        SET etapa = %s
+        WHERE codigo_necesidad = %s
+    """, (nueva_etapa, codigo_necesidad))
+>>>>>>> a8ba43f5c2dede39703a282652e5791b2997e451
     conexion.commit()
 
 
@@ -307,7 +350,6 @@ def main():
     lista_contra, pesos = obtener_contraindicaciones(cursor)
     codigos = obtener_codigos_preseleccionados(cursor)
 
-    # FASE 1 — PAC
     pac_por_codigo = {}
     for codigo in codigos:
         pac = obtener_pac_codigo(codigo)
@@ -315,7 +357,6 @@ def main():
         actualizar_pac(cursor, conexion, codigo, pac)
         actualizar_etapa_por_pac(cursor, conexion, codigo, pac)
 
-    # FASE 2 — CONTRAINDICACIONES + PESO
     for codigo, pac in pac_por_codigo.items():
         if pac > 0:
             contras = obtener_contraindicaciones_codigo(codigo, lista_contra)
