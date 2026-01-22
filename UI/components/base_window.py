@@ -10,10 +10,14 @@ class BaseWindow(QWidget):
     def center_window(self):
         screen = QApplication.primaryScreen()
         screen_geometry = screen.availableGeometry()
-
         window_geometry = self.frameGeometry()
 
         x = screen_geometry.center().x() - window_geometry.width() // 2
         y = screen_geometry.center().y() - window_geometry.height() // 2
 
         self.move(x, y)
+
+    def closeEvent(self, event):
+        #para cerrar 
+        QApplication.quit()
+        event.accept()
