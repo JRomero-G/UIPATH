@@ -6,6 +6,7 @@ import os
 import re
 from urllib.parse import urljoin, urlparse
 import time
+import shutil
 from google.cloud import storage
 
 # =====================================================
@@ -18,13 +19,16 @@ MYSQL_CONFIG = {
     "database": "gestorex",
 }
 
-# Carpeta local dentro del proyecto
+# Ruta base del proyecto
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BASE_DOWNLOAD_PATH = os.path.join(BASE_DIR, "data")  # Carpeta temporal de descarga
+
+# Carpeta temporal dentro del proyecto
+BASE_DOWNLOAD_PATH = os.path.join(BASE_DIR, "data")
+os.makedirs(BASE_DOWNLOAD_PATH, exist_ok=True)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "/",
+    "Accept": "*/*",
     "Accept-Language": "es-EC,es;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
@@ -41,11 +45,12 @@ session = requests.Session()
 session.headers.update(HEADERS)
 
 # =====================================================
-# 1.1 GOOGLE CLOUD STORAGE (TEMPORAL)
+# 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-    BASE_DIR, "data", "Clave_bucket_AIgemini.json"
+    BASE_DIR, "data", "Clave_bukcet_AIgemini.json"
 )
+
 BUCKET_NAME = "nexusbucket1"
 
 storage_client = storage.Client()
@@ -60,7 +65,9 @@ def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
         blob = bucket.blob(blob_path)
         blob.upload_from_filename(ruta_local)
 
+        print(f"[GCS] Subido: {blob_path}")
         return f"gs://{BUCKET_NAME}/{blob_path}"
+
     except Exception as e:
         print(f"Error subiendo a GCS: {e}")
         return None
@@ -77,18 +84,21 @@ def obtener_datos_preseleccionados():
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor(dictionary=True)
+
         cursor.execute(
-            "SELECT codigo_necesidad, entidad_contratante_url FROM infimas WHERE etapa = 'preseleccionada'"
+            "SELECT codigo_necesidad, entidad_contratante_url "
+            "FROM infimas WHERE etapa = 'preseleccionada'"
         )
+
         datos = cursor.fetchall()
         cursor.close()
         conn.close()
+
         df = pd.DataFrame(datos)
-        if df.empty:
-            return None
-        return df
+        return None if df.empty else df
+
     except Exception as e:
-        print(f"Error obteniendo datos: {e}")
+        print(f"Error BD: {e}")
         return None
 
 
@@ -140,7 +150,6 @@ def obtener_suma_cantidades(html_content, codigo_necesidad):
             if valor:
                 suma += valor
 
-    # Si la suma es mayor a 10, actualizamos la etapa en la BD
     if suma > 10:
         try:
             conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -153,17 +162,19 @@ def obtener_suma_cantidades(html_content, codigo_necesidad):
             cursor.close()
             conn.close()
         except Exception as e:
-            print(f"Error actualizando etapa en BD: {e}")
+            print(f"Error actualizando etapa: {e}")
+
         return "no seleccionada"
 
     return suma if 0 < suma <= 10 else None
 
 
 # =====================================================
-# 4. DETECCIÓN DE EXTENSIÓN
+# 4. EXTENSIÓN
 # =====================================================
 def detectar_extension(url, descripcion="", primeros_bytes=b""):
     path = urlparse(url).path.lower()
+
     if path.endswith((".pdf", ".docx", ".xlsx", ".doc", ".xls")):
         return os.path.splitext(path)[1]
 
@@ -185,6 +196,7 @@ def descargar_archivo(url, ruta_base, descripcion="", max_reintentos=5):
         try:
             with session.get(url, stream=True, timeout=TIMEOUT_DESCARGA) as r:
                 r.raise_for_status()
+
                 it = r.iter_content(32768)
                 primeros_bytes = next(it, b"")
 
@@ -200,8 +212,10 @@ def descargar_archivo(url, ruta_base, descripcion="", max_reintentos=5):
 
                 os.replace(temp, ruta_final)
                 return ruta_final
+
         except Exception:
             time.sleep(7 * (intento + 1))
+
     return None
 
 
@@ -229,21 +243,13 @@ def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
 
         url_archivo = urljoin(base_url, link["href"])
         nombre = (
-            re.sub(r'[<>:"/\\|?*]', "", descripcion) or f"documento{descargados + 1}"
+            re.sub(r'[<>:"/\\|?*]', "_", descripcion) or f"documento_{descargados + 1}"
         )
         ruta_base = os.path.join(carpeta_destino, nombre)
 
         resultado = descargar_archivo(url_archivo, ruta_base, descripcion)
         if resultado:
-            # Primero guarda temporalmente en data
-            # Luego sube a GCS
             subir_archivo_a_gcs_temporal(resultado, os.path.basename(carpeta_destino))
-            # Puedes borrar el archivo local si quieres liberar espacio
-            try:
-                os.remove(resultado)
-            except Exception:
-                pass
-
             descargados += 1
 
         time.sleep(PAUSA_ENTRE_ARCHIVOS)
@@ -252,14 +258,28 @@ def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
 
 
 # =====================================================
-# 6. MAIN
+# 6. LIMPIEZA
+# =====================================================
+def eliminar_carpeta_temporal(carpeta):
+    try:
+        if os.path.exists(carpeta):
+            shutil.rmtree(carpeta)
+            print(f"[CLEAN] Eliminada carpeta temporal: {carpeta}")
+    except Exception as e:
+        print(f"Error eliminando carpeta {carpeta}: {e}")
+
+
+# =====================================================
+# 7. MAIN
 # =====================================================
 def main():
     df = obtener_datos_preseleccionados()
     if df is None:
-        return "ERROR: sin datos"
+        print("Sin datos")
+        return
 
     total = 0
+
     for _, row in df.iterrows():
         codigo = safe_value(row["codigo_necesidad"])
         url = safe_value(row["entidad_contratante_url"])
@@ -271,21 +291,25 @@ def main():
             if r.status_code != 200:
                 continue
 
-            etapa = obtener_suma_cantidades(r.text, codigo)
-            if not etapa:
+            if not obtener_suma_cantidades(r.text, codigo):
                 continue
 
             carpeta = os.path.join(BASE_DOWNLOAD_PATH, codigo)
             os.makedirs(carpeta, exist_ok=True)
 
-            total += obtener_y_descargar_documentos(r.text, url, carpeta)
-        except Exception:
-            continue
+            descargados = obtener_y_descargar_documentos(r.text, url, carpeta)
+            total += descargados
+
+            if descargados > 0:
+                eliminar_carpeta_temporal(carpeta)
+
+        except Exception as e:
+            print(f"Error procesando {codigo}: {e}")
 
         time.sleep(PAUSA_ENTRE_PROCESOS)
 
-    return f"COMPLETADO: {total} archivos subidos temporalmente a GCS"
+    print(f"COMPLETADO: {total} archivos subidos a GCS")
 
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     main()
