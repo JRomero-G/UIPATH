@@ -296,3 +296,4 @@ class WorkspaceUserREUI(BaseWindow):
         from views.loading import LoadingUI
         self.loading = LoadingUI(duration_ms=3000)
         self.loading.show()
+        self.hide()
