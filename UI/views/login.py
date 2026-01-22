@@ -3,17 +3,15 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QLineEdit
 
-from config import *
-from components.base_window import BaseWindow
-from components.animated_background import AnimatedCurvedLine
-from components.animated_input import AnimatedInput
-from components.neon_button import NeonButton
+from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, ASSETS_DIR
+from ..components.base_window import BaseWindow
+from ..components.animated_background import AnimatedCurvedLine
+from ..components.animated_input import AnimatedInput
+from ..components.neon_button import NeonButton
 
 # Importaciones nuevas Jason modif
 import requests  # se instalara esto
 from PyQt5.QtWidgets import QMessageBox
-from views.workspace_manager import WorkspaceManagerUI
-from views.workspace_user import WorkspaceUserUI
 
 
 class LoginUI(BaseWindow):
@@ -30,18 +28,15 @@ class LoginUI(BaseWindow):
 
         # ================= LÍNEAS ANIMADAS  =================
         AnimatedCurvedLine(
-            [(0, 70), (320, 20), (650, 140), (1000, 90)],
-            self, delay=0.0
+            [(0, 70), (320, 20), (650, 140), (1000, 90)], self, delay=0.0
         )
 
         AnimatedCurvedLine(
-            [(0, 520), (300, 560), (650, 520), (1000, 560)],
-            self, delay=0.6
+            [(0, 520), (300, 560), (650, 520), (1000, 560)], self, delay=0.6
         )
 
         AnimatedCurvedLine(
-            [(0, 560), (350, 600), (700, 560), (1000, 600)],
-            self, delay=0.0
+            [(0, 560), (350, 600), (700, 560), (1000, 600)], self, delay=0.0
         )
 
         # ================= TEXTO SUPERIOR =================
@@ -77,10 +72,10 @@ class LoginUI(BaseWindow):
                 self.width() - pm.width() - 80,
                 (self.height() - pm.height()) // 2,
                 pm.width(),
-                pm.height()
+                pm.height(),
             )
 
-# ================= ABRIR LOADING - Jason  =================
+    # ================= ABRIR LOADING - Jason  =================
     def open_loading(self):
         # ===== VALIDACIÓN =====
         USUARIO = self.user.text().strip()
@@ -125,6 +120,7 @@ class LoginUI(BaseWindow):
             except requests.RequestException:
                 QMessageBox.critical(self, "Error", "No se pudo conectar al servidor.")
                 return
+
 
 """ Comentado para pruebas de login real
 def open_loading(self):

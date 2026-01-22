@@ -3,13 +3,18 @@ import os
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHBoxLayout, QVBoxLayout,
-    QHeaderView, QWidget
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHBoxLayout,
+    QVBoxLayout,
+    QHeaderView,
+    QWidget,
 )
 
 from config import *
-from components.base_window import BaseWindow
+from ..components.base_window import BaseWindow
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -45,9 +50,7 @@ class WorkspaceManagerUI(BaseWindow):
         logo_path = os.path.join(base_dir, "..", "assets", "logo2.png")
 
         pixmap = QPixmap(logo_path).scaled(
-            44, 44,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         logo_label.setPixmap(pixmap)
 
@@ -63,9 +66,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         # ================== TABLA ==================
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels([
-            "Usuario", "NIC", "Descripción", "Etapa"
-        ])
+        self.table.setHorizontalHeaderLabels(["Usuario", "NIC", "Descripción", "Etapa"])
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -199,15 +200,19 @@ class WorkspaceManagerUI(BaseWindow):
     # ================== DATOS DE TABLA ==================
     def load_demo_data(self):
         data = [
-            ("Admin01", "NIC-001",
-             "adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos",
-             "Inicial"),
-            ("Admin02", "NIC-002",
-             "materiales de construcción",
-             "Intermedia"),
-            ("Admin03", "NIC-003",
-             "adquisición de material didáctico y educativo para programas de formación institucional",
-             "Final"),
+            (
+                "Admin01",
+                "NIC-001",
+                "adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos adquisición de equipo tecnológico especializado para el fortalecimiento de los procesos internos y administrativos",
+                "Inicial",
+            ),
+            ("Admin02", "NIC-002", "materiales de construcción", "Intermedia"),
+            (
+                "Admin03",
+                "NIC-003",
+                "adquisición de material didáctico y educativo para programas de formación institucional",
+                "Final",
+            ),
         ]
 
         self.table.setRowCount(len(data))

@@ -1,19 +1,26 @@
 import os
-#jason
+
+# jason
 from tkinter import messagebox
 from PyQt5.QtWidgets import QMessageBox
-#naye
+
+# naye
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHBoxLayout, QVBoxLayout,
-    QHeaderView, QWidget
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHBoxLayout,
+    QVBoxLayout,
+    QHeaderView,
+    QWidget,
 )
-import requests # jason
+import requests  # jason
 
-from config import *
-from components.base_window import BaseWindow
+from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from ..components.base_window import BaseWindow
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -52,9 +59,7 @@ class WorkspaceUserUI(BaseWindow):
         logo_path = os.path.join(base_dir, "..", "assets", "logo2.png")
 
         pixmap = QPixmap(logo_path).scaled(
-            44, 44,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         logo_label.setPixmap(pixmap)
 
@@ -70,10 +75,9 @@ class WorkspaceUserUI(BaseWindow):
 
         # ================== TABLA ==================
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Descripción",
-            "Grado de recomendación", "Nivel", "Acción"
-        ])
+        self.table.setHorizontalHeaderLabels(
+            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel", "Acción"]
+        )
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -267,16 +271,13 @@ class WorkspaceUserUI(BaseWindow):
 
     # ==================Cargar datos en la tabla ==================
     def load_demo_data(self):
-        
         try:
             response = requests.get(
-                #No hay infimas con etapa de seleccionadas, liste todas para pruebas
-                #Cambiar por "http://127.0.0.1:8000/infimas/seleccionadas" 
+                # No hay infimas con etapa de seleccionadas, liste todas para pruebas
+                # Cambiar por "http://127.0.0.1:8000/infimas/seleccionadas"
                 "http://127.0.0.1:8000/infimas/Todas",
-                headers={
-                    "Authorization": f"Bearer {get_session().get('token')}"
-                },
-                timeout=10
+                headers={"Authorization": f"Bearer {get_session().get('token')}"},
+                timeout=10,
             )
 
             print("STATUS:", response.status_code)
@@ -285,7 +286,7 @@ class WorkspaceUserUI(BaseWindow):
                 QMessageBox.critical(
                     self,
                     "Error",
-                    f"Error al obtener ínfimas.\nCódigo: {response.status_code}"
+                    f"Error al obtener ínfimas.\nCódigo: {response.status_code}",
                 )
                 return
 
@@ -298,9 +299,7 @@ class WorkspaceUserUI(BaseWindow):
 
             if not isinstance(data, list):
                 QMessageBox.critical(
-                    self,
-                    "Error",
-                    "La API no devolvió una lista de registros."
+                    self, "Error", "La API no devolvió una lista de registros."
                 )
                 print("DATA INVALIDA:", data)
                 return
@@ -309,8 +308,7 @@ class WorkspaceUserUI(BaseWindow):
             messagebox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
             return
-        
-      
+
         # limpiar tabla
         self.table.setRowCount(0)
 
@@ -321,7 +319,9 @@ class WorkspaceUserUI(BaseWindow):
         for row, item in enumerate(data):
             self.table.insertRow(row)
 
-            nivel = item.get("nivel_de_oportunidad") or 1 #no tiene nivel asignado por defecto 1
+            nivel = (
+                item.get("nivel_de_oportunidad") or 1
+            )  # no tiene nivel asignado por defecto 1
 
             if nivel == 1:
                 row_color = QColor(150, 215, 175)
@@ -335,10 +335,10 @@ class WorkspaceUserUI(BaseWindow):
 
             text_color = QColor(0, 0, 0)
 
-            #================= Celdas nuevo ==================
+            # ================= Celdas nuevo ==================
             # Col 0: Check
             check_item = QTableWidgetItem()
-            
+
             check_item.setCheckState(Qt.Unchecked)
             check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             check_item.setBackground(row_color)
@@ -363,11 +363,13 @@ class WorkspaceUserUI(BaseWindow):
 
             # Col 3: Grado
             cell = QTableWidgetItem(
-                "✅ Recomendado" if grado == "Recomendado"
-                else "⚠️ Poco recomendado" if grado == "Poco recomendado"
+                "✅ Recomendado"
+                if grado == "Recomendado"
+                else "⚠️ Poco recomendado"
+                if grado == "Poco recomendado"
                 else "❌ No recomendado"
             )
-           
+
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
             cell.setBackground(row_color)
@@ -385,11 +387,12 @@ class WorkspaceUserUI(BaseWindow):
 
             # Col 5: Acción
             self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
-            #================= Fin Celdas nuevo ==================
+            # ================= Fin Celdas nuevo ==================
 
-   # llamar al RE
+    # llamar al RE
     def open_workspace_userRE(self):
         from views.workspace_userRE import WorkspaceUserREUI
+
         self.workspace_re = WorkspaceUserREUI()
         self.workspace_re.show()
         self.hide()
