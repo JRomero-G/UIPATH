@@ -48,7 +48,7 @@ session.headers.update(HEADERS)
 # 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-    BASE_DIR, "data", "Clave_bukcet_AIgemini.json"
+    BASE_DIR, "data", "Clave_bucket_AIgemini.json"
 )
 
 BUCKET_NAME = "nexusbucket1"
