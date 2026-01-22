@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from Models.usuarios_model import Usuario
-from Controllers.recomendaciones_usuario_controller import asignar_infimas_a_usuarios,obtener_infimas_del_usuario
-from Auth.Usuario_auth import usuario_actual
+from ..Models.usuarios_model import Usuario
+from ..Controllers.recomendaciones_usuario_controller import asignar_infimas_a_usuarios,obtener_infimas_del_usuario
+from ..Auth.Usuario_auth import usuario_actual
 
-from database import get_db
+from ..database import get_db
 
 router = APIRouter(
     prefix="/recomendaciones-usuario",

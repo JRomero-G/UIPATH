@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from Models.infima_model import Infima
+from ..Models.infima_model import Infima
 
 
 def registrar_infima(db: Session, data: dict):
@@ -75,6 +75,9 @@ def procesar_lote_infimas(db: Session, payload: dict):
 
 def listar_infimas(db: Session):
     return db.query(Infima).all()
+
+def listar_infimas_seleccionadas(db: Session):
+    return db.query(Infima).filter(Infima.etapa == "seleccionada").all()
 
 
 def obtener_infima_por_codigo(db: Session, codigo: str):

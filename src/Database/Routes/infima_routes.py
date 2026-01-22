@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from Controllers.infima_controller import (
+from ..Controllers.infima_controller import (
+    listar_infimas_seleccionadas,
     registrar_infima,
     obtener_infima_por_codigo,
     listar_infimas,
     procesar_lote_infimas
 )
-from database import get_db
+from ..database import get_db
 
 router = APIRouter(prefix="/infimas", tags=["Infimas"])
 
@@ -21,10 +22,14 @@ def registrar(data: dict, db: Session = Depends(get_db)):
     return registrar_infima(db, data)
 
 
-@router.get("/")
+@router.get("/Todas")
 def listar(db: Session = Depends(get_db)):
     return listar_infimas(db)
 
+
+@router.get("/seleccionadas")
+def listar(db: Session = Depends(get_db)):
+    return listar_infimas_seleccionadas(db)
 
 @router.get("/codigo/{codigo}")
 def obtener_por_codigo(codigo: str, db: Session = Depends(get_db)):

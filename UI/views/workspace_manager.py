@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 import os
 
 from PyQt5.QtCore import Qt
@@ -231,4 +229,3 @@ class WorkspaceManagerUI(BaseWindow):
                 cell.setForeground(text_color)
                 cell.setBackground(row_color)
                 self.table.setItem(row, col, cell)
->>>>>>> 52fab23767d5be222eb0638e19d3a68562b16264
