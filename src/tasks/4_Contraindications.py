@@ -173,7 +173,7 @@ def obtener_pac_codigo(codigo_necesidad):
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
 
-    prefijo = f"Documentos de contratación/{codigo_necesidad}/"
+    prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
     blobs = [
         b
         for b in bucket.list_blobs(prefix=prefijo)
@@ -235,7 +235,7 @@ def obtener_contraindicaciones_codigo(codigo_necesidad, lista_contra):
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
 
-    prefijo = f"Documentos de contratación/{codigo_necesidad}/"
+    prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
     blobs = [
         b
         for b in bucket.list_blobs(prefix=prefijo)
