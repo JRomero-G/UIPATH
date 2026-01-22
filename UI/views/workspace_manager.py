@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from config import *
+from ..config import *
 from ..components.base_window import BaseWindow
 
 

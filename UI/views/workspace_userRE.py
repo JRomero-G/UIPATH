@@ -3,12 +3,17 @@ import os
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QHBoxLayout, QVBoxLayout,
-    QHeaderView, QWidget
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHBoxLayout,
+    QVBoxLayout,
+    QHeaderView,
+    QWidget,
 )
 
-from config import *
+from ..config import *
 from components.base_window import BaseWindow
 
 
@@ -47,9 +52,7 @@ class WorkspaceUserREUI(BaseWindow):
         logo_path = os.path.join(base_dir, "..", "assets", "logo2.png")
 
         pixmap = QPixmap(logo_path).scaled(
-            44, 44,
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
+            44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )
         logo_label.setPixmap(pixmap)
 
@@ -65,10 +68,9 @@ class WorkspaceUserREUI(BaseWindow):
 
         # ================== TABLA ==================
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Resumen",
-            "Documento de contratación", "Acción"
-        ])
+        self.table.setHorizontalHeaderLabels(
+            ["", "NIC", "Resumen", "Documento de contratación", "Acción"]
+        )
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -294,6 +296,7 @@ class WorkspaceUserREUI(BaseWindow):
     # ================== LLAMAR AL LOADING ==================
     def open_loading(self):
         from views.loading import LoadingUI
+
         self.loading = LoadingUI(duration_ms=3000)
         self.loading.show()
         self.hide()

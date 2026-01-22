@@ -17,16 +17,9 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QWidget,
 )
-<<<<<<< HEAD
 import requests  # jason
-
-from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from ..config import *
 from ..components.base_window import BaseWindow
-=======
-import requests # jason
-from config import *
-from components.base_window import BaseWindow
->>>>>>> 1302b5ab0babe1fdfd82f1971c38ce713822c167
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -397,18 +390,12 @@ class WorkspaceUserUI(BaseWindow):
 
     # llamar al RE
     def open_workspace_userRE(self):
-<<<<<<< HEAD
-        from views.workspace_userRE import WorkspaceUserREUI
-
-        self.workspace_re = WorkspaceUserREUI()
-        self.workspace_re.show()
-        self.hide()
-=======
         print("Abriendo Workspace User RE...")
-    
+
         # IMPORTACIÓN LOCAL DENTRO DEL MÉTODO:
         try:
             from views.workspace_userRE import WorkspaceUserREUI
+
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
             self.hide()
@@ -416,11 +403,7 @@ class WorkspaceUserUI(BaseWindow):
             print(f"Error de importación: {e}")
             # Muestra un mensaje al usuario
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self, 
-                "Error", 
-                f"No se pudo abrir la ventana: {e}"
-            )
+
+            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")
->>>>>>> 1302b5ab0babe1fdfd82f1971c38ce713822c167

@@ -3,7 +3,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QLineEdit
 
-from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, ASSETS_DIR
+from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from UI.config import set_session, _session, get_session
 from ..components.base_window import BaseWindow
 from ..components.animated_background import AnimatedCurvedLine
 from ..components.animated_input import AnimatedInput
@@ -12,12 +13,17 @@ from ..components.neon_button import NeonButton
 # Importaciones nuevas Jason modif
 import requests  # se instalara esto
 from PyQt5.QtWidgets import QMessageBox
+from ..views.workspace_manager import WorkspaceManagerUI
+from ..views.workspace_user import WorkspaceUserUI
+from ..views.loading import LoadingUI
 
 
 class LoginUI(BaseWindow):
-    def __init__(self):
+    def __init__(self, rol=None, duration_ms=3000):
         super().__init__()
 
+        self.rol = rol
+        self.duration_ms = duration_ms
         # CLAVE: destruir esta ventana al cerrarse
         self.setAttribute(Qt.WA_DeleteOnClose)
 
@@ -106,14 +112,15 @@ class LoginUI(BaseWindow):
                     print("-Usuario: ", user, " -Es Administrador?:", rol)
 
                     # Guardar sesión
-                    from config import set_session
+                    from UI.config import set_session
 
                     set_session({"token": token, "usuario": user_info})
                     # Abrir workspace según rol
                     # ===== ABRIR LOADING =====
-                    self.loading = LoginUI(duration_ms=3000, rol=rol)  # robar con jason
+                    self.loading = LoadingUI(rol=rol, duration_ms=3000)
                     self.loading.show()
                     self.hide()
+
                 else:
                     QMessageBox.warning(self, "Error", "Credenciales inválidas.")
                     return
