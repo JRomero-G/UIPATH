@@ -274,7 +274,7 @@ class WorkspaceUserUI(BaseWindow):
             response = requests.get(
                 # No hay infimas con etapa de seleccionadas, liste todas para pruebas
                 # Cambiar por "http://127.0.0.1:8000/infimas/seleccionadas"
-                "http://127.0.0.1:8000/infimas/Todas",
+                "http://127.0.0.1:8000/infimas/seleccionadas",
                 headers={"Authorization": f"Bearer {get_session().get('token')}"},
                 timeout=10,
             )
