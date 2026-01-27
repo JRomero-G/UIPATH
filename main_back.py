@@ -6,6 +6,7 @@ SCRIPTS = [
     "src/tasks/2_Keywords.py",
     "src/tasks/3_Download_PDFs.py",
     "src/tasks/4_Contraindications.py",
+    "src/tasks/5_PACFinder.py",
 ]
 
 
