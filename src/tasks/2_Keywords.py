@@ -3,7 +3,13 @@ import json
 import datetime
 import pandas as pd
 import mysql.connector
-from openai import OpenAI
+
+# =========================
+# CAMBIO 1:
+# Se elimina OpenAI/Groq y se usa Gemini (google-generativeai)
+# =========================
+import google.generativeai as genai
+from google.oauth2 import service_account
 
 # =========================
 # 1. CONFIGURACIÓN
@@ -16,19 +22,41 @@ MYSQL_CONFIG = {
     "database": "gestorex",
 }
 
-MODEL_ID = "llama-3.3-70b-versatile"
-API_KEY = "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"
+# =========================
+# CAMBIO 2:
+# Modelo Gemini 2.5 Flash
+# =========================
+MODEL_ID = "gemini-2.5-flash"
 
 # =========================
-# 2. CLIENTE OPENAI / GROQ
+# CAMBIO 3:
+# Ruta a la clave del servicio Gemini
+# =========================
+GEMINI_CREDENTIALS_PATH = "src/tasks/Credentials/Clave_bucket_AIgemini.json"
+
+# =========================
+# 2. CLIENTE GEMINI
 # =========================
 
-client = OpenAI(api_key=API_KEY, base_url="https://api.groq.com/openai/v1")
+# CAMBIO 4:
+# Autenticación mediante Service Account (JSON)
+credentials = service_account.Credentials.from_service_account_file(
+    GEMINI_CREDENTIALS_PATH
+)
+
+genai.configure(credentials=credentials)
+
+model = genai.GenerativeModel(
+    model_name=MODEL_ID,
+    generation_config={
+        "temperature": 0.1,
+        "response_mime_type": "application/json",  # fuerza salida JSON
+    },
+)
 
 # =========================
 # 3. UTILIDADES
 # =========================
-
 
 def safe_value(val, default="SIN_VALOR"):
     if pd.isna(val) or val is None:
@@ -53,11 +81,9 @@ def dividir_dict(data, size=40):
     for i in range(0, len(items), size):
         yield dict(items[i : i + size])
 
-
 # =========================
 # 4. FUNCIONES BASE DE DATOS
 # =========================
-
 
 def obtener_infimas():
     conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -80,7 +106,6 @@ def obtener_infimas():
 
 
 def obtener_palabras_clave():
-    """Trae todas las palabras o frases de la tabla palabras_clave"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     cursor.execute("SELECT palabra_clave FROM palabras_clave")
@@ -88,13 +113,11 @@ def obtener_palabras_clave():
     cursor.close()
     conn.close()
 
-    # Convertir a lista de cadenas y limpiar
     palabras = [limpiar_texto(fila[0]) for fila in filas if fila[0]]
     return palabras
 
 
 def actualizar_etapa(df, resultados):
-    """Actualiza la columna etapa según el resultado invertido: SI -> 'no seleccionada', NO -> 'preseleccionada'"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
 
@@ -102,7 +125,6 @@ def actualizar_etapa(df, resultados):
         if resultados.get(idx) is None:
             continue
 
-        # Invertir resultado
         etapa = "preseleccionada" if resultados[idx] is False else "no seleccionada"
 
         cursor.execute(
@@ -119,33 +141,30 @@ def actualizar_etapa(df, resultados):
     cursor.close()
     conn.close()
 
-
 # =========================
 # 5. CLASIFICACIÓN IA
 # =========================
 
-
 def clasificar_descripcion_lote(batch_data, palabras_clave):
-    """Clasifica un lote de descripciones usando palabras clave de la BD"""
     prompt = f"""
-    Eres un analista de compras públicas.
-    Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
-    {", ".join(palabras_clave)}
+Eres un analista de compras públicas.
+Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
+{", ".join(palabras_clave)}
 
-    Responde ESTRICTAMENTE con un objeto JSON donde la clave es el número de fila y el valor es "SI" o "NO".
-    Datos:
-    {json.dumps(batch_data, ensure_ascii=False)}
-    """
+Responde ESTRICTAMENTE con un objeto JSON donde la clave es el número de fila y el valor es "SI" o "NO".
+
+Datos:
+{json.dumps(batch_data, ensure_ascii=False)}
+"""
 
     try:
-        response = client.chat.completions.create(
-            model=MODEL_ID,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.1,
-        )
+        # =========================
+        # CAMBIO 5:
+        # Llamada a Gemini en lugar de OpenAI/Groq
+        # =========================
+        response = model.generate_content(prompt)
 
-        resultados = json.loads(response.choices[0].message.content)
+        resultados = json.loads(response.text)
 
         resultado_final = {}
         for k, v in resultados.items():
@@ -154,17 +173,16 @@ def clasificar_descripcion_lote(batch_data, palabras_clave):
                 resultado_final[idx] = v.upper() == "SI"
             except ValueError:
                 print(f"Clave inválida devuelta por la IA: {k}")
+
         return resultado_final
 
     except Exception as e:
-        print(f"Error al preparar la solicitud: {e}")
+        print(f"Error al procesar con Gemini: {e}")
         return {}
-
 
 # =========================
 # 6. ORQUESTADOR PRINCIPAL
 # =========================
-
 
 def main():
     df = obtener_infimas()
@@ -194,10 +212,8 @@ def main():
         resultados = clasificar_descripcion_lote(bloque, palabras_clave)
         resultados_finales.update(resultados)
 
-    # Actualiza la etapa según resultado invertido
     actualizar_etapa(df, resultados_finales)
     print("Proceso finalizado correctamente.")
-
 
 # =========================
 # 7. EJECUCIÓN
