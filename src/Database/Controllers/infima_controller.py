@@ -15,16 +15,17 @@ def registrar_infima(db: Session, data: dict):
         entidad_contratante_url=data.get("entidad_contratante_url"),
         direccion_entrega=data.get("direccion_entrega"),
         contacto=data.get("contacto"),
-        PAC=data.get("PAC")
+        PAC=data.get("PAC"),
     )
     db.add(infima)
     db.commit()
     db.refresh(infima)
     return infima
 
-#Ya que la IA enviara los datos por lotes, inicialmente de los 100 primeros 
-#registros es probable que solo se necesiten registrar 20-40 infimas que cumplan
-#con los requisitos previos
+
+# Ya que la IA enviara los datos por lotes, inicialmente de los 100 primeros
+# registros es probable que solo se necesiten registrar 20-40 infimas que cumplan
+# con los requisitos previos
 def procesar_lote_infimas(db: Session, payload: dict):
     infimas_creadas = []
     errores = []
@@ -42,45 +43,41 @@ def procesar_lote_infimas(db: Session, payload: dict):
                 entidad_contratante_url=data.get("entidad_contratante_url"),
                 direccion_entrega=data.get("direccion_entrega"),
                 contacto=data.get("contacto"),
-                PAC=data.get("PAC")
+                PAC=data.get("PAC"),
             )
             db.add(infima)
             infimas_creadas.append(infima)
 
         except Exception as e:
-            errores.append({
-                "codigo_necesidad": data.get("codigo_necesidad"),
-                "error": str(e)
-            })
+            errores.append(
+                {"codigo_necesidad": data.get("codigo_necesidad"), "error": str(e)}
+            )
 
     try:
         db.commit()
     except IntegrityError as e:
         db.rollback()
-        return {
-            "status": "error",
-            "detalle": "Error de integridad",
-            "error": str(e)
-        }
+        return {"status": "error", "detalle": "Error de integridad", "error": str(e)}
 
     return {
         "status": "ok",
         "total_recibidas": len(payload.get("infimas", [])),
         "registradas": len(infimas_creadas),
-        "errores": errores
+        "errores": errores,
     }
-
-
 
 
 def listar_infimas(db: Session):
     return db.query(Infima).all()
 
+
 def listar_infimas_seleccionadas(db: Session):
     return db.query(Infima).filter(Infima.etapa == "seleccionada").all()
 
 
+def listar_infimas_ingresadas(db: Session):
+    return db.query(Infima).filter(Infima.etapa == "ingresada").all()
+
+
 def obtener_infima_por_codigo(db: Session, codigo: str):
-    return db.query(Infima).filter(
-        Infima.codigo_necesidad == codigo
-    ).first()
+    return db.query(Infima).filter(Infima.codigo_necesidad == codigo).first()

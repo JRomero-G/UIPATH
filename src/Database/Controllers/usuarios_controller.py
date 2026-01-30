@@ -4,6 +4,7 @@ from ..Auth.Hashing import hash_password, verify_password
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
+
 # Esquema para crear usuarios
 class UsuarioCreate(BaseModel):
     usuario: str
@@ -50,6 +51,10 @@ def autenticar_usuario(db: Session, usuario: str, password: str):
 # Listar todos los usuarios
 def listar_usuarios(db: Session):
     return db.query(Usuario).all()
+
+
+def listar_usuarios_no_admin(db: Session):
+    return db.query(Usuario).filter(~Usuario.es_admin).all()
 
 
 # Obtener usuario por ID
