@@ -32,7 +32,7 @@ MODEL_ID = "gemini-2.5-flash"
 # CAMBIO 3:
 # Ruta a la clave del servicio Gemini
 # =========================
-GEMINI_CREDENTIALS_PATH = "src/tasks/Credentials/Clave_bucket_AIgemini.json"
+GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
 
 # =========================
 # 2. CLIENTE GEMINI
