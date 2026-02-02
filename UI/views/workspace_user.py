@@ -18,7 +18,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 import requests  # jason
-from ..config import *
+from ..config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from ..config import set_session, _session, get_session
 from ..components.base_window import BaseWindow
 
 

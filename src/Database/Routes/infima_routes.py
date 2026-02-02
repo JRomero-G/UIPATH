@@ -5,7 +5,8 @@ from ..Controllers.infima_controller import (
     registrar_infima,
     obtener_infima_por_codigo,
     listar_infimas,
-    procesar_lote_infimas
+    procesar_lote_infimas,
+    listar_infimas_ingresadas,
 )
 from ..database import get_db
 
@@ -30,6 +31,12 @@ def listar(db: Session = Depends(get_db)):
 @router.get("/seleccionadas")
 def listar(db: Session = Depends(get_db)):
     return listar_infimas_seleccionadas(db)
+
+
+@router.get("/ingresadas")
+def listar(db: Session = Depends(get_db)):
+    return listar_infimas_ingresadas(db)
+
 
 @router.get("/codigo/{codigo}")
 def obtener_por_codigo(codigo: str, db: Session = Depends(get_db)):
