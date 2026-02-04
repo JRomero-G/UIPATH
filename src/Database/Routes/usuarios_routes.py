@@ -1,5 +1,5 @@
-from Database.Models.recomendaciones_usuario_model import RecomendacionesUsuario
-from Database.ejemplo_flujo_ia_registro_infima import Infima
+from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from ..ejemplo_flujo_ia_registro_infima import Infima
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..Controllers.usuarios_controller import (
