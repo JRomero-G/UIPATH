@@ -1,15 +1,19 @@
+
+
+"""
+Script de clasificación de compras públicas (infimas) usando Gemini 2.0 Flash
+Conecta a MySQL, obtiene datos, clasifica con IA y actualiza estados
+"""
+
+import os
 import re
 import json
 import datetime
 import pandas as pd
 import mysql.connector
-
-# =========================
-# CAMBIO 1:
-# Se elimina OpenAI/Groq y se usa Gemini (google-generativeai)
-# =========================
-import google.generativeai as genai
 from google.oauth2 import service_account
+import vertexai
+from vertexai.generative_models import GenerativeModel
 
 # =========================
 # 1. CONFIGURACIÓN
@@ -22,43 +26,37 @@ MYSQL_CONFIG = {
     "database": "gestorex",
 }
 
-# =========================
-# CAMBIO 2:
-# Modelo Gemini 2.5 Flash
-# =========================
-MODEL_ID = "gemini-2.5-flash"
-
-# =========================
-# CAMBIO 3:
-# Ruta a la clave del servicio Gemini
-# =========================
 GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
 
 # =========================
-# 2. CLIENTE GEMINI
+# 2. INICIALIZACIÓN DE VERTEX AI
 # =========================
 
-# CAMBIO 4:
-# Autenticación mediante Service Account (JSON)
-credentials = service_account.Credentials.from_service_account_file(
-    GEMINI_CREDENTIALS_PATH
-)
-
-genai.configure(credentials=credentials)
-
-model = genai.GenerativeModel(
-    model_name=MODEL_ID,
-    generation_config={
-        "temperature": 0.1,
-        "response_mime_type": "application/json",  # fuerza salida JSON
-    },
-)
+def inicializar_vertex_ai():
+    """Inicializa VertexAI con las credenciales de servicio"""
+    credentials = service_account.Credentials.from_service_account_file(
+        GEMINI_CREDENTIALS_PATH
+    )
+    
+    # Obtener project_id del archivo de credenciales
+    with open(GEMINI_CREDENTIALS_PATH, 'r') as f:
+        creds_data = json.load(f)
+        project_id = creds_data.get('project_id')
+    
+    vertexai.init(
+        project=project_id,
+        credentials=credentials,
+        location="us-central1"  # Ajusta según tu región
+    )
+    
+    return GenerativeModel("gemini-2.0-flash-exp")
 
 # =========================
 # 3. UTILIDADES
 # =========================
 
 def safe_value(val, default="SIN_VALOR"):
+    """Convierte valores de manera segura a string"""
     if pd.isna(val) or val is None:
         return default
     if isinstance(val, pd.Timestamp):
@@ -67,16 +65,16 @@ def safe_value(val, default="SIN_VALOR"):
         return val.strftime("%Y-%m-%d")
     return str(val)
 
-
 def limpiar_texto(texto):
+    """Limpia y normaliza texto"""
     if not texto:
         return ""
     texto = texto.lower()
     texto = re.sub(r"\s+", " ", texto).strip()
     return texto
 
-
 def dividir_dict(data, size=40):
+    """Divide un diccionario en bloques de tamaño específico"""
     items = list(data.items())
     for i in range(0, len(items), size):
         yield dict(items[i : i + size])
@@ -86,6 +84,7 @@ def dividir_dict(data, size=40):
 # =========================
 
 def obtener_infimas():
+    """Obtiene registros de infimas con etapa 'ingresada'"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
@@ -104,8 +103,8 @@ def obtener_infimas():
         )
     return df
 
-
 def obtener_palabras_clave():
+    """Obtiene palabras clave de la base de datos"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     cursor.execute("SELECT palabra_clave FROM palabras_clave")
@@ -116,16 +115,18 @@ def obtener_palabras_clave():
     palabras = [limpiar_texto(fila[0]) for fila in filas if fila[0]]
     return palabras
 
-
 def actualizar_etapa(df, resultados):
+    """Actualiza la etapa de los registros según resultados de clasificación"""
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
 
     for idx, row in df.iterrows():
-        if resultados.get(idx) is None:
+        if idx not in resultados:
             continue
 
-        etapa = "preseleccionada" if resultados[idx] is False else "no seleccionada"
+        # Lógica: SI se encontró palabra clave -> NO seleccionada
+        # NO se encontró palabra clave -> PRESELECCIONADA
+        etapa = "no seleccionada" if resultados[idx] is True else "preseleccionada"
 
         cursor.execute(
             """
@@ -142,10 +143,11 @@ def actualizar_etapa(df, resultados):
     conn.close()
 
 # =========================
-# 5. CLASIFICACIÓN IA
+# 5. CLASIFICACIÓN CON IA
 # =========================
 
-def clasificar_descripcion_lote(batch_data, palabras_clave):
+def clasificar_descripcion_lote(batch_data, palabras_clave, model):
+    """Clasifica un lote de descripciones usando Gemini"""
     prompt = f"""
 Eres un analista de compras públicas.
 Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
@@ -158,43 +160,64 @@ Datos:
 """
 
     try:
-        # =========================
-        # CAMBIO 5:
-        # Llamada a Gemini en lugar de OpenAI/Groq
-        # =========================
         response = model.generate_content(prompt)
-
-        resultados = json.loads(response.text)
-
-        resultado_final = {}
-        for k, v in resultados.items():
-            try:
-                idx = int(k)
-                resultado_final[idx] = v.upper() == "SI"
-            except ValueError:
-                print(f"Clave inválida devuelta por la IA: {k}")
-
-        return resultado_final
-
+        response_text = response.text.strip()
+        
+        # Limpiar markdown si viene con ```json```
+        if response_text.startswith("```"):
+            response_text = re.sub(r"```json\n?|```\n?", "", response_text).strip()
+        
+        resultado_json = json.loads(response_text)
+        
+        # Convertir "SI"/"NO" a True/False
+        resultado_bool = {}
+        for idx, valor in resultado_json.items():
+            idx_int = int(idx)
+            resultado_bool[idx_int] = (valor.upper() == "SI")
+        
+        return resultado_bool
+        
     except Exception as e:
-        print(f"Error al procesar con Gemini: {e}")
-        return {}
+        print(f"Error al clasificar lote: {e}")
+        # Retornar todos como False (preseleccionados) en caso de error
+        return {int(idx): False for idx in batch_data.keys()}
 
 # =========================
 # 6. ORQUESTADOR PRINCIPAL
 # =========================
 
 def main():
+    """Función principal que orquesta todo el proceso"""
+    print("=" * 60)
+    print("INICIANDO CLASIFICADOR DE COMPRAS PÚBLICAS")
+    print("=" * 60)
+    
+    # Inicializar modelo Gemini
+    print("\n1. Inicializando modelo Gemini 2.0 Flash...")
+    try:
+        model = inicializar_vertex_ai()
+        print("   ✓ Modelo inicializado correctamente")
+    except Exception as e:
+        print(f"   ✗ Error al inicializar modelo: {e}")
+        return
+    
+    # Obtener datos
+    print("\n2. Obteniendo registros de la base de datos...")
     df = obtener_infimas()
     if df.empty:
-        print("No hay datos en la tabla infimas con etapa 'ingresada'.")
+        print("   ⚠ No hay datos en la tabla infimas con etapa 'ingresada'.")
         return
+    print(f"   ✓ {len(df)} registros encontrados")
 
+    # Obtener palabras clave
+    print("\n3. Obteniendo palabras clave...")
     palabras_clave = obtener_palabras_clave()
     if not palabras_clave:
-        print("No hay palabras clave en la tabla palabras_clave.")
+        print("   ⚠ No hay palabras clave en la tabla palabras_clave.")
         return
+    print(f"   ✓ {len(palabras_clave)} palabras clave cargadas")
 
+    # Preparar datos
     data = {
         idx: str(row["descripcion_objeto_compra"]).strip()
         for idx, row in df.iterrows()
@@ -202,18 +225,36 @@ def main():
     }
 
     if not data:
-        print("No hay descripciones válidas para analizar.")
+        print("   ⚠ No hay descripciones válidas para analizar.")
         return
 
+    # Clasificar por lotes
+    print(f"\n4. Clasificando {len(data)} registros en lotes de 40...")
     resultados_finales = {}
-    print(f"Procesando {len(data)} registros...")
-
+    total_lotes = (len(data) + 39) // 40  # Ceiling division
+    lote_actual = 0
+    
     for bloque in dividir_dict(data, size=40):
-        resultados = clasificar_descripcion_lote(bloque, palabras_clave)
+        lote_actual += 1
+        print(f"   Procesando lote {lote_actual}/{total_lotes}...")
+        resultados = clasificar_descripcion_lote(bloque, palabras_clave, model)
         resultados_finales.update(resultados)
 
+    # Actualizar base de datos
+    print("\n5. Actualizando estados en la base de datos...")
     actualizar_etapa(df, resultados_finales)
-    print("Proceso finalizado correctamente.")
+    
+    # Resumen
+    preseleccionadas = sum(1 for v in resultados_finales.values() if not v)
+    no_seleccionadas = sum(1 for v in resultados_finales.values() if v)
+    
+    print("\n" + "=" * 60)
+    print("PROCESO FINALIZADO CORRECTAMENTE")
+    print("=" * 60)
+    print(f"Registros procesados:     {len(resultados_finales)}")
+    print(f"Preseleccionadas:         {preseleccionadas}")
+    print(f"No seleccionadas:         {no_seleccionadas}")
+    print("=" * 60)
 
 # =========================
 # 7. EJECUCIÓN
