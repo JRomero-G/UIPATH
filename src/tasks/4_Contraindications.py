@@ -1,347 +1,638 @@
-#                     BÚSQUEDA DE CONTRAINDICACIONES
-# ===========================================================
-# SECCIÓN 1 — IMPORTACIONES BASE (ORIGINALES)
-# ===========================================================
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Script de análisis de ínfimas - Compras Públicas Ecuador
+- Extracción de PAC desde documentos con IA
+- Web scraping del portal de compras públicas
+- Análisis de contraindicaciones
+- Cálculo de pesos
+"""
 
 import os
-from google.cloud import storage
-from vertexai.generative_models import GenerativeModel, Part
-import vertexai
-
-# Credenciales GCP (SIN CAMBIOS)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-    "src/Credentials/Clave_bucket_AIgemini.json"
-)
-
-PROJECT_ID = "moonlit-oven-483902-e4"
-LOCATION = "us-central1"
-BUCKET_NAME = "nexusbucket1"
-
-vertexai.init(project=PROJECT_ID, location=LOCATION)
-
-model = GenerativeModel("gemini-2.5-flash")
-
-# ===========================================================
-# SECCIÓN 2 — IMPORTACIONES ADICIONALES
-# ===========================================================
-
-import mysql.connector
-from mysql.connector import Error
-from functools import reduce
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import hashlib
+import re
 import json
-import threading
+import time
+import pandas as pd
+import mysql.connector
+from google.oauth2 import service_account
+from google.cloud import storage
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-# ===========================================================
-# SECCIÓN 3 — PARÁMETROS DE CONTROL (COSTOS / RENDIMIENTO)
-# ===========================================================
+# =========================
+# 1. CONFIGURACIÓN
+# =========================
 
-MAX_WORKERS = 5
-MAX_DOCUMENTS_PER_FOLDER = 20
-CACHE_FILE = "cache_resultados_ia.json"
+MYSQL_CONFIG = {
+    "host": "35.225.240.246",
+    "user": "root",
+    "password": "Admin123%",
+    "database": "gestorex",
+}
 
-cache_lock = threading.Lock()
+GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
+BUCKET_NAME = "nexusbucket1"
+CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
-# ===========================================================
-# SECCIÓN 4 — CACHE LOCAL DE RESULTADOS IA
-# ===========================================================
+# =========================
+# 2. INICIALIZACIÓN
+# =========================
 
-
-def cargar_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-
-def guardar_cache(cache):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, indent=2, ensure_ascii=False)
-
-
-CACHE_IA = cargar_cache()
-
-# ===========================================================
-# SECCIÓN 5 — CONEXIÓN A BASE DE DATOS
-# ===========================================================
-
-
-def conectar_base_datos():
-    return mysql.connector.connect(
-        host="35.225.240.246", user="root", password="Admin123%", database="gestorex"
+def inicializar_servicios():
+    """Inicializa VertexAI y Google Cloud Storage"""
+    global BUCKET_NAME
+    
+    credentials = service_account.Credentials.from_service_account_file(
+        GEMINI_CREDENTIALS_PATH
     )
+    
+    with open(GEMINI_CREDENTIALS_PATH, 'r') as f:
+        creds_data = json.load(f)
+        project_id = creds_data.get('project_id')
+    
+    # Inicializar VertexAI
+    vertexai.init(
+        project=project_id,
+        credentials=credentials,
+        location="us-central1"
+    )
+    
+    # Inicializar Storage
+    storage_client = storage.Client(
+        project=project_id,
+        credentials=credentials
+    )
+    
+    model = GenerativeModel("gemini-2.0-flash-exp")
+    bucket = storage_client.bucket(BUCKET_NAME)
+    
+    return model, bucket
 
+# =========================
+# 3. FUNCIONES BASE DE DATOS
+# =========================
 
-# ===========================================================
-# SECCIÓN 6 — EXTRACCIÓN DE DATOS BASE
-# ===========================================================
-
-
-def obtener_contraindicaciones(cursor):
-    cursor.execute("""
-        SELECT contraindicacion, peso
-        FROM contraindicaciones
-    """)
+def obtener_contraindicaciones():
+    """Obtiene lista de contraindicaciones desde la BD"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute("SELECT contraindicacion FROM contraindicaciones")
     filas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    contraindicaciones = [fila[0] for fila in filas if fila[0]]
+    return contraindicaciones
 
-    lista_texto = ", ".join([f[0] for f in filas])
-    pesos = {f[0]: float(f[1]) for f in filas}
+def obtener_contraindicaciones_con_peso():
+    """Obtiene contraindicaciones con sus pesos asociados"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT contraindicacion, peso FROM contraindicaciones")
+    datos = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    df = pd.DataFrame(datos)
+    return df
 
-    return lista_texto, pesos
-
-
-def obtener_codigos_preseleccionados(cursor):
+def obtener_codigos_preseleccionados():
+    """Obtiene códigos de necesidad con etapa 'preseleccionada'"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
     cursor.execute("""
-        SELECT codigo_necesidad
-        FROM infimas
+        SELECT codigo_necesidad 
+        FROM infimas 
         WHERE etapa = 'preseleccionada'
     """)
-    return [f[0] for f in cursor.fetchall()]
+    filas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    codigos = [fila[0] for fila in filas if fila[0]]
+    return codigos
 
+def obtener_infimas_con_pac():
+    """Obtiene infimas con PAC >= 0 para validación"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante
+        FROM infimas 
+        WHERE PAC >= 0
+    """)
+    datos = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    df = pd.DataFrame(datos)
+    if not df.empty:
+        df['V_Total'] = 0.0
+    return df
 
-# ===========================================================
-# SECCIÓN 7 — HASH PARA CACHEO
-# ===========================================================
+def actualizar_pac_en_bd(codigos_pac_dict):
+    """Actualiza columna PAC en la base de datos"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    
+    for codigo, pac in codigos_pac_dict.items():
+        cursor.execute("""
+            UPDATE infimas 
+            SET PAC = %s,
+                actualizado_en = NOW()
+            WHERE codigo_necesidad = %s
+        """, (pac, codigo))
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
+def actualizar_pac_desde_vtotal(df_infimas):
+    """Actualiza PAC con valores de V_Total y cambia etapa a 'seleccionada'"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    
+    for _, row in df_infimas.iterrows():
+        if row['V_Total'] > 0:
+            cursor.execute("""
+                UPDATE infimas 
+                SET PAC = %s,
+                    actualizado_en = NOW()
+                WHERE codigo_necesidad = %s
+            """, (row['V_Total'], row['codigo_necesidad']))
+    
+    # Cambiar etapa a 'seleccionada' para PAC > 0
+    cursor.execute("""
+        UPDATE infimas 
+        SET etapa = 'seleccionada',
+            actualizado_en = NOW()
+        WHERE PAC > 0
+    """)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-def generar_hash_documento(blob_name, tipo):
-    return hashlib.sha256(f"{tipo}:{blob_name}".encode("utf-8")).hexdigest()
+def obtener_codigos_pac_mayores_cero():
+    """Obtiene códigos de necesidad con PAC > 0"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT codigo_necesidad, PAC
+        FROM infimas 
+        WHERE PAC > 0
+    """)
+    datos = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    codigos_pac = {row['codigo_necesidad']: row['PAC'] for row in datos}
+    return codigos_pac
 
+def actualizar_peso_en_bd(codigo_necesidad, peso):
+    """Actualiza el peso calculado en la BD"""
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE infimas 
+        SET Peso = %s,
+            actualizado_en = NOW()
+        WHERE codigo_necesidad = %s
+    """, (peso, codigo_necesidad))
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
 
-# ===========================================================
-# SECCIÓN 7.1 — MIME TYPE (NUEVO)
-# ===========================================================
+# =========================
+# 4. FUNCIONES DE BUCKET/IA
+# =========================
 
-
-def obtener_mime_type(blob_name):
-    nombre = blob_name.lower()
-    if nombre.endswith(".pdf"):
-        return "application/pdf"
-    elif nombre.endswith(".txt"):
-        return "text/plain"
-    elif nombre.endswith(".docx"):
-        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    return None
-
-
-# ===========================================================
-# SECCIÓN 8 — EXTRACCIÓN PAC (FASE 1)
-# ===========================================================
-
-
-def analizar_documento_pac(blob):
-    doc_hash = generar_hash_documento(blob.name, "PAC")
-
-    with cache_lock:
-        if doc_hash in CACHE_IA:
-            return CACHE_IA[doc_hash]
-
-    mime_type = obtener_mime_type(blob.name)
-    if blob.size == 0 or mime_type is None:
+def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
+    """Busca el PAC en documentos del bucket usando IA"""
+    carpeta_path = f"{CARPETA_DOCUMENTOS}/{codigo_necesidad}/"
+    
+    # Listar documentos en la carpeta
+    blobs = list(bucket.list_blobs(prefix=carpeta_path))
+    
+    if not blobs:
+        print(f"   ⚠ No se encontraron documentos para {codigo_necesidad}")
         return 0.0
+    
+    # Preparar prompt para IA
+    documentos_contenido = []
+    for blob in blobs:
+        if blob.name.endswith('/'):  # Skip carpetas
+            continue
+        
+        # Descargar y procesar según tipo
+        if blob.name.lower().endswith('.pdf'):
+            # Para PDFs, usar Part de Gemini
+            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
+            documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
+        elif blob.name.lower().endswith(('.txt', '.doc', '.docx')):
+            contenido = blob.download_as_text()
+            documentos_contenido.append(contenido)
+    
+    if not documentos_contenido:
+        return 0.0
+    
+    # Crear prompt
+    prompt = f"""
+Analiza los documentos proporcionados del código de necesidad {codigo_necesidad}.
 
-    document_part = Part.from_uri(
-        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type=mime_type
-    )
+Busca información sobre:
+- Plan Anual de Contratación (PAC)
+- Partida presupuestaria
+- Cantidad total asignada para esta necesidad específica
+- Presupuesto referencial
+- Monto total
 
-    prompt = """
-    Analiza el documento y busca referencias al Plan Anual de Contratación,
-    partida presupuestaria o monto total de la necesidad.
-    Devuelve exclusivamente un número decimal.
-    Si no existe, devuelve 0.
-    """
+Responde ÚNICAMENTE con un número decimal que represente el monto encontrado.
+Si no encuentras ningún monto o presupuesto, responde solo: 0.0
+
+Ejemplos de respuesta válida:
+15000.50
+1234567.89
+0.0
+
+NO incluyas símbolos de moneda, texto adicional ni explicaciones.
+"""
 
     try:
-        response = model.generate_content([document_part, prompt])
-        pac = float(response.text.strip())
-    except Exception:
-        pac = 0.0
+        # Combinar prompt con documentos
+        contenido_completo = [prompt] + documentos_contenido
+        
+        response = model.generate_content(contenido_completo)
+        response_text = response.text.strip()
+        
+        # Extraer solo el número
+        match = re.search(r'[\d.]+', response_text)
+        if match:
+            pac = float(match.group())
+            return pac
+        return 0.0
+        
+    except Exception as e:
+        print(f"   ✗ Error al analizar documentos: {e}")
+        return 0.0
 
-    with cache_lock:
-        CACHE_IA[doc_hash] = pac
+def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model):
+    """Busca contraindicaciones en documentos del bucket usando IA"""
+    carpeta_path = f"{CARPETA_DOCUMENTOS}/{codigo_necesidad}/"
+    
+    blobs = list(bucket.list_blobs(prefix=carpeta_path))
+    
+    if not blobs:
+        return []
+    
+    documentos_contenido = []
+    for blob in blobs:
+        if blob.name.endswith('/'):
+            continue
+        
+        if blob.name.lower().endswith('.pdf'):
+            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
+            documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
+        elif blob.name.lower().endswith(('.txt', '.doc', '.docx')):
+            contenido = blob.download_as_text()
+            documentos_contenido.append(contenido)
+    
+    if not documentos_contenido:
+        return []
+    
+    # Crear prompt
+    contraindicaciones_str = ", ".join(contraindicaciones_list)
+    prompt = f"""
+Analiza los documentos proporcionados del código de necesidad {codigo_necesidad}.
 
-    return pac
+Busca si aparecen mencionadas alguna de estas contraindicaciones:
+{contraindicaciones_str}
 
+Responde ÚNICAMENTE con un array JSON de las contraindicaciones que SÍ encontraste mencionadas.
+Si no encuentras ninguna, responde: []
 
-# ===========================================================
-# SECCIÓN 9 — FUNCIÓN PAC POR CÓDIGO
-# ===========================================================
+Ejemplo de respuesta:
+["contraindicacion1", "contraindicacion2"]
 
+NO incluyas explicaciones, solo el array JSON.
+"""
 
-def obtener_pac_codigo(codigo_necesidad):
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(BUCKET_NAME)
-
-    prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
-    blobs = [
-        b
-        for b in bucket.list_blobs(prefix=prefijo)
-        if b.name.lower().endswith((".pdf", ".docx", ".txt"))
-    ][:MAX_DOCUMENTS_PER_FOLDER]
-
-    pacs = []
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(analizar_documento_pac, b) for b in blobs]
-        for f in as_completed(futures):
-            pac = f.result()
-            if pac > 0:
-                pacs.append(pac)
-
-    return max(pacs) if pacs else 0.0
-
-
-# ===========================================================
-# SECCIÓN 10 — CONTRAINDICACIONES (FASE 2)
-# ===========================================================
-
-
-def analizar_documento_contra(blob, lista_contra):
-    doc_hash = generar_hash_documento(blob.name, "CONTRA")
-
-    with cache_lock:
-        if doc_hash in CACHE_IA:
-            return CACHE_IA[doc_hash]
-
-    mime_type = obtener_mime_type(blob.name)
-    if blob.size == 0 or mime_type is None:
+    try:
+        contenido_completo = [prompt] + documentos_contenido
+        response = model.generate_content(contenido_completo)
+        response_text = response.text.strip()
+        
+        # Limpiar markdown
+        if response_text.startswith("```"):
+            response_text = re.sub(r"```json\n?|```\n?", "", response_text).strip()
+        
+        contraindicaciones_encontradas = json.loads(response_text)
+        return contraindicaciones_encontradas
+        
+    except Exception as e:
+        print(f"   ✗ Error al buscar contraindicaciones: {e}")
         return []
 
-    document_part = Part.from_uri(
-        uri=f"gs://{BUCKET_NAME}/{blob.name}", mime_type=mime_type
-    )
+# =========================
+# 5. WEB SCRAPING
+# =========================
 
-    prompt = f"""
-    Revisa el documento y detecta si contiene alguna de las siguientes
-    palabras o frases (contraindicaciones):
-    {lista_contra}
-    Devuelve solo las encontradas separadas por coma.
-    """
+def configurar_driver():
+    """Configura Selenium WebDriver"""
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")  # Modo sin interfaz
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    
+    driver = webdriver.Chrome(options=chrome_options)
+    return driver
 
+def buscar_vtotal_en_portal(df_infimas):
+    """Busca V_Total en el portal de compras públicas de Ecuador"""
+    driver = configurar_driver()
+    
     try:
-        response = model.generate_content([document_part, prompt])
-        encontrados = [x.strip() for x in response.text.split(",") if x.strip()]
-    except Exception:
-        encontrados = []
+        for idx, row in df_infimas.iterrows():
+            entidad = row['entidad_contratante']
+            descripcion = row['descripcion_objeto_compra']
+            
+            print(f"   Buscando: {row['codigo_necesidad']} - {entidad}")
+            
+            vtotal = buscar_para_entidad(driver, entidad, descripcion)
+            
+            if vtotal > 0:
+                df_infimas.at[idx, 'V_Total'] = vtotal
+                print(f"   ✓ V_Total encontrado: {vtotal}")
+            else:
+                print(f"   ⚠ No se encontró V_Total")
+            
+            time.sleep(2)  # Pausa para evitar saturar el servidor
+            
+    finally:
+        driver.quit()
+    
+    return df_infimas
 
-    with cache_lock:
-        CACHE_IA[doc_hash] = encontrados
-
-    return encontrados
-
-
-def obtener_contraindicaciones_codigo(codigo_necesidad, lista_contra):
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(BUCKET_NAME)
-
-    prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
-    blobs = [
-        b
-        for b in bucket.list_blobs(prefix=prefijo)
-        if b.name.lower().endswith((".pdf", ".docx", ".txt"))
-    ][:MAX_DOCUMENTS_PER_FOLDER]
-
-    encontradas = set()
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [
-            executor.submit(analizar_documento_contra, b, lista_contra) for b in blobs
-        ]
-        for f in as_completed(futures):
-            encontradas.update(f.result())
-
-    return list(encontradas)
-
-
-# ===========================================================
-# SECCIÓN 11 — CÁLCULO DEL PESO
-# ===========================================================
-
-
-def calcular_peso(contras, pesos):
-    valores = [pesos[c] for c in contras if c in pesos]
-    if not valores:
+def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
+    """Busca V_Total para una entidad específica"""
+    url_base = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/PC/buscarPACe.cpe#"
+    
+    try:
+        driver.get(url_base)
+        wait = WebDriverWait(driver, 10)
+        
+        # Paso a) Click en botón buscar entidad
+        boton_buscar_entidad = wait.until(
+            EC.element_to_be_clickable((By.ID, "botonBuscarEntidad"))
+        )
+        boton_buscar_entidad.click()
+        
+        # Cambiar a la ventana emergente
+        time.sleep(1)
+        ventanas = driver.window_handles
+        if len(ventanas) > 1:
+            driver.switch_to.window(ventanas[-1])
+        
+        # Paso b) Ingresar nombre de entidad
+        input_empresa = wait.until(
+            EC.presence_of_element_located((By.NAME, "txtEmpresa"))
+        )
+        input_empresa.clear()
+        input_empresa.send_keys(entidad_contratante)
+        
+        # Paso c) Click en buscar
+        boton_buscar = driver.find_element(By.ID, "botonBuscar")
+        boton_buscar.click()
+        
+        time.sleep(2)
+        
+        # Paso d) Seleccionar primera opción de entidad
+        try:
+            tabla_resultados = driver.find_element(By.TAG_NAME, "table")
+            filas = tabla_resultados.find_elements(By.TAG_NAME, "tr")
+            
+            if len(filas) <= 1:  # Solo header
+                driver.switch_to.window(ventanas[0])
+                return 0.0
+            
+            # Intentar con cada opción
+            for i in range(1, min(len(filas), 4)):  # Hasta 3 opciones
+                try:
+                    # Volver a abrir ventana emergente
+                    if i > 1:
+                        driver.switch_to.window(ventanas[0])
+                        boton_buscar_entidad = wait.until(
+                            EC.element_to_be_clickable((By.ID, "botonBuscarEntidad"))
+                        )
+                        boton_buscar_entidad.click()
+                        time.sleep(1)
+                        driver.switch_to.window(ventanas[-1])
+                        input_empresa = wait.until(
+                            EC.presence_of_element_located((By.NAME, "txtEmpresa"))
+                        )
+                        input_empresa.clear()
+                        input_empresa.send_keys(entidad_contratante)
+                        boton_buscar = driver.find_element(By.ID, "botonBuscar")
+                        boton_buscar.click()
+                        time.sleep(2)
+                        tabla_resultados = driver.find_element(By.TAG_NAME, "table")
+                        filas = tabla_resultados.find_elements(By.TAG_NAME, "tr")
+                    
+                    # Seleccionar opción i
+                    fila_entidad = filas[i]
+                    link_seleccionar = fila_entidad.find_element(By.TAG_NAME, "a")
+                    link_seleccionar.click()
+                    
+                    # Volver a ventana principal
+                    time.sleep(1)
+                    driver.switch_to.window(ventanas[0])
+                    
+                    # Paso e) Buscar PAC
+                    boton_buscar_pac = wait.until(
+                        EC.element_to_be_clickable((By.ID, "botonBuscar"))
+                    )
+                    boton_buscar_pac.click()
+                    
+                    time.sleep(2)
+                    
+                    # Paso f) Verificar si hay resultados
+                    tabla_pac = driver.find_element(By.ID, "tablaPAC")  # Ajustar ID según página real
+                    filas_pac = tabla_pac.find_elements(By.TAG_NAME, "tr")
+                    
+                    if len(filas_pac) > 1:  # Hay datos
+                        # Paso III) Buscar coincidencia de descripción
+                        vtotal = buscar_coincidencia_descripcion(tabla_pac, descripcion_objetivo)
+                        if vtotal > 0:
+                            return vtotal
+                    
+                except Exception as e:
+                    continue
+            
+            return 0.0
+            
+        except NoSuchElementException:
+            driver.switch_to.window(ventanas[0])
+            return 0.0
+        
+    except TimeoutException:
+        print(f"   ✗ Timeout al buscar entidad")
         return 0.0
-    producto = reduce(lambda a, p: a * (1 - p), valores, 1)
-    return round(1 - producto, 6)
+    except Exception as e:
+        print(f"   ✗ Error: {e}")
+        return 0.0
 
+def buscar_coincidencia_descripcion(tabla, descripcion_objetivo):
+    """Busca coincidencia en descripciones y retorna V_Total"""
+    filas = tabla.find_elements(By.TAG_NAME, "tr")
+    
+    descripcion_limpia = descripcion_objetivo.lower().strip()
+    
+    for fila in filas[1:]:  # Saltar header
+        celdas = fila.find_elements(By.TAG_NAME, "td")
+        
+        if len(celdas) < 3:
+            continue
+        
+        desc_fila = celdas[0].text.lower().strip()  # Columna Descripción
+        vtotal_texto = celdas[2].text.strip()  # Columna V.Total
+        
+        # Calcular similitud simple
+        palabras_objetivo = set(descripcion_limpia.split())
+        palabras_fila = set(desc_fila.split())
+        
+        coincidencias = len(palabras_objetivo.intersection(palabras_fila))
+        
+        if coincidencias >= len(palabras_objetivo) * 0.6:  # 60% coincidencia
+            try:
+                vtotal = float(vtotal_texto.replace(',', '').replace('$', ''))
+                return vtotal
+            except:
+                continue
+    
+    return 0.0
 
-# ===========================================================
-# SECCIÓN 12 — ACTUALIZACIONES BD
-# ===========================================================
+# =========================
+# 6. CÁLCULO DE PESO
+# =========================
 
+def calcular_peso(contraindicaciones_encontradas, df_contraindicaciones):
+    """Calcula el peso usando la fórmula: 1 - Π(1 - P(i))"""
+    if not contraindicaciones_encontradas:
+        return 0.0
+    
+    producto = 1.0
+    
+    for contraind in contraindicaciones_encontradas:
+        peso_row = df_contraindicaciones[
+            df_contraindicaciones['contraindicacion'] == contraind
+        ]
+        
+        if not peso_row.empty:
+            peso_individual = float(peso_row.iloc[0]['peso'])
+            producto *= (1 - peso_individual)
+    
+    peso_final = 1 - producto
+    return peso_final
 
-def actualizar_pac(cursor, conexion, codigo, pac):
-    cursor.execute(
-        """
-        UPDATE infimas
-        SET PAC = %s
-        WHERE codigo_necesidad = %s
-    """,
-        (pac, codigo),
-    )
-    conexion.commit()
-
-
-def insertar_evaluacion(cursor, conexion, codigo, peso, justificacion):
-    cursor.execute(
-        """
-        INSERT INTO evaluaciones (codigo_necesidad, peso_total, justificacion)
-        VALUES (%s, %s, %s)
-    """,
-        (codigo, peso, justificacion),
-    )
-    conexion.commit()
-
-
-def actualizar_etapa_por_pac(cursor, conexion, codigo_necesidad, pac):
-    etapa = "seleccionada" if pac > 0 else "no seleccionada"
-    cursor.execute(
-        """
-        UPDATE infimas
-        SET etapa = %s
-        WHERE codigo_necesidad = %s
-    """,
-        (etapa, codigo_necesidad),
-    )
-    conexion.commit()
-
-
-# ===========================================================
-# SECCIÓN 13 — FLUJO PRINCIPAL
-# ===========================================================
-
+# =========================
+# 7. ORQUESTADOR PRINCIPAL
+# =========================
 
 def main():
-    conexion = conectar_base_datos()
-    cursor = conexion.cursor()
-
-    lista_contra, pesos = obtener_contraindicaciones(cursor)
-    codigos = obtener_codigos_preseleccionados(cursor)
-
-    pac_por_codigo = {}
-    for codigo in codigos:
-        pac = obtener_pac_codigo(codigo)
-        pac_por_codigo[codigo] = pac
-        actualizar_pac(cursor, conexion, codigo, pac)
-        actualizar_etapa_por_pac(cursor, conexion, codigo, pac)
-
-    for codigo, pac in pac_por_codigo.items():
+    print("=" * 80)
+    print("SISTEMA DE ANÁLISIS DE ÍNFIMAS - COMPRAS PÚBLICAS ECUADOR")
+    print("=" * 80)
+    
+    # Paso 1-2: Cargar contraindicaciones
+    print("\n[1] Cargando contraindicaciones...")
+    contraindicaciones_list = obtener_contraindicaciones()
+    df_contraindicaciones = obtener_contraindicaciones_con_peso()
+    print(f"   ✓ {len(contraindicaciones_list)} contraindicaciones cargadas")
+    
+    # Paso 3: Códigos preseleccionados
+    print("\n[2] Obteniendo códigos preseleccionados...")
+    codigos_preseleccionados = obtener_codigos_preseleccionados()
+    print(f"   ✓ {len(codigos_preseleccionados)} códigos encontrados")
+    
+    # Paso 4-6: Buscar PAC en documentos con IA
+    print("\n[3] Inicializando servicios Google Cloud...")
+    model, bucket = inicializar_servicios()
+    print("   ✓ Servicios inicializados")
+    
+    print("\n[4] Buscando PAC en documentos...")
+    codigos_pac_dict = {}
+    
+    for i, codigo in enumerate(codigos_preseleccionados, 1):
+        print(f"   [{i}/{len(codigos_preseleccionados)}] {codigo}")
+        pac = buscar_pac_en_documentos(bucket, codigo, model)
+        codigos_pac_dict[codigo] = pac
         if pac > 0:
-            contras = obtener_contraindicaciones_codigo(codigo, lista_contra)
-            peso = calcular_peso(contras, pesos)
-            justificacion = ", ".join(contras)
-            insertar_evaluacion(cursor, conexion, codigo, peso, justificacion)
-
-    guardar_cache(CACHE_IA)
-    cursor.close()
-    conexion.close()
-
-
-# ===========================================================
-# PUNTO DE ENTRADA
-# ===========================================================
+            print(f"   ✓ PAC encontrado: {pac}")
+        else:
+            print(f"   ⚠ PAC no encontrado (se asignará 0.0)")
+    
+    print("\n[5] Actualizando PAC en base de datos...")
+    actualizar_pac_en_bd(codigos_pac_dict)
+    print("   ✓ Base de datos actualizada")
+    
+    # Paso 7: Comprobación de PAC con web scraping
+    print("\n[6] Obteniendo ínfimas para comprobación...")
+    df_infimas = obtener_infimas_con_pac()
+    print(f"   ✓ {len(df_infimas)} registros obtenidos")
+    
+    print("\n[7] Buscando V_Total en portal de compras públicas...")
+    print("   (Este proceso puede tomar varios minutos)")
+    df_infimas = buscar_vtotal_en_portal(df_infimas)
+    
+    print("\n[8] Actualizando PAC desde V_Total...")
+    actualizar_pac_desde_vtotal(df_infimas)
+    print("   ✓ Base de datos actualizada")
+    
+    # Paso 8-11: Buscar contraindicaciones
+    print("\n[9] Obteniendo códigos con PAC > 0...")
+    codigos_pac_positivos = obtener_codigos_pac_mayores_cero()
+    print(f"   ✓ {len(codigos_pac_positivos)} códigos con PAC > 0")
+    
+    print("\n[10] Analizando contraindicaciones en documentos...")
+    contraindicaciones_por_codigo = {}
+    
+    for i, codigo in enumerate(codigos_pac_positivos.keys(), 1):
+        print(f"   [{i}/{len(codigos_pac_positivos)}] {codigo}")
+        contraindicaciones_encontradas = buscar_contraindicaciones_en_documentos(
+            bucket, codigo, contraindicaciones_list, model
+        )
+        contraindicaciones_por_codigo[codigo] = contraindicaciones_encontradas
+        
+        if contraindicaciones_encontradas:
+            print(f"   ✓ Encontradas: {', '.join(contraindicaciones_encontradas)}")
+        else:
+            print(f"   ⚠ No se encontraron contraindicaciones")
+    
+    # Paso 12: Calcular pesos
+    print("\n[11] Calculando pesos...")
+    for codigo, contraindicaciones_encontradas in contraindicaciones_por_codigo.items():
+        peso = calcular_peso(contraindicaciones_encontradas, df_contraindicaciones)
+        actualizar_peso_en_bd(codigo, peso)
+        print(f"   {codigo}: Peso = {peso:.4f}")
+    
+    # Resumen final
+    print("\n" + "=" * 80)
+    print("PROCESO COMPLETADO")
+    print("=" * 80)
+    print(f"Códigos preseleccionados:      {len(codigos_preseleccionados)}")
+    print(f"Códigos con PAC > 0:           {len(codigos_pac_positivos)}")
+    print(f"Códigos con contraindicaciones: {sum(1 for c in contraindicaciones_por_codigo.values() if c)}")
+    print("=" * 80)
 
 if __name__ == "__main__":
     main()

@@ -90,5 +90,50 @@
   "cf2efae78f20a730a8933773c168dc03deb8ed13c503939a7b7ee33e76ca19dc": [],
   "9cec2ac81fc8e53360b7004401cb171df47765331d6c37c262682cc792aee668": [
     "Procesos que requieran contratistas más de 3 días"
+  ],
+  "d34731e5d3bcd696ecb9e0a18868101b5c6312697e8f5c0e0b44d006f6152a6c": 0.0,
+  "51e26264dd7f9636f33dd835e895def37c2b86eb8ca7bd194592c63c90960f06": 0.0,
+  "fdbf4987f37e3b7b3ae566b2496a7dc7fd69cd336641f0066ede1b8f541131e0": 10000.0,
+  "527b4e385c0321dc4f777e16078f3a34bb579c07b1121faf2ae6f5422b0bd76b": 0.0,
+  "691094e3e41bb9c8a089ae552969b9461d2b4dc5d621812748a4b61cf46dfd6c": 0.0,
+  "ef5626f3d9f096236c860a4e9af7ef840a290cf6915d33e643a5c5e66994ab93": 0.0,
+  "e0ebcc28959bde9572bd5f2c4e57afbdac2a7d0f5ea62383ad720d01af325233": 0.0,
+  "62fbfb835498b7feda22efd5dcd30ceb63a1effcc67e81c12ba656008dbd3fdc": 0.0,
+  "ea1cd4f0db7a1536196469e2c0ea6470f524a5373980f151e46820245f41a0f2": 2e-07,
+  "9e90313d1432813990657f4b332909abafe860498d2b9644cd15c6a91b4ecca8": 0.0,
+  "e556cdd1e1728960c14227b1c020159fe7e0c71b2653ed632911902e3f5b680c": 10000.0,
+  "7384d6b02cc0f81dc6032fdb6ecde015b13d4e2d513362fca249e34e8823dc7c": 986.0,
+  "5c28a76a35a97be500b8109dbeb50bacf5584a72eb23d776b3d5d15159d313a8": 986.0,
+  "ebbd6ebb26f8ad0ef918c8abc2c0c21f8f6f522704a13de694c41ebe9ea01eab": [],
+  "b23e76b58f726453614ccf1328b729849eaba1659a9aaf1a11de43d80f829ed5": [
+    "Procesos con software de terceros"
+  ],
+  "14d256700db57234ba39d65530452924e704320b85978345fb2dc1741613d9cd": [
+    "Procesos que requieran soporte técnico",
+    "Procesos con licencias",
+    "suscripciones",
+    "certificados"
+  ],
+  "8ca03ef61eaf2994e0a2f3a2d3f263a22d108a92d6318f6c79f6c7700cdf00e8": [
+    "Procesos que requieran soporte técnico",
+    "Procesos con instalación de software",
+    "Procesos con software de terceros",
+    "Procesos con licencias",
+    "suscripciones",
+    "certificados",
+    "Procesos que requieran contratistas más de 3 días"
+  ],
+  "19d6b4d4d55d8e38e1e516e4e2a5388581fa7920476e45bbc2319b1b6aae32ce": [],
+  "3113447343b185763c57ca4bda6fb86e6c1cd169da7ce723c2cd9090efb31232": [
+    "Garantía mayor a 3 años"
+  ],
+  "32b1cb4488fbf8584dbb490291375909db2f6a54dfeee0de1e7f6ea7bb637c7c": [
+    "Procesos que requieran contratistas más de 3 días"
+  ],
+  "99532531e1ee055212e67831a8218dd3e0be651077a68deb026206acf9305783": [
+    "Procesos que requieran contratistas más de 3 días"
+  ],
+  "b7c9e3614492bc8002648af864524760b01da1f573da939151939e5eebfa10f6": [
+    "Distancia entre provincia"
   ]
 }
