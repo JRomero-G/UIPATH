@@ -65,11 +65,11 @@ def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
         blob = bucket.blob(blob_path)
         blob.upload_from_filename(ruta_local)
 
-        print(f"[GCS] Subido: {blob_path}")
+        print(f"    [GCS] Subido: {nombre_archivo}")
         return f"gs://{BUCKET_NAME}/{blob_path}"
 
     except Exception as e:
-        print(f"Error subiendo a GCS: {e}")
+        print(f"    [GCS] Error: {e}")
         return None
 
 
@@ -81,13 +81,15 @@ def safe_value(value, default="SIN_VALOR"):
 
 
 def obtener_datos_preseleccionados():
+    """Obtiene ínfimas en etapa 'preseleccionada'"""
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor(dictionary=True)
 
         cursor.execute(
             "SELECT codigo_necesidad, entidad_contratante_url "
-            "FROM infimas WHERE etapa = 'preseleccionada'"
+            "FROM infimas WHERE etapa = 'preseleccionada' "
+            "ORDER BY codigo_necesidad"
         )
 
         datos = cursor.fetchall()
@@ -98,7 +100,33 @@ def obtener_datos_preseleccionados():
         return None if df.empty else df
 
     except Exception as e:
-        print(f"Error BD: {e}")
+        print(f"[ERROR] BD: {e}")
+        return None
+
+
+def obtener_datos_seleccionados():
+    """Obtiene ínfimas en etapa 'seleccionada'"""
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT codigo_necesidad, entidad_contratante_url "
+            "FROM infimas WHERE etapa = 'seleccionada' "
+            "AND entidad_contratante_url IS NOT NULL "
+            "AND entidad_contratante_url != '' "
+            "ORDER BY codigo_necesidad"
+        )
+
+        datos = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        df = pd.DataFrame(datos)
+        return None if df.empty else df
+
+    except Exception as e:
+        print(f"[ERROR] BD: {e}")
         return None
 
 
@@ -137,7 +165,11 @@ def extraer_y_limpiar_cantidad(celda):
         return None
 
 
-def obtener_suma_cantidades(html_content, codigo_necesidad):
+def obtener_suma_cantidades(html_content):
+    """
+    Retorna la suma de cantidades o None si no hay tabla.
+    MODIFICADO: Solo retorna el valor, no actualiza la BD.
+    """
     tabla, col_index = encontrar_tabla_cantidad(html_content)
     if not tabla:
         return None
@@ -150,23 +182,28 @@ def obtener_suma_cantidades(html_content, codigo_necesidad):
             if valor:
                 suma += valor
 
-    if suma > 10:
-        try:
-            conn = mysql.connector.connect(**MYSQL_CONFIG)
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s",
-                ("no seleccionada", codigo_necesidad),
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
-        except Exception as e:
-            print(f"Error actualizando etapa: {e}")
+    return suma if suma > 0 else None
 
-        return "no seleccionada"
 
-    return suma if 0 < suma <= 10 else None
+def actualizar_etapa(codigo_necesidad, nueva_etapa):
+    """
+    Actualiza la etapa de una ínfima en la base de datos.
+    NUEVA FUNCIÓN para manejo centralizado de actualizaciones.
+    """
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s",
+            (nueva_etapa, codigo_necesidad),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"    [DB] Error actualizando etapa: {e}")
+        return False
 
 
 # =====================================================
@@ -264,51 +301,209 @@ def eliminar_carpeta_temporal(carpeta):
     try:
         if os.path.exists(carpeta):
             shutil.rmtree(carpeta)
-            print(f"[CLEAN] Eliminada carpeta temporal: {carpeta}")
+            print(f"    [CLEAN] Carpeta temporal eliminada")
     except Exception as e:
-        print(f"Error eliminando carpeta {carpeta}: {e}")
+        print(f"    [CLEAN] Error: {e}")
 
 
 # =====================================================
-# 7. MAIN
+# 7. FASE 1: CLASIFICACIÓN
 # =====================================================
-def main():
+def fase_clasificacion():
+    """
+    FASE 1: Clasificar ínfimas preseleccionadas según cantidad de artículos
+    - Cantidad <= 10 → etapa = 'seleccionada'
+    - Cantidad > 10  → etapa = 'no seleccionada'
+    """
+    print("\n" + "="*70)
+    print(" "*20 + "FASE 1: CLASIFICACIÓN")
+    print("="*70)
+    
     df = obtener_datos_preseleccionados()
     if df is None:
-        print("Sin datos")
-        return
-
-    total = 0
-
-    for _, row in df.iterrows():
+        print("[INFO] No hay ínfimas preseleccionadas para clasificar\n")
+        return 0, 0
+    
+    print(f"[INFO] {len(df)} ínfimas preseleccionadas encontradas\n")
+    
+    seleccionadas = 0
+    no_seleccionadas = 0
+    sin_datos = 0
+    
+    for idx, row in df.iterrows():
         codigo = safe_value(row["codigo_necesidad"])
         url = safe_value(row["entidad_contratante_url"])
+        
+        print(f"[{idx + 1}/{len(df)}] {codigo}")
+        
         if url == "SIN_VALOR":
+            print(f"  ⚠ URL faltante - OMITIDO")
+            sin_datos += 1
             continue
-
+        
         try:
+            # Obtener página web
             r = session.get(url, timeout=TIMEOUT_PAGINA)
             if r.status_code != 200:
+                print(f"  ✗ Error HTTP {r.status_code}")
+                sin_datos += 1
                 continue
+            
+            # Extraer suma de cantidades
+            suma = obtener_suma_cantidades(r.text)
+            
+            if suma is None:
+                print(f"  ⚠ Sin tabla de cantidades - OMITIDO")
+                sin_datos += 1
+            elif suma > 10:
+                # Cantidad mayor a 10 → NO SELECCIONADA
+                if actualizar_etapa(codigo, "no seleccionada"):
+                    print(f"  ✗ Cantidad: {suma:.2f} > 10 → NO SELECCIONADA")
+                    no_seleccionadas += 1
+                else:
+                    sin_datos += 1
+            else:
+                # Cantidad <= 10 → SELECCIONADA
+                if actualizar_etapa(codigo, "seleccionada"):
+                    print(f"  ✓ Cantidad: {suma:.2f} ≤ 10 → SELECCIONADA")
+                    seleccionadas += 1
+                else:
+                    sin_datos += 1
+                
+        except Exception as e:
+            print(f"  ✗ Error: {e}")
+            sin_datos += 1
+        
+        time.sleep(PAUSA_ENTRE_PROCESOS)
+    
+    # Resumen Fase 1
+    print(f"\n{'='*70}")
+    print(" "*22 + "RESUMEN FASE 1")
+    print(f"{'='*70}")
+    print(f"Total procesadas:      {len(df)}")
+    print(f"Seleccionadas:         {seleccionadas}")
+    print(f"No seleccionadas:      {no_seleccionadas}")
+    print(f"Sin datos/errores:     {sin_datos}")
+    print(f"{'='*70}\n")
+    
+    return seleccionadas, no_seleccionadas
 
-            if not obtener_suma_cantidades(r.text, codigo):
+
+# =====================================================
+# 8. FASE 2: DESCARGA
+# =====================================================
+def fase_descarga():
+    """
+    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada'
+    """
+    print("\n" + "="*70)
+    print(" "*18 + "FASE 2: DESCARGA DE DOCUMENTOS")
+    print("="*70)
+    
+    df = obtener_datos_seleccionados()
+    if df is None:
+        print("[INFO] No hay ínfimas seleccionadas para descargar\n")
+        return 0
+    
+    print(f"[INFO] {len(df)} ínfimas seleccionadas para descargar\n")
+    
+    total_archivos = 0
+    exitosas = 0
+    fallidas = 0
+    
+    for idx, row in df.iterrows():
+        codigo = safe_value(row["codigo_necesidad"])
+        url = safe_value(row["entidad_contratante_url"])
+        
+        print(f"[{idx + 1}/{len(df)}] {codigo}")
+        
+        try:
+            # Obtener página web
+            r = session.get(url, timeout=TIMEOUT_PAGINA)
+            if r.status_code != 200:
+                print(f"  ✗ Error HTTP {r.status_code}")
+                fallidas += 1
                 continue
-
+            
+            # Crear carpeta temporal
             carpeta = os.path.join(BASE_DOWNLOAD_PATH, codigo)
             os.makedirs(carpeta, exist_ok=True)
-
+            
+            # Descargar documentos
             descargados = obtener_y_descargar_documentos(r.text, url, carpeta)
-            total += descargados
-
+            total_archivos += descargados
+            
             if descargados > 0:
+                print(f"  ✓ {descargados} documento(s) procesado(s)")
+                exitosas += 1
                 eliminar_carpeta_temporal(carpeta)
-
+            else:
+                print(f"  ⚠ No se encontraron documentos")
+                fallidas += 1
+                
         except Exception as e:
-            print(f"Error procesando {codigo}: {e}")
-
+            print(f"  ✗ Error: {e}")
+            fallidas += 1
+        
         time.sleep(PAUSA_ENTRE_PROCESOS)
+    
+    # Resumen Fase 2
+    print(f"\n{'='*70}")
+    print(" "*22 + "RESUMEN FASE 2")
+    print(f"{'='*70}")
+    print(f"Total procesadas:      {len(df)}")
+    print(f"Exitosas:              {exitosas}")
+    print(f"Fallidas:              {fallidas}")
+    print(f"Archivos descargados:  {total_archivos}")
+    print(f"{'='*70}\n")
+    
+    return total_archivos
 
-    print(f"COMPLETADO: {total} archivos subidos a GCS")
+
+# =====================================================
+# 9. MAIN
+# =====================================================
+def main():
+    """
+    Orquestador principal:
+    1. Clasifica TODAS las preseleccionadas (FASE 1)
+    2. Descarga documentos SOLO de las seleccionadas (FASE 2)
+    """
+    print("\n" + "="*70)
+    print(" "*15 + "SISTEMA DE GESTIÓN DE ÍNFIMAS")
+    print(" "*12 + "Clasificación y Descarga de Documentos")
+    print("="*70)
+    
+    inicio_total = time.time()
+    
+    # ============================================================
+    # FASE 1: CLASIFICAR TODAS LAS PRESELECCIONADAS
+    # ============================================================
+    seleccionadas, no_seleccionadas = fase_clasificacion()
+    
+    # ============================================================
+    # FASE 2: DESCARGAR SOLO LAS SELECCIONADAS
+    # ============================================================
+    if seleccionadas > 0:
+        total_archivos = fase_descarga()
+    else:
+        print("⚠ No hay ínfimas seleccionadas.")
+        print("  La FASE 2 (descarga) será omitida.\n")
+        total_archivos = 0
+    
+    # ============================================================
+    # REPORTE FINAL
+    # ============================================================
+    duracion_total = (time.time() - inicio_total) / 60
+    
+    print("="*70)
+    print(" "*22 + "PROCESO COMPLETADO")
+    print("="*70)
+    print(f"Ínfimas seleccionadas:      {seleccionadas}")
+    print(f"Ínfimas no seleccionadas:   {no_seleccionadas}")
+    print(f"Archivos descargados:       {total_archivos}")
+    print(f"Tiempo total ejecución:     {duracion_total:.2f} minutos")
+    print("="*70 + "\n")
 
 
 if __name__ == "__main__":

@@ -152,7 +152,7 @@ def clasificar_descripcion_lote(batch_data, palabras_clave, model):
 Eres un analista de compras públicas.
 Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
 {", ".join(palabras_clave)}
-
+En caso de que SI se mencione alguna palabra o frase clave entonces, tu respuesta será SI, de lo contrario será NO.
 Responde ESTRICTAMENTE con un objeto JSON donde la clave es el número de fila y el valor es "SI" o "NO".
 
 Datos:
