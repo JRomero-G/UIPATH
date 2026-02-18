@@ -22,6 +22,10 @@ class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
+        
+        #infimas por asignar
+        self.infimas_pendientes = {}
+
         self.setWindowTitle("Gestorex 1.1 - Manager")
         self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
@@ -174,8 +178,9 @@ class WorkspaceManagerUI(BaseWindow):
             combo.addItem("Seleccionar usuario")  # placeholder
             combo.addItems(lista_usuarios)
             combo.setStyleSheet("background-color: white; color: black;")
+            #Evitar registrar entes de la confirmacion y habilitar la modificacion
             combo.currentIndexChanged.connect(
-                partial(self.asignar_usuario_infima, row, combo, item)
+                partial(self.on_usuario_changed, row, combo, item)
             )
             self.table.setCellWidget(row, 0, combo)
 
@@ -264,3 +269,33 @@ class WorkspaceManagerUI(BaseWindow):
         except requests.RequestException as e:
             QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
+
+    #Cambiar de usuario en la combobox
+    def on_usuario_changed(self, row, combo: QComboBox, item_data: dict):
+
+        texto = combo.currentText()
+        id_infima = item_data.get("id_infima")
+
+        # Si vuelve a "Seleccionar", borrar buffer
+        if texto == "Seleccionar usuario":
+
+            if row in self.infimas_pendientes:
+                del self.infimas_pendientes[row]
+                print(f"Infimas con id: {id_infima} se elimnio de la asignacion")
+            return
+
+        usuario_id = self.usuarios_dict.get(texto)
+
+        if not usuario_id or not id_infima:
+            return
+
+        # Guardar en memoria
+        self.infimas_pendientes[row] = {
+            "usuario_id": usuario_id,
+            "id_infima": id_infima
+        }
+
+        print("Pendientes:", self.infimas_pendientes)
+
+
+            

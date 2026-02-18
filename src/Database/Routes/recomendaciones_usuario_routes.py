@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from ..Models.usuarios_model import Usuario
 from ..Controllers.recomendaciones_usuario_controller import (
-    asignar_infimas_recomendadas_a_usuario,
+    asignar_infimas_recomendadas_a_usuario_lote,
+    asignar_infimas_recomendadas_a_usuario_individual,
     obtener_infimas_recomendadas_asignadas_del_usuario,
 )
 from ..Auth.Usuario_auth import usuario_actual
@@ -19,10 +20,15 @@ router = APIRouter(
     tags=["Recomendaciones por Usuario"]
 )
 
-
+# asignacion multiple
 class AsignacionRequest(BaseModel):
     usuario_id: int
     infimas: List[int]
+
+# asignacion individual
+class AsignacionIndividualRequest(BaseModel):
+    usuario_id: int
+    id_infima: int
 
 #==================== RUTAS PARA ADMIN===================================
 
@@ -37,21 +43,39 @@ def infimas_para_admin(db: Session = Depends(get_db),current_user: Usuario = Dep
         return {"error": "No autorizado debe ser administrador"}
     return obtener_infimas_disponibles_admin(db)
 
+#Nueva ruta para asignar infimas individualmente
+@router.post("/admin/asignar-infima-individual")
+def asignar_infima_unica(data: AsignacionIndividualRequest, db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    
+    if not current_user.es_admin:
+        return {"error":"No autorizado debe ser administrador"}
+    
+    resultado = asignar_infimas_recomendadas_a_usuario_individual(
+        db,
+        data.usuario_id,
+        data.id_infima
+    )
+
+    if "error" in resultado:
+        return resultado
+    
+    return resultado
+
 # Nueva ruta para que el admin asigne ínfimas a un usuario
-@router.post("/admin/asignar-infimas")
-def asignar_infimas(data: AsignacionRequest,db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+@router.post("/admin/asignar-infimas-multiples")
+def asignar_infimas_multiples(data: AsignacionRequest,db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
     
     if not current_user.es_admin:
         return {"error": "No autorizado debe ser administrador"}
 
-    resultado = asignar_infimas_recomendadas_a_usuario(
+    resultado = asignar_infimas_recomendadas_a_usuario_lote(
         db,
         data.usuario_id,
         data.infimas
     )
 
     if "error" in resultado:
-        return {"error": "Error al asignar infimas"}
+        return resultado
 
     return resultado 
 

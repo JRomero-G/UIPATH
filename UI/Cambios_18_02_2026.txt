@@ -5,6 +5,11 @@ Administrador:
     4. Archivo de prueba de asignasion de infimas (deben haber infimas en etapa de "ingresada" y no debe estar asignada a un empleado)
     5. Integracion con el frontend (Mostrar infimas disponibles y usuarios empleados)
 
+    cambios 18/02/02:
+        1. Nuevo controlador para asignar infimas individualmente
+        2. Nueva ruta Endpoint para la asignacion de la infima
+        3. Integracion de las nuevas funciones(controlador y ruta) al frontend (solo visualizacion)
+
     PENDIENTE:
         1. Funcion para asignar las infimas y actualizar la tabla
         2. La condicion para las infimas que se muestran en la tabla de administrador solo tiene 2 condiciones por ahora
