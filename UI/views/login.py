@@ -3,19 +3,19 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QLineEdit
 
-from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from UI.config import set_session, _session, get_session
-from ..components.base_window import BaseWindow
-from ..components.animated_background import AnimatedCurvedLine
-from ..components.animated_input import AnimatedInput
-from ..components.neon_button import NeonButton
+from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from config import set_session, _session, get_session
+from components.base_window import BaseWindow
+from components.animated_background import AnimatedCurvedLine
+from components.animated_input import AnimatedInput
+from components.neon_button import NeonButton
 
 # Importaciones nuevas Jason modif
 import requests  # se instalara esto
 from PyQt5.QtWidgets import QMessageBox
-from ..views.workspace_manager import WorkspaceManagerUI
-from ..views.workspace_user import WorkspaceUserUI
-from ..views.loading import LoadingUI
+from views.workspace_manager import WorkspaceManagerUI
+from views.workspace_user import WorkspaceUserUI
+from views.loading import LoadingUI
 
 
 class LoginUI(BaseWindow):
@@ -67,6 +67,9 @@ class LoginUI(BaseWindow):
         # ================= BOTÓN =================
         self.btn_login = NeonButton("INGRESAR", 100, 395, self)
         self.btn_login.clicked.connect(self.open_loading)
+        #funcion con teclas enter
+        self.user.returnPressed.connect(self.open_loading)
+        self.pwd.returnPressed.connect(self.open_loading)
 
         # ================= LOGO =================
         self.logo = QLabel(self)
@@ -110,10 +113,6 @@ class LoginUI(BaseWindow):
                     rol = user_info.get("es_admin")
                     user = user_info.get("nombre")
                     print("-Usuario: ", user, " -Es Administrador?:", rol)
-
-                    # Guardar sesión
-                    from UI.config import set_session
-
                     set_session({"token": token, "usuario": user_info})
                     # Abrir workspace según rol
                     # ===== ABRIR LOADING =====

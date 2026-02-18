@@ -1,50 +1,65 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..Models.usuarios_model import Usuario
 from ..Controllers.recomendaciones_usuario_controller import (
-    asignar_infimas_a_usuarios,
-    obtener_infimas_del_usuario,
+    asignar_infimas_recomendadas_a_usuario,
+    obtener_infimas_recomendadas_asignadas_del_usuario,
 )
 from ..Auth.Usuario_auth import usuario_actual
 from ..database import get_db
 
+# Nuevas importaciones
+from pydantic import BaseModel
+from typing import List
+from ..Controllers.infima_controller import obtener_infimas_disponibles_admin
+
 router = APIRouter(
-    prefix="/recomendaciones-usuario", tags=["Recomendaciones por Usuario"]
+    prefix="/recomendaciones-usuario", 
+    tags=["Recomendaciones por Usuario"]
 )
 
 
-# =========================
-# ASIGNAR ÍNFIMAS DESDE LA UI
-# =========================
-@router.post("/asignar")
-def asignar_infimas(
-    asignaciones: list[dict],
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(usuario_actual),
-):
-    # Solo admins pueden asignar
+class AsignacionRequest(BaseModel):
+    usuario_id: int
+    infimas: List[int]
+
+#==================== RUTAS PARA ADMIN===================================
+
+"""
+Endpoint para que el ADMIN vea las ínfimas NO asignadas
+Estas se mostrarán en la tabla con checkboxes
+"""
+@router.get("/admin/infimas-disponibles")
+def infimas_para_admin(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    # si el usuario actual no es dmin entonces no esta autorizado
     if not current_user.es_admin:
-        raise HTTPException(status_code=403, detail="No autorizado")
+        return {"error": "No autorizado debe ser administrador"}
+    return obtener_infimas_disponibles_admin(db)
 
-    return asignar_infimas_a_usuarios(db, asignaciones_ui=asignaciones)
+# Nueva ruta para que el admin asigne ínfimas a un usuario
+@router.post("/admin/asignar-infimas")
+def asignar_infimas(data: AsignacionRequest,db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    
+    if not current_user.es_admin:
+        return {"error": "No autorizado debe ser administrador"}
+
+    resultado = asignar_infimas_recomendadas_a_usuario(
+        db,
+        data.usuario_id,
+        data.infimas
+    )
+
+    if "error" in resultado:
+        return {"error": "Error al asignar infimas"}
+
+    return resultado 
 
 
-# =========================
-# OBTENER MIS ÍNFIMAS
-# =========================
+# ================= RUTAS DEL EMPLEADO ==================
+
+# Nueva ruta para que un usuario vea sus ínfimas asignadas
 @router.get("/mis-infimas")
-def mis_infimas(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(usuario_actual),
-):
-    infimas = obtener_infimas_del_usuario(db, current_user.id_usuario)
+def mis_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    return obtener_infimas_recomendadas_asignadas_del_usuario(db, current_user.id_usuario)
 
-    return [
-        {
-            "id_infima": i.id_infima,
-            "titulo": i.titulo,
-            "fecha_publicacion": i.fecha_publicacion,
-        }
-        for i in infimas
-    ]

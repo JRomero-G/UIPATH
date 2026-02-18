@@ -1,7 +1,6 @@
 import os
 
 # jason
-from tkinter import messagebox
 from PyQt5.QtWidgets import QMessageBox
 
 # naye
@@ -18,9 +17,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 import requests  # jason
-from ..config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from ..config import set_session, _session, get_session
-from ..components.base_window import BaseWindow
+from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from config import set_session, _session, get_session
+from components.base_window import BaseWindow
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -271,11 +270,12 @@ class WorkspaceUserUI(BaseWindow):
 
     # ==================Cargar datos en la tabla ==================
     def load_demo_data(self):
+        sesion = get_session()
+        print("Sesion completa: ", sesion)
+        print("Token guardado: ", sesion.get("token"))
         try:
             response = requests.get(
-                # No hay infimas con etapa de seleccionadas, liste todas para pruebas
-                # Cambiar por "http://127.0.0.1:8000/infimas/seleccionadas"
-                "http://127.0.0.1:8000/infimas/seleccionadas",
+                "http://127.0.0.1:8000/recomendaciones-usuario/mis-infimas",
                 headers={"Authorization": f"Bearer {get_session().get('token')}"},
                 timeout=10,
             )
@@ -305,7 +305,7 @@ class WorkspaceUserUI(BaseWindow):
                 return
 
         except requests.RequestException as e:
-            messagebox.warning(self, "Error", "No se pudo conectar al servidor.")
+            QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
             return
 
@@ -320,13 +320,13 @@ class WorkspaceUserUI(BaseWindow):
             self.table.insertRow(row)
 
             nivel = (
-                item.get("nivel_de_oportunidad") or 1
+                item.get("nivel_de_oportunidad") or "no asignado"
             )  # no tiene nivel asignado por defecto 1
 
-            if nivel == 1:
+            if nivel == "nivel 1":
                 row_color = QColor(150, 215, 175)
                 grado = "Recomendado"
-            elif nivel == 2:
+            elif nivel == "nivel 2":
                 row_color = QColor(220, 200, 140)
                 grado = "Poco recomendado"
             else:

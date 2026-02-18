@@ -14,8 +14,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
 )
 import requests
-from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
-from ..components.base_window import BaseWindow
+from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
+from components.base_window import BaseWindow
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -118,10 +118,14 @@ class WorkspaceManagerUI(BaseWindow):
 
     # ================== CARGAR DATOS ==================
     def load_demo_data(self):
+        sesion = get_session()
+        print("Sesion completa: ", sesion)
+        print("Token guardado: ", sesion.get("token"))
         try:
             # Obtener ínfimas
             response = requests.get(
-                "http://127.0.0.1:8000/infimas/ingresadas",
+                #"http://127.0.0.1:8000/infimas/ingresadas",
+                "http://127.0.0.1:8000/recomendaciones-usuario/admin/infimas-disponibles",
                 headers={"Authorization": f"Bearer {get_session().get('token')}"},
                 timeout=10,
             )
@@ -138,12 +142,13 @@ class WorkspaceManagerUI(BaseWindow):
 
             # Obtener usuarios
             usuarios_resp = requests.get(
-                "http://127.0.0.1:8000/usuarios/no-admin",
+                "http://127.0.0.1:8000/usuarios/empleados",
+                
                 headers={"Authorization": f"Bearer {get_session().get('token')}"},
                 timeout=10,
             )
             usuarios = usuarios_resp.json() if usuarios_resp.status_code == 200 else []
-            self.usuarios_dict = {u["usuario"]: u["id"] for u in usuarios}
+            self.usuarios_dict = {u["usuario"]: u["id_usuario"] for u in usuarios}
             lista_usuarios = list(self.usuarios_dict.keys())
 
         except requests.RequestException as e:

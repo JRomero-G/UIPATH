@@ -1,7 +1,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from ..Models.infima_model import Infima
-
+# Nuevas importaciones
+from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from sqlalchemy import not_
 
 def registrar_infima(db: Session, data: dict):
     infima = Infima(
@@ -22,6 +24,7 @@ def registrar_infima(db: Session, data: dict):
     db.refresh(infima)
     return infima
 
+# FUNCIONES QUE PROBABLEMENTE NO SE UTILICEN 
 
 # Ya que la IA enviara los datos por lotes, inicialmente de los 100 primeros
 # registros es probable que solo se necesiten registrar 20-40 infimas que cumplan
@@ -81,3 +84,27 @@ def listar_infimas_ingresadas(db: Session):
 
 def obtener_infima_por_codigo(db: Session, codigo: str):
     return db.query(Infima).filter(Infima.codigo_necesidad == codigo).first()
+
+# =================== Nuevo Controlador  ========================
+
+# Obtener las ínfimas que no han sido asignadas a ningún usuario cargaran en la tabla de administración
+def obtener_infimas_disponibles_admin(db: Session):
+
+    # subconsulta para ínfimas ya asignadas, se busca explícitamente que columna de la subconsulta usar
+    subquery = (
+        db.query(RecomendacionesUsuario.id_infima)
+        .subquery()
+    )
+#El .c es el acceso a las columnas de una subconsulta en SQLAlchemy. 
+# Sin él, el motor lo resolvía solo pero lanzaba el warning avisando que ese comportamiento podría eliminarse en versiones futuras.
+
+    # Dame todas las ínfimas que NO estén en recomendaciones_usuario
+    return (
+        db.query(Infima)
+        .filter(
+            not_(Infima.id_infima.in_(subquery)),
+            Infima.etapa == "ingresada"
+        )
+        .order_by(Infima.fecha_publicacion.desc())
+        .all()
+    )
