@@ -166,7 +166,7 @@ def obtener_codigos_preseleccionados():
 
 def obtener_infimas_con_pac():
     """
-    Obtiene ínfimas con PAC >= 1 para validación en portal web.
+    Obtiene ínfimas con PACdoc >= 0 para validación en portal web.
     
     Returns:
         DataFrame: DataFrame con columnas:
@@ -176,7 +176,8 @@ def obtener_infimas_con_pac():
             - V_Total (inicializado en 0.0)
     
     Nota:
-        Solo obtiene registros con PAC >= 1 (ya tienen presupuesto asignado)
+        Solo obtiene registros con PACdoc >= 0 (Donde no se encontró PAC en los documentos.
+                                                También se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -184,7 +185,7 @@ def obtener_infimas_con_pac():
     cursor.execute("""
         SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante
         FROM infimas 
-        WHERE PAC >= 1
+        WHERE PACdoc >= 0
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -198,7 +199,7 @@ def obtener_infimas_con_pac():
 
 def actualizar_pac_en_bd(codigos_pac_dict):
     """
-    Actualiza la columna PAC en la base de datos con valores extraídos por IA.
+    Actualiza la columna PACdoc en la base de datos con valores extraídos por IA.
     
     Args:
         codigos_pac_dict (dict): Diccionario {codigo_necesidad: pac_value}
@@ -212,7 +213,7 @@ def actualizar_pac_en_bd(codigos_pac_dict):
     for codigo, pac in codigos_pac_dict.items():
         cursor.execute("""
             UPDATE infimas 
-            SET PAC = %s,
+            SET PACdoc = %s,
                 actualizado_en = NOW()
             WHERE codigo_necesidad = %s
         """, (pac, codigo))
@@ -223,15 +224,15 @@ def actualizar_pac_en_bd(codigos_pac_dict):
 
 def actualizar_pac_desde_vtotal(df_infimas):
     """
-    Actualiza PAC con valores de V_Total obtenidos del portal web.
-    También cambia la etapa a 'seleccionada' para códigos con PAC > 0.
+    Actualiza PACweb con valores de V_Total obtenidos del portal web.
+    También cambia la etapa a 'seleccionada' para códigos con PACweb > 0.
     
     Args:
         df_infimas (DataFrame): DataFrame con columnas codigo_necesidad y V_Total
     
     Lógica:
-        1. Actualiza PAC = V_Total donde V_Total > 0
-        2. Cambia etapa = 'seleccionada' para todos los PAC > 0
+        1. Actualiza PACweb = V_Total donde V_Total > 0
+        2. Cambia etapa = 'seleccionada' para todos los PACweb > 0
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
@@ -241,7 +242,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
         if row['V_Total'] > 0:
             cursor.execute("""
                 UPDATE infimas 
-                SET PAC = %s,
+                SET PACweb = %s,
                     actualizado_en = NOW()
                 WHERE codigo_necesidad = %s
             """, (row['V_Total'], row['codigo_necesidad']))
@@ -251,7 +252,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
         UPDATE infimas 
         SET etapa = 'seleccionada',
             actualizado_en = NOW()
-        WHERE PAC > 0
+        WHERE PACdoc > 0 OR PACweb >0
     """)
     
     conn.commit()
@@ -273,7 +274,7 @@ def obtener_codigos_pac_mayores_cero():
     cursor.execute("""
         SELECT codigo_necesidad, PAC
         FROM infimas 
-        WHERE PAC > 0
+        WHERE PACdoc > 0 OR PACweb > 0   
     """)
     datos = cursor.fetchall()
     cursor.close()
