@@ -18,23 +18,23 @@ def registro_masivo(payload: dict, db: Session = Depends(get_db)):
     return procesar_lote_infimas(db, payload)
 
 
-@router.post("/")
+@router.post("/registrar_Una")
 def registrar(data: dict, db: Session = Depends(get_db)):
     return registrar_infima(db, data)
 
 
 @router.get("/Todas")
-def listar(db: Session = Depends(get_db)):
+def listar_Todas(db: Session = Depends(get_db)):
     return listar_infimas(db)
 
 
 @router.get("/seleccionadas")
-def listar(db: Session = Depends(get_db)):
+def listar_Seleccionada(db: Session = Depends(get_db)):
     return listar_infimas_seleccionadas(db)
 
 
 @router.get("/ingresadas")
-def listar(db: Session = Depends(get_db)):
+def listar_Ingresadas(db: Session = Depends(get_db)):
     return listar_infimas_ingresadas(db)
 
 

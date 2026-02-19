@@ -1,0 +1,132 @@
+Administrador:
+    1. Nuevo Controlador(funciones) para cargar infimas no asignadas para el Administrador
+    2. Nuevas Rutas de endpoints
+    3. Nuevo controlador(funciones) para asignar las infimas a un usuario
+    4. Archivo de prueba de asignasion de infimas (deben haber infimas en etapa de "ingresada" y no debe estar asignada a un empleado)
+    5. Integracion con el frontend (Mostrar infimas disponibles y usuarios empleados)
+
+    cambios 18/02/02:
+        1. Nuevo controlador para asignar infimas individualmente
+        2. Nueva ruta Endpoint para la asignacion de la infima
+        3. Integracion de las nuevas funciones(controlador y ruta) al frontend (solo visualizacion)
+
+    PENDIENTE:
+        1. Funcion para asignar las infimas y actualizar la tabla
+        2. La condicion para las infimas que se muestran en la tabla de administrador solo tiene 2 condiciones por ahora
+        3. Crud de usuarios
+
+Empleados:
+    1. Nuevo controlador(funcion) para cargar infimas asignadas a un usuario especifico
+    2. Nuevas rutas de endpoints
+    3. Archivo de pruebas para ver las infimas asignadas a un usuario especifico por lote
+    3. Integracion de la funcionalidad de cargar infimas asignadas a la tabla de a vista de empleados. 
+    
+    PENDIENTE:
+        1. Funcion de analizar infimas
+        2. Controlador y ruta para Eliminar infimas
+
+General:
+    1. Funcion de la tecla "Enter" para hacer login ya quedo.
+    2. Cambie el como se importa las vistas en login,workspace_user,workspace_userRE,loading y 
+        workspace_manager porque no podia ejecutar el main.py
+
+En caso de que no les funcione la ejecucion de las vistas les dejo las importaciones origiunales
+que cambie:
+    
+    1. workspace_manager:
+        import os
+        from functools import partial
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QColor, QPixmap
+        from PyQt5.QtWidgets import (
+            QLabel,
+            QPushButton,
+            QTableWidget,
+            QTableWidgetItem,
+            QHBoxLayout,
+            QVBoxLayout,
+            QHeaderView,
+            QMessageBox,
+            QComboBox,
+        )
+        import requests
+        from ..config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
+        from ..components.base_window import BaseWindow
+
+    2. workspace_user:
+        import os
+        # jason
+        from tkinter import messagebox
+        from PyQt5.QtWidgets import QMessageBox
+
+        # naye
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QColor, QPixmap
+        from PyQt5.QtWidgets import (
+            QLabel,
+            QPushButton,
+            QTableWidget,
+            QTableWidgetItem,
+            QHBoxLayout,
+            QVBoxLayout,
+            QHeaderView,
+            QWidget,
+        )
+        import requests  # jason
+        from ..config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+        from ..config import set_session, _session, get_session
+        from ..components.base_window import BaseWindow
+    
+    3. loading:
+        import os
+        import math
+        from PyQt5.QtCore import Qt, QTimer
+        from PyQt5.QtGui import QFont, QPixmap
+        from PyQt5.QtWidgets import QLabel, QWidget
+
+
+        from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+        from UI.config import set_session, _session, get_session
+        from ..components.base_window import BaseWindow
+
+        # jason
+        from ..views.workspace_user import WorkspaceUserUI
+        from ..views.workspace_manager import WorkspaceManagerUI 
+    
+    4. login:
+        import os
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QPixmap
+        from PyQt5.QtWidgets import QLabel, QLineEdit
+
+        from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+        from UI.config import set_session, _session, get_session
+        from ..components.base_window import BaseWindow
+        from ..components.animated_background import AnimatedCurvedLine
+        from ..components.animated_input import AnimatedInput
+        from ..components.neon_button import NeonButton
+
+        # Importaciones nuevas Jason modif
+        import requests  # se instalara esto
+        from PyQt5.QtWidgets import QMessageBox
+        from ..views.workspace_manager import WorkspaceManagerUI
+        from ..views.workspace_user import WorkspaceUserUI
+        from ..views.loading import LoadingUI
+
+    5. workspace_userRE:
+        import os
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont, QColor, QPixmap
+        from PyQt5.QtWidgets import (
+            QLabel,
+            QPushButton,
+            QTableWidget,
+            QTableWidgetItem,
+            QHBoxLayout,
+            QVBoxLayout,
+            QHeaderView,
+            QWidget,
+        )
+
+        from ..config import *
+        from ..components.base_window import BaseWindow
