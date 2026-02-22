@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from ..config import *
-from ..components.base_window import BaseWindow
+from config import *
+from components.base_window import BaseWindow
 
 
 class WorkspaceUserREUI(BaseWindow):
