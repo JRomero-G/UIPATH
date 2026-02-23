@@ -95,15 +95,16 @@ def obtener_infimas_disponibles_admin(db: Session):
         db.query(RecomendacionesUsuario.id_infima)
         .subquery()
     )
-#El .c es el acceso a las columnas de una subconsulta en SQLAlchemy. 
-# Sin él, el motor lo resolvía solo pero lanzaba el warning avisando que ese comportamiento podría eliminarse en versiones futuras.
 
     # Dame todas las ínfimas que NO estén en recomendaciones_usuario
     return (
         db.query(Infima)
         .filter(
             not_(Infima.id_infima.in_(subquery)),
-            Infima.etapa == "ingresada"
+            Infima.etapa == "ingresada",
+            #nuevas condiciones
+            # Infima.PAC > 0
+            # Infima.etapa == "seleccionada"
         )
         .order_by(Infima.fecha_publicacion.desc())
         .all()
