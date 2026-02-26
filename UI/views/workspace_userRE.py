@@ -1,20 +1,17 @@
 import os
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
-    QLabel,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QHBoxLayout,
-    QVBoxLayout,
-    QHeaderView,
-    QWidget,
+    QLabel, QPushButton, QTableWidget,
+    QTableWidgetItem, QHBoxLayout, QVBoxLayout,
+    QHeaderView, QWidget
 )
 
 from config import *
 from components.base_window import BaseWindow
+from components.table_validations import setup_row_logic
+from components.btns_windows import WindowButtons  # ← IMPORTADO
 
 
 class WorkspaceUserREUI(BaseWindow):
@@ -22,11 +19,19 @@ class WorkspaceUserREUI(BaseWindow):
         super().__init__()
 
         self.setWindowTitle("Gestorex 1.1 - Usuario")
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+
+        # ✅ RESPONSIVE
+        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
+        # ================= BOTONES VENTANA =================
+        # ← AÑADIDO: Botones minimizar/maximizar/cerrar en parte superior
+        self.window_buttons = WindowButtons(self)
+        self.window_buttons.setGeometry(0, 0, WINDOW_WIDTH, 35)
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 20, 30, 20)
+        main_layout.setContentsMargins(30, 50, 30, 20)
         main_layout.setSpacing(18)
 
         # ================== MENÚ SUPERIOR ==================
@@ -52,7 +57,9 @@ class WorkspaceUserREUI(BaseWindow):
         logo_path = os.path.join(base_dir, "..", "assets", "logo2.png")
 
         pixmap = QPixmap(logo_path).scaled(
-            44, 44, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            44, 44,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
         )
         logo_label.setPixmap(pixmap)
 
@@ -68,9 +75,10 @@ class WorkspaceUserREUI(BaseWindow):
 
         # ================== TABLA ==================
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Resumen", "Documento de contratación", "Acción"]
-        )
+        self.table.setHorizontalHeaderLabels([
+            "", "NIC", "Resumen",
+            "Documento de contratación", "Acción"
+        ])
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -122,6 +130,18 @@ class WorkspaceUserREUI(BaseWindow):
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
+
+    # ✅ Abrir maximizada
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.showMaximized()
+        # ← AÑADIDO: Actualizar ancho de botones al maximizar
+        self.window_buttons.setGeometry(0, 0, self.width(), 35)
+
+    # ← AÑADIDO: Actualizar botones al redimensionar
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
     # ================== BOTONES ==================
     def menu_actualizar(self, text):
@@ -291,12 +311,12 @@ class WorkspaceUserREUI(BaseWindow):
                 self.table.setItem(row, col, cell)
 
             self.table.setCellWidget(row, 3, self.document_links(row_color.name()))
-            self.table.setCellWidget(row, 4, self.delete_button(row_color.name()))
+            self.table.setCellWidget(row, 4, self.delete_button(row_color.name()))##
 
+            setup_row_logic(self.table, row, nic_col=0, action_col=4) ## 
     # ================== LLAMAR AL LOADING ==================
     def open_loading(self):
         from views.loading import LoadingUI
-
         self.loading = LoadingUI(duration_ms=3000)
         self.loading.show()
-        self.hide()
+        QTimer.singleShot(2000, self.hide)

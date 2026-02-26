@@ -14,7 +14,8 @@ class AnimatedInput(QLineEdit):
         self.anim.setDuration(160)
         self.anim.setEasingCurve(QEasingCurve.OutCubic)
 
-        self.normal_rect = self.geometry()
+        # Guardar geometría inicial
+        self._normal_rect = self.geometry()
 
         self.setStyleSheet("""
             QLineEdit {
@@ -26,17 +27,40 @@ class AnimatedInput(QLineEdit):
             }
         """)
 
+    @property
+    def normal_rect(self):
+        """Siempre retorna la geometría actual como base"""
+        return self._normal_rect
+
+    def move(self, x, y):
+        """Sobrescribir move para actualizar normal_rect"""
+        super().move(x, y)
+        self._normal_rect = self.geometry()
+
+    def setGeometry(self, x, y, w, h):
+        """Sobrescribir setGeometry para actualizar normal_rect"""
+        super().setGeometry(x, y, w, h)
+        self._normal_rect = self.geometry()
+
+    def resize(self, w, h):
+        """Sobrescribir resize para actualizar normal_rect"""
+        super().resize(w, h)
+        self._normal_rect = self.geometry()
+
     def enterEvent(self, e):
-        self.anim.setStartValue(self.geometry())
+        current = self.geometry()
+        self.anim.setStartValue(current)
         self.anim.setEndValue(QRect(
-            self.normal_rect.x() - 3,
-            self.normal_rect.y() - 3,
-            self.normal_rect.width() + 6,
-            self.normal_rect.height() + 6
+            current.x() - 3,
+            current.y() - 3,
+            current.width() + 6,
+            current.height() + 6
         ))
         self.anim.start()
+        super().enterEvent(e)
 
     def leaveEvent(self, e):
         self.anim.setStartValue(self.geometry())
-        self.anim.setEndValue(self.normal_rect)
+        self.anim.setEndValue(self._normal_rect)
         self.anim.start()
+        super().leaveEvent(e)
