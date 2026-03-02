@@ -101,11 +101,46 @@ def obtener_infimas_disponibles_admin(db: Session):
         db.query(Infima)
         .filter(
             not_(Infima.id_infima.in_(subquery)),
-            Infima.etapa == "ingresada",
+            Infima.etapa == "seleccionada",
+            Infima.PAC > 0,
+            Infima.nivel_de_oportunidad >=1 and Infima.nivel_de_oportunidad <=3
             #nuevas condiciones
             # Infima.PAC > 0
             # Infima.etapa == "seleccionada"
+            # Infima
         )
         .order_by(Infima.fecha_publicacion.desc())
         .all()
+    )
+
+# Obtener las ínfimas que están en generación o finalizadas para mostrar en el dashboard del administrador
+def obtener_infimas_en_generacion_y_finalizadas(db: Session):
+
+    return(
+        db.query(Infima)
+        .filter(
+            Infima.etapa.in_(["en generacion","finalizada"])
+        )
+        # Mostrar las infimas en generacion primero y luego las finalizadas
+        .order_by(
+            Infima.etapa.desc(),  # "en generacion" > "finalizada"
+        )
+    )
+
+# Cargar infimas en etapa de engeneracion para mostrar en un contador o una tabla mientras la IA las procesa
+# estas infimas seran las que ya un usuario tiene asignadas y el mismo paso a alisar por la IA
+# mientras la IA las procesa, el usuario puede ver cuantas infimas están en proceso de generación 
+# y cuales son para tener una idea del progreso general del sistema
+def obtener_infimas_en_generacion(db: Session):
+    return(
+        db.query(Infima)
+        .filter(Infima.etapa == "en generacion")
+    )
+
+# obtenemos las infimas totales como numero 
+def contador_de_infimas_en_generacion(db: Session):
+    return(
+        db.query(Infima)
+        .filter(Infima.etapa == "en generacion")
+        .count()
     )
