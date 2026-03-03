@@ -10,8 +10,7 @@ from PyQt5.QtWidgets import (
 
 from config import *
 from components.base_window import BaseWindow
-from components.table_validations import setup_row_logic
-from components.btns_windows import WindowButtons  # ← IMPORTADO
+from components.btns_windows import WindowButtons
 
 
 class WorkspaceUserREUI(BaseWindow):
@@ -20,13 +19,12 @@ class WorkspaceUserREUI(BaseWindow):
 
         self.setWindowTitle("Gestorex 1.1 - Usuario")
 
-        # ✅ RESPONSIVE
+        # Ventana responsive
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
         # ================= BOTONES VENTANA =================
-        # ← AÑADIDO: Botones minimizar/maximizar/cerrar en parte superior
         self.window_buttons = WindowButtons(self)
         self.window_buttons.setGeometry(0, 0, WINDOW_WIDTH, 35)
 
@@ -74,25 +72,20 @@ class WorkspaceUserREUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Resumen",
-            "Documento de contratación", "Acción"
+            "NIC",
+            "Resumen",
+            "Documento de contratación"
         ])
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 32)
-
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table.setColumnWidth(4, 110)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -131,14 +124,10 @@ class WorkspaceUserREUI(BaseWindow):
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
 
-    # ✅ Abrir maximizada
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.showMaximized()
-        # ← AÑADIDO: Actualizar ancho de botones al maximizar
-        self.window_buttons.setGeometry(0, 0, self.width(), 35)
+        # Mostrar maximizada correctamente
+        QTimer.singleShot(0, self.showMaximized)
 
-    # ← AÑADIDO: Actualizar botones al redimensionar
+    # ================== REDIMENSIONAR ==================
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
@@ -172,6 +161,7 @@ class WorkspaceUserREUI(BaseWindow):
         btn.setCursor(Qt.PointingHandCursor)
         btn.setFixedHeight(32)
         btn.setFont(QFont("Arial", 12))
+
         if active:
             btn.setStyleSheet("""
                 QPushButton {
@@ -247,41 +237,7 @@ class WorkspaceUserREUI(BaseWindow):
 
         layout.addWidget(link("📄 Informe de necesidad"))
         layout.addWidget(link("📎 Proforma"))
-        return container
 
-    # ================== ELIMINAR ==================
-    def delete_button(self, bg_color):
-        container = QWidget()
-        container.setStyleSheet(f"background-color: {bg_color};")
-
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.setAlignment(Qt.AlignCenter)
-
-        icon = QLabel("🗑")
-        icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
-
-        text = QLabel("Eliminar")
-        text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
-
-        def enter_event(event):
-            icon.setStyleSheet("color: rgb(220, 20, 20); font-size: 17px;")
-            text.setStyleSheet("""
-                color: rgb(220, 60, 60);
-                font-weight: bold;
-                text-decoration: underline;
-            """)
-
-        def leave_event(event):
-            icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
-            text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
-
-        container.enterEvent = enter_event
-        container.leaveEvent = leave_event
-
-        layout.addWidget(icon)
-        layout.addWidget(text)
         return container
 
     # ================== DATOS ==================
@@ -297,24 +253,21 @@ class WorkspaceUserREUI(BaseWindow):
         for row, item in enumerate(data):
             row_color = QColor(150, 215, 175)
 
-            check_item = QTableWidgetItem()
-            check_item.setCheckState(Qt.Unchecked)
-            check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            check_item.setBackground(row_color)
-            self.table.setItem(row, 0, check_item)
+            nic_item = QTableWidgetItem(item[0])
+            nic_item.setFlags(Qt.ItemIsEnabled)
+            nic_item.setBackground(row_color)
+            nic_item.setForeground(QColor(0, 0, 0))
+            self.table.setItem(row, 0, nic_item)
 
-            for col, value in enumerate(item, start=1):
-                cell = QTableWidgetItem(str(value))
-                cell.setFlags(Qt.ItemIsEnabled)
-                cell.setBackground(row_color)
-                cell.setForeground(QColor(0, 0, 0))
-                self.table.setItem(row, col, cell)
+            resumen_item = QTableWidgetItem(item[1])
+            resumen_item.setFlags(Qt.ItemIsEnabled)
+            resumen_item.setBackground(row_color)
+            resumen_item.setForeground(QColor(0, 0, 0))
+            self.table.setItem(row, 1, resumen_item)
 
-            self.table.setCellWidget(row, 3, self.document_links(row_color.name()))
-            self.table.setCellWidget(row, 4, self.delete_button(row_color.name()))##
+            self.table.setCellWidget(row, 2, self.document_links(row_color.name()))
 
-            setup_row_logic(self.table, row, nic_col=0, action_col=4) ## 
-    # ================== LLAMAR AL LOADING ==================
+    # ================== LOADING ==================
     def open_loading(self):
         from views.loading import LoadingUI
         self.loading = LoadingUI(duration_ms=3000)

@@ -27,7 +27,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.setWindowTitle("Gestorex 1.1 - Manager")
 
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
         self.window_buttons = WindowButtons(self)
