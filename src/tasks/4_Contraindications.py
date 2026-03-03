@@ -232,7 +232,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
     
     Lógica:
         1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'seleccionada' para todos los PACweb > 0
+        2. Cambia etapa = 'recomendada' para todos los PAC > 0 como paso intermedio
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
@@ -1183,7 +1183,101 @@ def calcular_peso(contraindicaciones_encontradas, df_contraindicaciones):
     return peso_final
 
 # =========================
-# 7. ORQUESTADOR PRINCIPAL
+# 7. PASOS 12 Y 13
+# =========================
+
+def actualizar_etapa_y_nivel_de_oportunidad():
+    """
+    Ejecuta los pasos 12 y 13 en una sola transacción de base de datos:
+
+    Paso 12: Revierte la etapa a 'seleccionada' para todas las ínfimas con PAC > 0,
+             garantizando que los cambios de pasos anteriores están confirmados.
+
+    Paso 13: Asigna nivel_de_oportunidad en la tabla infimas para los códigos
+             presentes en la tabla evaluaciones, según su Peso_total:
+               - Nivel 1: Peso_total entre 0.00 y 0.20  (inclusive)
+               - Nivel 2: Peso_total entre 0.21 y 0.50  (inclusive)
+               - Nivel 3: Peso_total entre 0.51 y 1.00  (inclusive)
+
+    Returns:
+        dict: Resumen de cambios realizados con claves:
+            - 'filas_etapa_actualizadas'   (int)  → registros afectados en paso 12
+            - 'filas_nivel_1'              (int)  → registros asignados como nivel 1
+            - 'filas_nivel_2'              (int)  → registros asignados como nivel 2
+            - 'filas_nivel_3'              (int)  → registros asignados como nivel 3
+            - 'total_niveles_asignados'    (int)  → total de registros con nivel asignado
+
+    Raises:
+        Exception: Hace rollback completo si ocurre cualquier error,
+                   evitando estados inconsistentes en la base de datos.
+    """
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+
+    try:
+        # ── PASO 12: Revertir etapa a 'seleccionada' ──────────────────────────
+        cursor.execute("""
+            UPDATE infimas
+            SET etapa = 'seleccionada',
+                actualizado_en = NOW()
+            WHERE PACdoc > 0 OR PACweb > 0
+        """)
+        filas_etapa = cursor.rowcount
+
+        # ── PASO 13: Asignar nivel_de_oportunidad desde evaluaciones ──────────
+
+        # Nivel 1 → Peso_total entre 0.00 y 0.20
+        cursor.execute("""
+            UPDATE infimas i
+            INNER JOIN evaluaciones e ON i.codigo_necesidad = e.codigo_necesidad
+            SET i.nivel_de_oportunidad = 'nivel 1',
+                i.actualizado_en = NOW()
+            WHERE e.Peso_total >= 0 AND e.Peso_total <= 0.20
+        """)
+        filas_nivel_1 = cursor.rowcount
+
+        # Nivel 2 → Peso_total entre 0.21 y 0.50
+        cursor.execute("""
+            UPDATE infimas i
+            INNER JOIN evaluaciones e ON i.codigo_necesidad = e.codigo_necesidad
+            SET i.nivel_de_oportunidad = 'nivel 2',
+                i.actualizado_en = NOW()
+            WHERE e.Peso_total > 0.20 AND e.Peso_total <= 0.50
+        """)
+        filas_nivel_2 = cursor.rowcount
+
+        # Nivel 3 → Peso_total entre 0.51 y 1.00
+        cursor.execute("""
+            UPDATE infimas i
+            INNER JOIN evaluaciones e ON i.codigo_necesidad = e.codigo_necesidad
+            SET i.nivel_de_oportunidad = 'nivel 3',
+                i.actualizado_en = NOW()
+            WHERE e.Peso_total > 0.50 AND e.Peso_total <= 1.00
+        """)
+        filas_nivel_3 = cursor.rowcount
+
+        # ── Confirmar toda la transacción de una sola vez ─────────────────────
+        conn.commit()
+
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        raise RuntimeError(f"Error en pasos 12/13 — se hizo rollback: {e}")
+
+    cursor.close()
+    conn.close()
+
+    return {
+        'filas_etapa_actualizadas': filas_etapa,
+        'filas_nivel_1':            filas_nivel_1,
+        'filas_nivel_2':            filas_nivel_2,
+        'filas_nivel_3':            filas_nivel_3,
+        'total_niveles_asignados':  filas_nivel_1 + filas_nivel_2 + filas_nivel_3,
+    }
+
+# =========================
+# 8. ORQUESTADOR PRINCIPAL
 # =========================
 
 def main():
@@ -1198,10 +1292,12 @@ def main():
         [8-9]  Actualizar base de datos
         [10]   Analizar contraindicaciones
         [11]   Calcular y guardar pesos
+        [12]   Revertir etapa a 'seleccionada' para ínfimas con PAC > 0
+        [13]   Asignar nivel_de_oportunidad según Peso_total en evaluaciones
     
     Notas:
         - Implementa delays de 60s entre códigos para evitar rate limits
-        - Los pasos 8-11 se ejecutan UNA SOLA VEZ al final (no en loop)
+        - Los pasos 8-13 se ejecutan UNA SOLA VEZ al final (no en loop)
         - Manejo robusto de errores en cada paso
     """
     # ── CONTADOR DE TIEMPO: inicio ────────────────────────────────────────────
@@ -1311,7 +1407,35 @@ def main():
         peso = calcular_peso(contraindicaciones_encontradas, df_contraindicaciones)
         actualizar_peso_en_bd(codigo, peso, contraindicaciones_encontradas)
         print(f"   {codigo}: Peso = {peso:.4f}")
-    
+
+    # ========================================================
+    # PASOS 12 y 13: Etapa 'seleccionada' + Nivel de oportunidad
+    # ========================================================
+    print("\n[12-13] Actualizando etapa y asignando niveles de oportunidad...")
+    try:
+        resumen = actualizar_etapa_y_nivel_de_oportunidad()
+
+        # ── Verificación de cambios confirmados en BD ─────────────────────────
+        print(f"\n   ✅ Cambios confirmados en base de datos:")
+        print(f"      Paso 12 → Registros con etapa='seleccionada' actualizados : {resumen['filas_etapa_actualizadas']}")
+        print(f"      Paso 13 → Nivel 1 asignado (peso  0.00 – 0.20)            : {resumen['filas_nivel_1']}")
+        print(f"      Paso 13 → Nivel 2 asignado (peso  0.21 – 0.50)            : {resumen['filas_nivel_2']}")
+        print(f"      Paso 13 → Nivel 3 asignado (peso  0.51 – 1.00)            : {resumen['filas_nivel_3']}")
+        print(f"      ─────────────────────────────────────────────────────────")
+        print(f"      Total de niveles asignados                                : {resumen['total_niveles_asignados']}")
+
+        if resumen['filas_etapa_actualizadas'] == 0:
+            print(f"\n   ⚠ Advertencia: Paso 12 no actualizó ningún registro.")
+            print(f"      Verifique que existan ínfimas con PACdoc > 0 o PACweb > 0.")
+
+        if resumen['total_niveles_asignados'] == 0:
+            print(f"\n   ⚠ Advertencia: Paso 13 no asignó ningún nivel.")
+            print(f"      Verifique que la tabla 'evaluaciones' tenga registros con Peso_total válido.")
+
+    except RuntimeError as e:
+        print(f"\n   ✗ {e}")
+        print(f"   ⚠ Los pasos 12 y 13 NO se completaron. Revise la base de datos.")
+
     # ========================================================
     # Resumen final
     # ========================================================
