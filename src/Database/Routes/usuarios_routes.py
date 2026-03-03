@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 from ..Controllers.usuarios_controller import (
     registrar_usuario,
     listar_usuarios,
-    UsuarioCreate,
+    actualizar_usuario,
+    inhabilitar_usuario,
+    UsuarioCreate, # Esquema para crear usuarios
+    UsuarioUpdate, # Esquema para actualizar usuarios
     obtener_usuario_por_id,
     listar_usuarios_no_admin,
 )
@@ -16,20 +19,38 @@ from PyQt5.QtWidgets import QComboBox
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
+#===================== RUTAS PARA CRUD==================================="
 
-# Endpoint para registrar usuario
 @router.post("/registro")
-def registrar(data: UsuarioCreate, db: Session = Depends(get_db)):
-    usuario = registrar_usuario(db, data)
-    return {
-        "id": usuario.id_usuario,
-        "usuario": usuario.usuario,
-        "nombre": usuario.nombre,
-        "correo": usuario.correo,
-        "telefono": usuario.telefono,
-        "es_admin": usuario.es_admin,
-    }
+def registrar(data: UsuarioCreate, db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    if not current_user.es_admin:
+        return {"error": "No autorizado debe ser administrador"}
 
+    resultado = registrar_usuario(db, data)
+
+    return resultado
+
+@router.put("/actualizar/{id_usuario}")
+def actualizar_usuarios(id_usuario: int,data: UsuarioUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+    if not current_user.es_admin:
+        return {"error": "No autorizado debe ser administrador"}
+    resultado =actualizar_usuario(db, id_usuario, data)
+
+    if "error" in resultado:
+        return resultado
+    return resultado
+
+@router.put("/desactivar-usuarios/{id_usuario}")
+def desactivar_usuario(id_usuario: int, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+    if not current_user.es_admin:
+        return {"error": "No autorizado debe ser administrador"}
+
+    resultado = inhabilitar_usuario(db,id_usuario)
+
+    return resultado
+
+
+#===================== RUTAS PARA CUD===================================
 
 # Endpoint para listar a todos usuarios
 @router.get("/todos")

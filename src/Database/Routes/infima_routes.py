@@ -7,6 +7,8 @@ from ..Controllers.infima_controller import (
     listar_infimas,
     procesar_lote_infimas,
     listar_infimas_ingresadas,
+    obtener_infimas_en_generacion_y_finalizadas,
+    contador_de_infimas_en_generacion
 )
 from ..database import get_db
 
@@ -41,3 +43,15 @@ def listar_Ingresadas(db: Session = Depends(get_db)):
 @router.get("/codigo/{codigo}")
 def obtener_por_codigo(codigo: str, db: Session = Depends(get_db)):
     return obtener_infima_por_codigo(db, codigo)
+
+# =================== Nuevo Endpoint: Visualizacion de infimas en generacion  ========================
+
+@router.get("/contador-infimas-en-generacion") # contador
+def contar_infimas_en_generacion(db: Session = Depends(get_db)):
+    return contador_de_infimas_en_generacion(db) # ya en el contador se cuenta solo las que están en generación
+
+# =================== Nuevo Endpoint: Visualizacion de infimas en generacion y finalizadas  ========================
+
+@router.get("/infimas-en-generacion-y-finalizadas") #tabla 2 administracion
+def mostrar_infimas_en_generacion_y_finalizadas(db: Session = Depends(get_db)):
+    return obtener_infimas_en_generacion_y_finalizadas(db)
