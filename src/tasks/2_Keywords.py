@@ -49,7 +49,7 @@ def inicializar_vertex_ai():
         location="us-central1"  # Ajusta según tu región
     )
     
-    return GenerativeModel("gemini-2.0-flash-exp")
+    return GenerativeModel("gemini-2.0-flash")
 
 # =========================
 # 3. UTILIDADES

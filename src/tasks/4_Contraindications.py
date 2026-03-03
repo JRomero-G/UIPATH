@@ -1,4 +1,3 @@
-
 """
 =================================================================================
 SISTEMA DE ANÁLISIS DE ÍNFIMAS - COMPRAS PÚBLICAS ECUADOR
@@ -39,7 +38,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 MYSQL_CONFIG = {
     "host": "35.225.240.246",
     "user": "root",
-    "password": "Nexus2024%",
+    "password": "Admin123%",
     "database": "gestorex",
 }
 
@@ -80,7 +79,7 @@ def inicializar_servicios():
     vertexai.init(
         project=project_id,
         credentials=credentials,
-        location="us-east4"
+        location="us-central1"
     )
     
     # Inicializar cliente de Cloud Storage
@@ -90,7 +89,7 @@ def inicializar_servicios():
     )
     
     # Usar modelo Gemini 2.5 Pro (más potente para análisis de documentos)
-    model = GenerativeModel("gemini-2.5-pro")
+    model = GenerativeModel("gemini-2.0-flash")
     bucket = storage_client.bucket(BUCKET_NAME)
     
     return model, bucket
@@ -142,20 +141,21 @@ def obtener_contraindicaciones_con_peso():
 
 def obtener_codigos_preseleccionados():
     """
-    Obtiene códigos de necesidad con etapa 'preseleccionada'.
+    Obtiene códigos de necesidad con etapa 'seleccionada'.
     
     Returns:
         list: Lista de códigos de necesidad (ej: 'nic-1234567890001-2026-00001')
         
     Nota:
-        Solo obtiene códigos que están en etapa 'preseleccionada' para procesar
+        Solo obtiene códigos que están en etapa 'seleccionada' para procesar
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT codigo_necesidad 
-        FROM infimas 
-        WHERE etapa = 'preseleccionada'
+       SELECT codigo_necesidad 
+       FROM infimas 
+       WHERE etapa = 'seleccionada' 
+       AND (PACweb IS NULL AND PACdoc IS NULL)
     """)
     filas = cursor.fetchall()
     cursor.close()
@@ -166,7 +166,7 @@ def obtener_codigos_preseleccionados():
 
 def obtener_infimas_con_pac():
     """
-    Obtiene ínfimas con PACdoc >= 0 para validación en portal web.
+    Obtiene ínfimas con PACdoc >= 0 para validación de PAC en portal web.
     
     Returns:
         DataFrame: DataFrame con columnas:
@@ -176,8 +176,8 @@ def obtener_infimas_con_pac():
             - V_Total (inicializado en 0.0)
     
     Nota:
-        Solo obtiene registros con PACdoc >= 0 (Donde no se encontró PAC en los documentos.
-                                                También se comparará el PAC de documentos con el PAC web)
+        Solo obtiene registros con PACdoc >= 0 (No se encontró PAC en los documentos y en los que sí,
+                                                 se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -185,7 +185,7 @@ def obtener_infimas_con_pac():
     cursor.execute("""
         SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante
         FROM infimas 
-        WHERE PACdoc >= 0
+        WHERE PACdoc >= 0 AND PACweb IS NULL
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -247,10 +247,10 @@ def actualizar_pac_desde_vtotal(df_infimas):
                 WHERE codigo_necesidad = %s
             """, (row['V_Total'], row['codigo_necesidad']))
     
-    # Cambiar etapa a 'seleccionada' para todos los códigos con PAC > 0
+    # Cambiar etapa a 'recomendada' para todos los códigos con PAC > 0
     cursor.execute("""
         UPDATE infimas 
-        SET etapa = 'seleccionada',
+        SET etapa = 'recomendada',
             actualizado_en = NOW()
         WHERE PACdoc > 0 OR PACweb >0
     """)
@@ -272,15 +272,15 @@ def obtener_codigos_pac_mayores_cero():
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT codigo_necesidad, PAC
+        SELECT codigo_necesidad, PACdoc, PACweb
         FROM infimas 
-        WHERE PACdoc > 0 OR PACweb > 0   
+        WHERE etapa = 'recomendada' AND (PACdoc > 0 OR PACweb > 0)   
     """)
     datos = cursor.fetchall()
     cursor.close()
     conn.close()
     
-    codigos_pac = {row['codigo_necesidad']: row['PAC'] for row in datos}
+    codigos_pac = {row['codigo_necesidad']: row['PACdoc'] or row ['PACweb'] for row in datos}
     return codigos_pac
 
 def actualizar_peso_en_bd(codigo_necesidad, peso, contraindicaciones_encontradas):
@@ -523,9 +523,21 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         if blob.name.lower().endswith('.pdf'):
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
+
+        # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC/DOCX ──────────
         elif blob.name.lower().endswith(('.txt', '.doc', '.docx')):
-            contenido = blob.download_as_text()
-            documentos_contenido.append(contenido)
+            try:
+                contenido = blob.download_as_text(encoding='utf-8')
+                documentos_contenido.append(contenido)
+            except UnicodeDecodeError:
+                try:
+                    # Fallback: latin-1 decodifica cualquier byte sin lanzar error
+                    contenido = blob.download_as_text(encoding='latin-1')
+                    documentos_contenido.append(contenido)
+                    print(f"      ⚠ Archivo decodificado con latin-1: {blob.name.split('/')[-1]}")
+                except Exception as e:
+                    print(f"      ✗ No se pudo decodificar archivo: {blob.name.split('/')[-1]} - {e}")
+        # ──────────────────────────────────────────────────────────────────────
     
     if not documentos_contenido:
         return []
@@ -858,7 +870,7 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                     tabla_pac = None
                     
                     # Iterar sobre tablas para encontrar la de PAC
-                    for idx_tabla, tabla in enumerate(tablas, 1):
+                    for tabla_num, tabla in enumerate(tablas, 1):
                         try:
                             if not tabla.is_displayed():
                                 continue
@@ -873,7 +885,7 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                             if not filas_elementos:
                                 continue
                             
-                            print(f"         📋 Tabla {idx_tabla}: {len(filas_elementos)} registros PAC encontrados")
+                            print(f"         📋 Tabla {tabla_num}: {len(filas_elementos)} registros PAC encontrados")
                             
                             # Verificar header de la tabla
                             try:
@@ -900,7 +912,7 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                                     
                                     if tiene_descripcion and tiene_total:
                                         tabla_pac = tabla
-                                        print(f"         ✅ Tabla PAC identificada: Tabla {idx_tabla}")
+                                        print(f"         ✅ Tabla PAC identificada: Tabla {tabla_num}")
                                         break
                                     else:
                                         print(f"            ⚠ Falta: Descripción={tiene_descripcion}, Total={tiene_total}")
@@ -910,7 +922,7 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                                 # Fallback: Si tiene >= 5 filas, aceptar tabla
                                 if len(filas_elementos) >= 5:
                                     tabla_pac = tabla
-                                    print(f"         ✅ Tabla PAC identificada: Tabla {idx_tabla} (por cantidad de registros)")
+                                    print(f"         ✅ Tabla PAC identificada: Tabla {tabla_num} (por cantidad de registros)")
                                     break
                                     
                         except Exception as e:
@@ -1180,7 +1192,7 @@ def main():
     
     Flujo completo:
         [1-2]  Cargar contraindicaciones
-        [3]    Obtener códigos preseleccionados
+        [3]    Obtener códigos seleccionados
         [4-6]  Buscar PAC en documentos con IA
         [7]    Validar PAC con web scraping del portal
         [8-9]  Actualizar base de datos
@@ -1192,6 +1204,10 @@ def main():
         - Los pasos 8-11 se ejecutan UNA SOLA VEZ al final (no en loop)
         - Manejo robusto de errores en cada paso
     """
+    # ── CONTADOR DE TIEMPO: inicio ────────────────────────────────────────────
+    tiempo_inicio = time.time()
+    # ─────────────────────────────────────────────────────────────────────────
+
     print("=" * 80)
     print("SISTEMA DE ANÁLISIS DE ÍNFIMAS - COMPRAS PÚBLICAS ECUADOR")
     print("=" * 80)
@@ -1205,9 +1221,9 @@ def main():
     print(f"   ✓ {len(contraindicaciones_list)} contraindicaciones cargadas")
     
     # ========================================================
-    # PASO 3: Códigos preseleccionados
+    # PASO 3: Códigos seleccionados
     # ========================================================
-    print("\n[2] Obteniendo códigos preseleccionados...")
+    print("\n[2] Obteniendo códigos seleccionados...")
     codigos_preseleccionados = obtener_codigos_preseleccionados()
     print(f"   ✓ {len(codigos_preseleccionados)} códigos encontrados")
     
@@ -1299,12 +1315,21 @@ def main():
     # ========================================================
     # Resumen final
     # ========================================================
+
+    # ── CONTADOR DE TIEMPO: cálculo y formato ─────────────────────────────────
+    tiempo_total = time.time() - tiempo_inicio
+    horas   = int(tiempo_total // 3600)
+    minutos = int((tiempo_total % 3600) // 60)
+    segundos = int(tiempo_total % 60)
+    # ─────────────────────────────────────────────────────────────────────────
+
     print("\n" + "=" * 80)
     print("PROCESO COMPLETADO")
     print("=" * 80)
-    print(f"Códigos preseleccionados:      {len(codigos_preseleccionados)}")
-    print(f"Códigos con PAC > 0:           {len(codigos_pac_positivos)}")
+    print(f"Códigos seleccionados:          {len(codigos_preseleccionados)}")
+    print(f"Códigos con PAC > 0:            {len(codigos_pac_positivos)}")
     print(f"Códigos con contraindicaciones: {sum(1 for c in contraindicaciones_por_codigo.values() if c)}")
+    print(f"Tiempo total de ejecución:      {horas:02d}h {minutos:02d}m {segundos:02d}s")
     print("=" * 80)
 
 if __name__ == "__main__":
