@@ -96,7 +96,7 @@ class StaticComboBox(QComboBox):
         self.setMinimumHeight(40)
         self.setMaximumHeight(45)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.addItems(["Seleccione rol...", "Gerente", "Empleado"])
+        self.addItems(["Seleccione rol...", "Administrador", "Empleado"])
         self.setStyleSheet(f"""
             QComboBox {{
                 background-color: rgba(30, 40, 60, 200);
