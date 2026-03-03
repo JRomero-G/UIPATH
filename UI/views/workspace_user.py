@@ -50,7 +50,7 @@ class WorkspaceUserUI(BaseWindow):
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
         self.btn_recomendados = self.menu_tab("Recomendados", active=True)
         self.btn_revision = self.menu_tab("Revisión y Envío")
-        self.btn_revision.clicked.connect(self.open_workspace_userRE)
+        #self.btn_revision.clicked.connect(self.open_workspace_userRE)
 
         menu_layout.addWidget(self.btn_actualizar)
         menu_layout.addWidget(self.btn_recomendados)
@@ -158,7 +158,7 @@ class WorkspaceUserUI(BaseWindow):
         bottom_layout.addStretch()
 
         self.btn_analizar = self.action_button("📊  Analizar")
-        #self.btn_analizar.clicked.connect(self.open_workspace_userRE)
+        self.btn_analizar.clicked.connect(self.open_workspace_userRE)
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)

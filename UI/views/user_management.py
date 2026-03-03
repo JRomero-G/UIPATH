@@ -1,4 +1,5 @@
 import os
+from turtle import color
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
@@ -95,7 +96,7 @@ class StaticComboBox(QComboBox):
         self.setMinimumHeight(40)
         self.setMaximumHeight(45)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.addItems(["Seleccione rol...", "Gerente", "Empleado"])
+        self.addItems(["Seleccione rol...", "Administrador", "Empleado"])
         self.setStyleSheet(f"""
             QComboBox {{
                 background-color: rgba(30, 40, 60, 200);
@@ -462,12 +463,18 @@ class UserManagementUI(BaseWindow):
         self.input_usuario = StaticInput("Nombre de usuario", color=color)
         self.input_email = StaticInput("Correo electrónico", color=color)
         self.input_password = PasswordInput(color=color)
+
+    # ✅ NUEVO CAMPO: Confirmar contraseña
+        self.input_confirm_password = PasswordInput(color=color)
+        self.input_confirm_password.input.setPlaceholderText("Confirmar contraseña")
+
         self.combo_rol = StaticComboBox(color=color)
 
         layout.addWidget(self.input_nombre)
         layout.addWidget(self.input_usuario)
         layout.addWidget(self.input_email)
         layout.addWidget(self.input_password)
+        layout.addWidget(self.input_confirm_password)  # ← agregado aquí
         layout.addWidget(self.combo_rol)
         layout.addStretch()
 
@@ -496,6 +503,7 @@ class UserManagementUI(BaseWindow):
             ("Nombre de usuario", "edit_usuario"),
             ("Correo electrónico", "edit_email")
         ]
+
         for placeholder, attr_name in campos:
             inp = StaticInput(placeholder, color=color)
             inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -503,8 +511,18 @@ class UserManagementUI(BaseWindow):
             layout.addWidget(inp)
 
         self.edit_rol = StaticComboBox(color=color)
-        self.edit_rol.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.edit_rol)
+
+    # ✅ NUEVOS CAMPOS DE CONTRASEÑA
+        self.edit_current_password = PasswordInput(color=color)
+        self.edit_current_password.input.setPlaceholderText("Contraseña actual")
+
+        self.edit_new_password = PasswordInput(color=color)
+        self.edit_new_password.input.setPlaceholderText("Nueva contraseña")
+
+        layout.addWidget(self.edit_current_password)
+        layout.addWidget(self.edit_new_password)
+
         layout.addStretch()
 
         btn_guardar = BaseButton("GUARDAR CAMBIOS", color=color)
