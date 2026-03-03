@@ -4,12 +4,9 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QWidget
 
-
 from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from config import set_session, _session, get_session
 from components.base_window import BaseWindow
 
-# jason
 from views.workspace_user import WorkspaceUserUI
 from views.workspace_manager import WorkspaceManagerUI
 
@@ -30,21 +27,12 @@ class LoadingDots(QWidget):
 
         # Onda
         self.phase = 0.0
-        self.speed = 0.22  # velocidad equilibrada
+        self.speed = 0.22
 
         self.spacing = 30
-        total_width = (self.dot_count - 1) * self.spacing
-        self.start_x = (WINDOW_WIDTH - total_width) // 2
-        self.center_y = 18
 
         for i in range(self.dot_count):
             dot = QLabel(self)
-            dot.setGeometry(
-                self.start_x + i * self.spacing,
-                self.center_y,
-                self.min_size,
-                self.min_size,
-            )
             dot.setStyleSheet(self.style(0.0))
             self.dots.append(dot)
 
@@ -66,8 +54,8 @@ class LoadingDots(QWidget):
             intensity = (wave + 1) / 2
             size = int(self.min_size + intensity * (self.max_size - self.min_size))
 
-            x = self.start_x + i * self.spacing
-            y = self.center_y + (self.min_size - size) // 2
+            x = (self.width() - ((self.dot_count - 1) * self.spacing)) // 2 + i * self.spacing
+            y = (self.height() - size) // 2
 
             dot.setGeometry(x, y, size, size)
             dot.setStyleSheet(self.style(intensity))
@@ -77,49 +65,103 @@ class LoadingDots(QWidget):
 
 # ================== LOADING UI ==================
 class LoadingUI(BaseWindow):
-    def __init__(self, duration_ms=5000, rol=bool):  # rol jason
+    def __init__(self, duration_ms=5000, rol=False):
         super().__init__()
         self.rol = rol
+        self.duration_ms = duration_ms
 
-        self.duration_ms = duration_ms  # ⏱ duración configurable
-
+        # Sin bordes ni título nativo
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setWindowTitle("Gestorex - Iniciando")
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
+        
+        # Tamaño inicial (se maximizará después)
+        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         # ===== LOGO =====
         self.logo = QLabel(self)
         pm = QPixmap(os.path.join(ASSETS_DIR, "logo.png"))
         if not pm.isNull():
-            pm = pm.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.logo.setPixmap(pm)
+            self.original_pixmap = pm
+            self.logo.setPixmap(pm.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             self.logo.setAlignment(Qt.AlignCenter)
-            self.logo.setGeometry(0, 140, self.width(), pm.height())
 
         # ===== PUNTOS =====
-        self.dots = LoadingDots(
-            self
-        )  ## verrificar aqui despues vara ver si es correcto
-        self.dots.setGeometry(0, 470, self.width(), 40)
+        self.dots = LoadingDots(self)
 
         # ===== TEXTO =====
         self.text = QLabel("Iniciando...", self)
         self.text.setFont(QFont("Arial", 16))
         self.text.setStyleSheet("color: rgba(255,255,255,180);")
         self.text.setAlignment(Qt.AlignCenter)
-        self.text.setGeometry(0, 525, self.width(), 30)
 
         # ===== DURACIÓN CONFIGURABLE =====
         QTimer.singleShot(self.duration_ms, self.finish_loading)
 
-    # ===== FINALIZAR LOADING EMPLEADO O ADMIN=====
+    # Mostrar maximizado y actualizar posiciones
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.showMaximized()
+        QTimer.singleShot(100, self.update_positions)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_positions()
+
+    # ================= POSICIONES CENTRADAS EN PANTALLA =================
+    def update_positions(self):
+        w = self.width()
+        h = self.height()
+
+        # Tamaño del logo (proporcional al ancho)
+        logo_size = min(300, int(w * 0.20))
+        
+        if hasattr(self, "original_pixmap"):
+            scaled = self.original_pixmap.scaled(
+                logo_size, 
+                logo_size, 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            self.logo.setPixmap(scaled)
+
+        # Alturas de cada elemento
+        dots_height = 40
+        text_height = 30
+        
+        # Espacios reducidos entre elementos
+        gap_logo_dots = 15
+        gap_dots_text = 10
+        
+        # Calcular altura total del grupo
+        total_height = logo_size + gap_logo_dots + dots_height + gap_dots_text + text_height
+        
+        # Calcular posición Y inicial para centrar todo el grupo
+        start_y = (h - total_height) // 2
+        
+        # Posicionar logo
+        logo_y = start_y
+        self.logo.setGeometry(
+            (w - logo_size) // 2,
+            logo_y,
+            logo_size,
+            logo_size
+        )
+        
+        # Posicionar puntos (debajo del logo)
+        dots_y = logo_y + logo_size + gap_logo_dots
+        self.dots.setGeometry(0, dots_y, w, dots_height)
+        
+        # Posicionar texto (debajo de los puntos)
+        text_y = dots_y + dots_height + gap_dots_text
+        self.text.setGeometry(0, text_y, w, text_height)
+
+    # ================== FINALIZAR LOADING ==================
     def finish_loading(self):
         if self.rol is True:
-            # ABRIR WORKSPACE ADMIN
             self.workspace = WorkspaceManagerUI()
         else:
-            # ABRIR WORKSPACE USER
             self.workspace = WorkspaceUserUI()
 
         self.workspace.show()
-        self.hide()
+        QTimer.singleShot(2000, self.hide)

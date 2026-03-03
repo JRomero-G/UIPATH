@@ -1,10 +1,8 @@
 import os
-
 # jason
 from PyQt5.QtWidgets import QMessageBox
-
 # naye
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QLabel,
@@ -15,11 +13,14 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QHeaderView,
     QWidget,
+    QSizePolicy,
 )
 import requests  # jason
 from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
 from config import set_session, _session, get_session
 from components.base_window import BaseWindow
+from components.table_validations import setup_row_logic
+from components.btns_windows import WindowButtons  # ← IMPORTADO
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -27,12 +28,19 @@ class WorkspaceUserUI(BaseWindow):
         super().__init__()
 
         self.setWindowTitle("Gestorex 1.1 - Usuario")
-        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        # Ahora la ventana es redimensionable
+        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
+
+        # ================= BOTONES VENTANA =================
+        # ← AÑADIDO: Botones minimizar/maximizar/cerrar en parte superior
+        self.window_buttons = WindowButtons(self)
+        self.window_buttons.setGeometry(0, 0, WINDOW_WIDTH, 35)
 
         # ================== LAYOUT PRINCIPAL ==================
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 20, 30, 20)
+        main_layout.setContentsMargins(30, 50, 30, 20)
         main_layout.setSpacing(18)
 
         # ================== MENÚ SUPERIOR ==================
@@ -42,6 +50,7 @@ class WorkspaceUserUI(BaseWindow):
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
         self.btn_recomendados = self.menu_tab("Recomendados", active=True)
         self.btn_revision = self.menu_tab("Revisión y Envío")
+        self.btn_revision.clicked.connect(self.open_workspace_userRE)
 
         menu_layout.addWidget(self.btn_actualizar)
         menu_layout.addWidget(self.btn_recomendados)
@@ -74,6 +83,7 @@ class WorkspaceUserUI(BaseWindow):
 
         # ================== TABLA ==================
         self.table = QTableWidget(0, 6)
+        self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setHorizontalHeaderLabels(
             ["", "NIC", "Descripción", "Grado de recomendación", "Nivel", "Acción"]
         )
@@ -90,11 +100,8 @@ class WorkspaceUserUI(BaseWindow):
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table.setColumnWidth(4, 60)
-
-        header.setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 110)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -151,10 +158,22 @@ class WorkspaceUserUI(BaseWindow):
         bottom_layout.addStretch()
 
         self.btn_analizar = self.action_button("📊  Analizar")
-        self.btn_analizar.clicked.connect(self.open_workspace_userRE)
+        #self.btn_analizar.clicked.connect(self.open_workspace_userRE)
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
+
+    # ✅ Abrir maximizada
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.showMaximized()
+        # ← AÑADIDO: Actualizar ancho de botones al maximizar
+        self.window_buttons.setGeometry(0, 0, self.width(), 35)
+
+    # ← AÑADIDO: Actualizar botones al redimensionar
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
     # ================== BOTONES ==================
     def menu_actualizar(self, text):
@@ -338,7 +357,6 @@ class WorkspaceUserUI(BaseWindow):
             # ================= Celdas nuevo ==================
             # Col 0: Check
             check_item = QTableWidgetItem()
-
             check_item.setCheckState(Qt.Unchecked)
             check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             check_item.setBackground(row_color)
@@ -369,7 +387,6 @@ class WorkspaceUserUI(BaseWindow):
                 if grado == "Poco recomendado"
                 else "❌ No recomendado"
             )
-
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
             cell.setBackground(row_color)
@@ -389,22 +406,19 @@ class WorkspaceUserUI(BaseWindow):
             self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
             # ================= Fin Celdas nuevo ==================
 
+            setup_row_logic(self.table, row, nic_col=0, action_col=5) ## 
+
     # llamar al RE
     def open_workspace_userRE(self):
         print("Abriendo Workspace User RE...")
-
-        # IMPORTACIÓN LOCAL DENTRO DEL MÉTODO:
         try:
             from views.workspace_userRE import WorkspaceUserREUI
-
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
-            self.hide()
+            #self.hide()
+            QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
         except ImportError as e:
             print(f"Error de importación: {e}")
-            # Muestra un mensaje al usuario
-            from PyQt5.QtWidgets import QMessageBox
-
             QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")

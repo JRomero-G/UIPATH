@@ -5,6 +5,6 @@ from views.workspace_userRE import WorkspaceUserREUI
 from views.workspace_user import WorkspaceUserUI
 
 app = QApplication(sys.argv)
-w = WorkspaceManagerUI()
+w = WorkspaceUserREUI()
 w.show()
 sys.exit(app.exec_())

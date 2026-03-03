@@ -3,6 +3,15 @@ from PyQt5.QtCore import Qt
 
 
 class BaseWindow(QWidget):
+    use_frameless = True  # True = sin barra de Windows (para usar btns_windows)
+    
+    def __init__(self):
+        super().__init__()
+        
+        # Elimina la barra de Windows si está activado
+        if self.use_frameless:
+            self.setWindowFlags(Qt.FramelessWindowHint)
+
     def showEvent(self, event):
         super().showEvent(event)
         self.center_window()
