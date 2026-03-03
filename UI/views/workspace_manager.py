@@ -1,6 +1,6 @@
 import os
 from functools import partial
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
     QLabel,
@@ -26,35 +26,35 @@ class WorkspaceManagerUI(BaseWindow):
 
         self.setWindowTitle("Gestorex 1.1 - Manager")
 
-        # Tamaño base (se maximiza después correctamente)
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(900, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
 
-        # ================= BOTONES VENTANA =================
-        # ← AÑADIDO: Botones minimizar/maximizar/cerrar en parte superior
         self.window_buttons = WindowButtons(self)
         self.window_buttons.setGeometry(0, 0, WINDOW_WIDTH, 35)
 
-        # ================= LAYOUT PRINCIPAL =================
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 50, 30, 20)
         main_layout.setSpacing(18)
 
-        # ================== MENÚ SUPERIOR ==================
         menu_layout = QHBoxLayout()
         menu_layout.setSpacing(12)
+
+        # 🔵 BOTÓN USUARIOS (NUEVO)
+        self.btn_usuarios = self.menu_usuarios_icon()
+        self.btn_usuarios.clicked.connect(self.abrir_ventana_usuarios)
 
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
         self.btn_actualizar.clicked.connect(self.cargar_datos_bd)
 
         self.btn_reportes = self.menu_tab("Reportes", active=True)
 
+        # ORDEN NUEVO (Usuarios primero)
+        menu_layout.addWidget(self.btn_usuarios)
         menu_layout.addWidget(self.btn_actualizar)
         menu_layout.addWidget(self.btn_reportes)
         menu_layout.addStretch()
 
-        # ---- LOGO + TEXTO ----
         brand_layout = QHBoxLayout()
         brand_layout.setSpacing(8)
         brand_layout.setAlignment(Qt.AlignVCenter)
@@ -80,7 +80,6 @@ class WorkspaceManagerUI(BaseWindow):
 
         main_layout.addLayout(menu_layout)
 
-        # ================== TABLA ==================
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(
             ["Usuario", "NIC", "Descripción", "Etapa"]
@@ -127,22 +126,40 @@ class WorkspaceManagerUI(BaseWindow):
 
         main_layout.addWidget(self.table)
 
-        # 🔥 Cargar datos reales al iniciar
         self.cargar_datos_bd()
 
-    # 🔥 Abrir ventana maximizada correctamente
     def showEvent(self, event):
         super().showEvent(event)
         self.showMaximized()
-        # ← AÑADIDO: Actualizar ancho de botones al maximizar
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
-    # ← AÑADIDO: Actualizar botones al redimensionar
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
-    # ================== BOTÓN ACTUALIZAR ==================
+    # 🔵 MÉTODO NUEVO BOTÓN REDONDO
+    def menu_usuarios_icon(self):
+        btn = QPushButton("⚙")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFixedSize(36, 36)
+        btn.setFont(QFont("Arial", 14))
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 35);
+                color: white;
+                border-radius: 18px;
+                border: 1px solid rgba(255,255,255,40);
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 60);
+                border: 1px solid rgba(255,255,255,80);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 80);
+            }
+        """)
+        return btn
+
     def menu_actualizar(self, text):
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
@@ -165,6 +182,9 @@ class WorkspaceManagerUI(BaseWindow):
             }
         """)
         return btn
+
+
+    # ================== 
 
     # ================== MENÚ TAB ==================
     def menu_tab(self, text, active=False):
@@ -213,7 +233,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/infimas/ingresadas ",
+                "http://127.0.0.1:8000/infimas/ingresadas",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10,
             )
@@ -280,3 +300,18 @@ class WorkspaceManagerUI(BaseWindow):
                 cell.setBackground(row_color)
 
                 self.table.setItem(row, col, cell)
+
+    # 🔵 MÉTODO NUEVO PARA ABRIR VENTANA
+    def abrir_ventana_usuarios(self):
+        print("Abriendo Workspace User RE...")
+        try:
+            from views.user_management import UserManagementUI
+            self.user = UserManagementUI()
+            self.user.show()
+            #self.hide()
+            QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
+        except ImportError as e:
+            print(f"Error de importación: {e}")
+            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+        except Exception as e:
+            print(f"Error al crear ventana: {e}")
