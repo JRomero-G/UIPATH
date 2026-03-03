@@ -269,7 +269,7 @@ class WorkspaceUserREUI(BaseWindow):
 
     # ================== LOADING ==================
     def open_loading(self):
-        from views.loading import LoadingUI
+        from ..views.loading import LoadingUI
         self.loading = LoadingUI(duration_ms=3000)
         self.loading.show()
         QTimer.singleShot(2000, self.hide)

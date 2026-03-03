@@ -412,7 +412,7 @@ class WorkspaceUserUI(BaseWindow):
     def open_workspace_userRE(self):
         print("Abriendo Workspace User RE...")
         try:
-            from views.workspace_userRE import WorkspaceUserREUI
+            from ..views.workspace_userRE import WorkspaceUserREUI
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
             #self.hide()
