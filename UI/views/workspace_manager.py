@@ -332,6 +332,7 @@ class WorkspaceManagerUI(BaseWindow):
                     cell.setTextAlignment(Qt.AlignCenter)
 
                 self.table.setItem(row, col, cell)
+        print("Infimas disponibles Actualizadas")
 
     # 🔵 MÉTODO NUEVO PARA ABRIR VENTANA
     def abrir_ventana_usuarios(self):

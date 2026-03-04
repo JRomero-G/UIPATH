@@ -173,6 +173,12 @@ class PasswordInput(QWidget):
             self.eye_btn.setText("🔓")
             self.eye_btn.setStyleSheet(f"color: {self.color}80; background: transparent; border: none;")
 
+    def clear(self):
+        """Limpia el campo de contraseña"""
+        self.input.clear()
+        self.eye_btn.setChecked(False)
+        self.input.setEchoMode(QLineEdit.Password)
+        self.eye_btn.setText("🔓")
 
 # Cambios para hacer los campos de eliminar dinamicos y poder
 # llenar la informacion desde la consulta
@@ -691,7 +697,7 @@ class UserManagementUI(BaseWindow):
 
         es_admin = self.edit_rol.currentText() == "Administrador"
 
-        if not all[nombre,usuario,email,telefono]:
+        if not nombre or not usuario or not email or not telefono:
             QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
             return
         
@@ -724,13 +730,13 @@ class UserManagementUI(BaseWindow):
                 QMessageBox.information(self, "Éxito", "Usuario actualizado")
                 print("Usuario Actualizado con exito")
 
-                self.edit_new_password.input.clear()
                 self.edit_current_password.clear()
+                self.edit_new_password.clear()
                 self.edit_nombre.clear()
                 self.edit_usuario.clear()
                 self.edit_email.clear()
                 self.edit_telefono.clear()
-                self.edit_rol.setCurrentIndex[0]
+                self.edit_rol.setCurrentIndex(0)
                 # Recargar lista
                 self.recargar_usuarios()
 
@@ -745,6 +751,7 @@ class UserManagementUI(BaseWindow):
         except requests.RequestException as e:
             QMessageBox.critical(self, "Error", str(e))
     
+
     # ================== cargar empleados ==================
     def cargar_usuarios(self):
 
@@ -911,15 +918,15 @@ class UserManagementUI(BaseWindow):
         email_regex = QRegularExpression(
             r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
         )
-        email_validator = QRegularExpressionValidator(email_regex)
+        validator_email = QRegularExpressionValidator(email_regex)
 
-        self.input_email.setValidator(email_validator)
+        self.input_email.setValidator(validator_email)
 
 
         # ================= PASSWORD =================
         # Min 8 chars, letras y números
         password_regex = QRegularExpression(
-            r"^[A-Za-z0-9@$!%*#?&]{8,}$"
+            r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._\-])[A-Za-z\d@$!%*?&#._\-]{8,}$"
         )
         password_validator = QRegularExpressionValidator(password_regex)
 
@@ -962,7 +969,7 @@ class UserManagementUI(BaseWindow):
 
         # ================= PASSWORD =================
         password_regex = QRegularExpression(
-            r"^[A-Za-z0-9@$!%*#?&]{8,}$"
+            r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._\-])[A-Za-z\d@$!%*?&#._\-]{8,}$"
         )
         validator_password = QRegularExpressionValidator(password_regex)
 
