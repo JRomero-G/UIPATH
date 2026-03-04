@@ -13,9 +13,9 @@ from components.neon_button import NeonButton
 from components.btns_windows import WindowButtons  # ← IMPORTADO
 
 
-from ..views.workspace_manager import WorkspaceManagerUI
-from ..views.workspace_user import WorkspaceUserUI
-from ..views.loading import LoadingUI
+from views.workspace_manager import WorkspaceManagerUI
+from views.workspace_user import WorkspaceUserUI
+from views.loading import LoadingUI
 
 
 class LoginUI(BaseWindow):

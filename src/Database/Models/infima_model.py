@@ -28,6 +28,7 @@ class Infima(Base):
         default="ingresada"
     )
     nivel_de_oportunidad = Column(Enum("nivel 1", "nivel 2", "nivel 3"))
-    PAC = Column(DECIMAL(12, 2))
+    PACdoc = Column(DECIMAL(12, 2))
+    PACweb = Column(DECIMAL(12, 2))
     fecha_creacion = Column(TIMESTAMP)
     actualizado_en = Column(TIMESTAMP)

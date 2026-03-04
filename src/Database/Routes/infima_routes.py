@@ -7,6 +7,7 @@ from ..Controllers.infima_controller import (
     listar_infimas,
     procesar_lote_infimas,
     listar_infimas_ingresadas,
+    obtener_infimas_disponibles_admin,
     obtener_infimas_en_generacion_y_finalizadas,
     contador_de_infimas_en_generacion
 )
@@ -43,6 +44,12 @@ def listar_Ingresadas(db: Session = Depends(get_db)):
 @router.get("/codigo/{codigo}")
 def obtener_por_codigo(codigo: str, db: Session = Depends(get_db)):
     return obtener_infima_por_codigo(db, codigo)
+
+# =================== Nuevo Endpoint: Visualizacion de infimas disponibles para admin  ========================
+@router.get("/infimas-disponibles")
+def obtener_infimas_disponibles_admin_endpoint(db: Session = Depends(get_db)):
+    return obtener_infimas_disponibles_admin(db)
+
 
 # =================== Nuevo Endpoint: Visualizacion de infimas en generacion  ========================
 
