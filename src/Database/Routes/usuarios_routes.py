@@ -16,7 +16,6 @@ from ..Controllers.usuarios_controller import (
 from ..Auth.Usuario_auth import usuario_actual
 from ..Models.usuarios_model import Usuario
 from ..database import get_db
-from PyQt5.QtWidgets import QComboBox
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
