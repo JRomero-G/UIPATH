@@ -1,8 +1,8 @@
 import os
 from turtle import color
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal,QRegularExpression
+from PyQt5.QtGui import QFont, QColor,QRegularExpressionValidator
 from PyQt5.QtWidgets import (
     QMessageBox, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
     QVBoxLayout, QHBoxLayout, QApplication, QStackedWidget,
@@ -172,6 +172,7 @@ class PasswordInput(QWidget):
             self.input.setEchoMode(QLineEdit.Password)
             self.eye_btn.setText("🔓")
             self.eye_btn.setStyleSheet(f"color: {self.color}80; background: transparent; border: none;")
+
 
 # Cambios para hacer los campos de eliminar dinamicos y poder
 # llenar la informacion desde la consulta
@@ -392,6 +393,10 @@ class UserManagementUI(BaseWindow):
         self.setup_crear()
         self.setup_modificar()
         self.setup_eliminar()
+        #validaciones
+        self.aplicar_validaciones()
+        self.aplicar_validaciones_modificar()
+        
 
         self.show_tab(0)
 
@@ -512,7 +517,7 @@ class UserManagementUI(BaseWindow):
         self.input_nombre = StaticInput("Nombre completo", color=color)
         self.input_usuario = StaticInput("Nombre de usuario", color=color)
         self.input_email = StaticInput("Correo electrónico", color=color)
-        self.input_telefono = StaticInput("Teléfono", color=color)
+        self.input_telefono = StaticInput("Teléfono: +504-0000-0000", color=color)
         self.input_password = PasswordInput(color=color)
 
     # ✅ NUEVO CAMPO: Confirmar contraseña
@@ -576,6 +581,7 @@ class UserManagementUI(BaseWindow):
             self.input_usuario.clear() 
             self.input_email.clear()
             self.input_telefono.clear()
+            self.input_telefono.setInputMask("+504-0000-0000")
             self.input_password.input.clear()
             self.input_confirm_password.input.clear()
             self.combo_rol.setCurrentIndex(0)
@@ -606,7 +612,7 @@ class UserManagementUI(BaseWindow):
             ("Nombre completo", "edit_nombre"),
             ("Nombre de usuario", "edit_usuario"),
             ("Correo electrónico", "edit_email"),
-            ("Telefono","edit_telefono"),
+            ("Telefono : +504-0000-0000","edit_telefono"),
         ]
 
         for placeholder, attr_name in campos:
@@ -685,9 +691,10 @@ class UserManagementUI(BaseWindow):
 
         es_admin = self.edit_rol.currentText() == "Administrador"
 
-        if not nombre or not usuario or not email:
+        if not all[nombre,usuario,email,telefono]:
             QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
             return
+        
 
         payload = {
             "nombre": nombre,
@@ -890,7 +897,92 @@ class UserManagementUI(BaseWindow):
             self.central.setGeometry(0, 0, self.width(), self.height())
             self.window_buttons.setGeometry(0, 0, self.width(), 35)
       
+    # ========== Aplicar validaciones ===============
+    def aplicar_validaciones(self):
 
+        # ================= TELÉFONO =================
+        telefono_regex = QRegularExpression(r"\d{4}-\d{4}-\d{4}")
+        telefono_validator = QRegularExpressionValidator(telefono_regex)
+
+        self.input_telefono.setValidator(telefono_validator)
+
+
+        # ================= EMAIL =================
+        email_regex = QRegularExpression(
+            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        )
+        email_validator = QRegularExpressionValidator(email_regex)
+
+        self.input_email.setValidator(email_validator)
+
+
+        # ================= PASSWORD =================
+        # Min 8 chars, letras y números
+        password_regex = QRegularExpression(
+            r"^[A-Za-z0-9@$!%*#?&]{8,}$"
+        )
+        password_validator = QRegularExpressionValidator(password_regex)
+
+        self.input_password.input.setValidator(password_validator)
+        self.input_confirm_password.input.setValidator(password_validator)
+
+
+        # ================= USUARIO =================
+        usuario_regex = QRegularExpression(r"^[^\s]+$")
+        usuario_validator = QRegularExpressionValidator(usuario_regex)
+
+        self.input_usuario.setValidator(usuario_validator)
+
+
+        # ================= NOMBRE =================
+        nombre_regex = QRegularExpression(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ ]+$")
+        nombre_validator = QRegularExpressionValidator(nombre_regex)
+
+        self.input_nombre.setValidator(nombre_validator)
+
+
+    # validaciones para modificacion
+    def aplicar_validaciones_modificar(self):
+
+        # ================= TELÉFONO =================
+        telefono_regex = QRegularExpression(r"\d{4}-\d{4}-\d{4}")
+        validator_tel = QRegularExpressionValidator(telefono_regex)
+
+        self.edit_telefono.setValidator(validator_tel)
+
+
+        # ================= EMAIL =================
+        email_regex = QRegularExpression(
+            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        )
+        validator_email = QRegularExpressionValidator(email_regex)
+
+        self.edit_email.setValidator(validator_email)
+
+
+        # ================= PASSWORD =================
+        password_regex = QRegularExpression(
+            r"^[A-Za-z0-9@$!%*#?&]{8,}$"
+        )
+        validator_password = QRegularExpressionValidator(password_regex)
+
+        self.edit_current_password.input.setValidator(validator_password)
+        self.edit_new_password.input.setValidator(validator_password)
+
+
+        # ================= USUARIO =================
+        usuario_regex = QRegularExpression(r"^[^\s]+$")
+        validator_user = QRegularExpressionValidator(usuario_regex)
+
+        self.edit_usuario.setValidator(validator_user)
+
+
+        # ================= NOMBRE =================
+        nombre_regex = QRegularExpression(r"^[A-Za-zÁÉÍÓÚáéíóúÑñ ]+$")
+        validator_nombre = QRegularExpressionValidator(nombre_regex)
+
+        self.edit_nombre.setValidator(validator_nombre)
+        
 #=================== FUNCIONES EXTERNAS (API) ==================
 def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
         # Aquí la lógica para registrar un nuevo usuario
