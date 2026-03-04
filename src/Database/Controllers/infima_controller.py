@@ -102,7 +102,6 @@ def obtener_infimas_disponibles_admin(db: Session):
         .filter(
             not_(Infima.id_infima.in_(subquery)),
             Infima.etapa == "seleccionada",
-            Infima.PACdoc > 0,
             #Infima.nivel_de_oportunidad >=1 and Infima.nivel_de_oportunidad <=3
             #nuevas condiciones
             # Infima.PAC > 0
