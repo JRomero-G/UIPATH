@@ -456,7 +456,7 @@ def cargar_empleados(self):
         token = get_session().get("token")
 
         resp = requests.get(
-            "http://127.0.0.1:8000/usuarios/empleados",
+            "http://127.0.0.1:8000/usuarios/empleados-activos",
             headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )

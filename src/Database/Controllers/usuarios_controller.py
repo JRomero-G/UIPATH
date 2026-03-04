@@ -184,10 +184,10 @@ def listar_usuarios(db: Session):
 
 
 def listar_usuarios_no_admin(db: Session):
-    return db.query(Usuario).filter(~Usuario.es_admin).all()
+    return db.query(Usuario).filter(Usuario.es_admin == 1, Usuario.estado == "activo").all()
 
 def listar_empleados_activos(db: Session):
-    return db.query(Usuario).filter(~Usuario.es_admin and Usuario.estado=="activo").all
+    return db.query(Usuario).filter(Usuario.es_admin == 0, Usuario.estado == "activo").all()
 
 # Obtener usuario por ID
 def obtener_usuario_por_id(db: Session, id_usuario: int):
