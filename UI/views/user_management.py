@@ -571,7 +571,7 @@ class UserManagementUI(BaseWindow):
         else:
             QMessageBox.information(self, "Éxito", resultado["success"])
             # limpiamos los campos
-            
+            print("Se registro un nuevo usuario con exito")
             self.input_nombre.clear()
             self.input_usuario.clear() 
             self.input_email.clear()
@@ -617,7 +617,6 @@ class UserManagementUI(BaseWindow):
 
         # Rol
         self.edit_rol = StaticComboBox(color=color)
-        self.edit_rol.addItems(["Empleado", "Administrador"])
         layout.addWidget(self.edit_rol)
 
     # ✅ NUEVOS CAMPOS DE CONTRASEÑA
@@ -664,9 +663,9 @@ class UserManagementUI(BaseWindow):
         self.edit_telefono.setText(data.get("telefono", ""))
 
         if data.get("es_admin"):
-            self.edit_rol.setCurrentText("Administrador")
+            self.edit_rol.setCurrentIndex[1]
         else:
-            self.edit_rol.setCurrentText("Empleado")
+            self.edit_rol.setCurrentIndex[2]
         
         # Limpiar password
         self.edit_new_password.input.clear()
@@ -716,9 +715,15 @@ class UserManagementUI(BaseWindow):
             if response.status_code == 200:
 
                 QMessageBox.information(self, "Éxito", "Usuario actualizado")
+                print("Usuario Actualizado con exito")
 
                 self.edit_new_password.input.clear()
-
+                self.edit_current_password.clear()
+                self.edit_nombre.clear()
+                self.edit_usuario.clear()
+                self.edit_email.clear()
+                self.edit_telefono.clear()
+                self.edit_rol.setCurrentIndex[0]
                 # Recargar lista
                 self.recargar_usuarios()
 
@@ -728,26 +733,17 @@ class UserManagementUI(BaseWindow):
                     "Error",
                     f"Error: {response.text}"
                 )
+                print(f"Error al guardar los cambios del usuario {response.text}")
 
         except requests.RequestException as e:
             QMessageBox.critical(self, "Error", str(e))
     
-    #================== Recargar usuarios despues de actualizar ====================
-    def recargar_usuarios(self):
-
-        lista = self.cargar_usuarios()
-
-        self.search_bar.combo.clear()
-
-        for u in lista:
-            self.search_bar.combo.addItem(u["nombre"], u["id"])
-
     # ================== cargar empleados ==================
     def cargar_usuarios(self):
 
             try:
                 response = requests.get(
-                    "http://localhost:8000/usuarios/empleados",
+                    "http://localhost:8000/usuarios/empleados-activos",
                     headers={
                         "Authorization": f"Bearer {get_token()}"
                     },
@@ -781,7 +777,7 @@ class UserManagementUI(BaseWindow):
 
         self.usuario_actual_id = None
 
-        # Cargar usuarios
+        # Cargar usuarios   
         lista_usuarios = self.cargar_usuarios()
 
         self.search_bar_del = SearchComboWithButton(
@@ -849,11 +845,13 @@ class UserManagementUI(BaseWindow):
             if response.status_code == 200:
 
                 QMessageBox.information(self, "Éxito", "Usuario Desactivado")
+                print("Usuario Desactivado con exito")
 
                 # Recargar lista
-                self.recargar_usuarios()
                 self.user_info.clear()
                 self.usuario_actual_id = None
+                # Recargar lista
+                self.recargar_usuarios()
 
             else:
                 QMessageBox.warning(
@@ -861,10 +859,23 @@ class UserManagementUI(BaseWindow):
                     "Error",
                     f"Error: {response.text}"
                 )
+                print(f"Error al Desactivar usuario: {response.text}")
 
         except requests.RequestException as e:
             QMessageBox.critical(self, "Error", str(e))
     
+    #================== Recargar usuarios despues de crear,actualizar o inhabilitar ====================
+    def recargar_usuarios(self):
+
+        lista = self.cargar_usuarios()
+
+        self.search_bar.combo.clear()
+        self.search_bar_del.combo.clear()
+
+        for u in lista:
+            self.search_bar.combo.addItem(u["nombre"], u["id"])
+            self.search_bar_del.combo.addItem(u["nombre"], u["id"])
+
 
     # === EVENTOS DE VENTANA ===
     def showEvent(self, event):
