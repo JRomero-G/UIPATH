@@ -11,6 +11,7 @@ from ..Controllers.usuarios_controller import (
     UsuarioUpdate, # Esquema para actualizar usuarios
     obtener_usuario_por_id,
     listar_usuarios_no_admin,
+    listar_empleados_activos,
 )
 from ..Auth.Usuario_auth import usuario_actual
 from ..Models.usuarios_model import Usuario
@@ -31,7 +32,7 @@ def registrar(data: UsuarioCreate, db: Session = Depends(get_db),current_user: U
     return resultado
 
 @router.put("/actualizar/{id_usuario}")
-def actualizar_usuarios(id_usuario: int,data: UsuarioUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+def actualizar_datos_usuarios(id_usuario: int,data: UsuarioUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
     if not current_user.es_admin:
         return {"error": "No autorizado debe ser administrador"}
     resultado =actualizar_usuario(db, id_usuario, data)
@@ -50,8 +51,6 @@ def desactivar_usuario(id_usuario: int, db: Session = Depends(get_db), current_u
     return resultado
 
 
-#===================== RUTAS PARA CUD===================================
-
 # Endpoint para listar a todos usuarios
 @router.get("/todos")
 def listar(db: Session = Depends(get_db)):
@@ -59,15 +58,21 @@ def listar(db: Session = Depends(get_db)):
 
 # Endpoint para listar usuarios no administradores
 @router.get("/empleados")
-def listar_no_admin(db: Session = Depends(get_db), 
-                    current_user: Usuario = Depends(usuario_actual)):
+def listar_no_admin(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
     if not current_user.es_admin:
         return {"error": "No autorizado debe ser administrador"}
     return listar_usuarios_no_admin(db)
 
+@router.get("/empleados-activos")
+def listar_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+    if not current_user.es_admin:
+        return {"error": "No autorizado dbe ser administrador"}
+    return listar_empleados_activos(db)
+
+
 # Endpoint para buscar un usuario
 @router.get("/{id_usuario}")
-def obtener_usuario_por_id(id_usuario: int, db: Session = Depends(get_db)):
+def obtener_informacion_del_usuario_por_id(id_usuario: int, db: Session = Depends(get_db)):
     #Obtener usuario por id
     usuario = obtener_usuario_por_id(db,id_usuario)
     if not usuario:

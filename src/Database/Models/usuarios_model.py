@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime
 from .base import Base
 
@@ -12,5 +13,7 @@ class Usuario(Base):
     correo = Column(String(250), unique=True)
     telefono = Column(String(50))
     estado = Column(Enum("activo", "inactivo"), default="activo")
-    fecha_creacion = Column(DateTime)
-    fecha_modificacion = Column(DateTime)
+    # Campos de auditoría
+    # fecha_creacion se asignará al crear el usuario, fecha_modificacion se actualizará cada vez que se modifique el usuario
+    fecha_creacion = Column(DateTime, default=datetime.now)
+    fecha_modificacion = Column(DateTime, default=datetime.now, onupdate=datetime.now)

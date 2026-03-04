@@ -122,7 +122,18 @@ def actualizar_usuario(db: Session, id_usuario: int, data: UsuarioUpdate):
         db.commit()
         # Refrescamos el objeto para obtener los datos actualizados
         db.refresh(usuario)
-        return usuario
+        return {
+            "success": True,
+            "message": "Usuario actualizado correctamente",
+            "usuario": {
+                "id": usuario.id_usuario,
+                "nombre": usuario.nombre,
+                "correo": usuario.correo,
+                "telefono": usuario.telefono,
+                "es_admin": usuario.es_admin,
+                "estado": usuario.estado
+            }
+        }
     except IntegrityError as e:
         db.rollback()
         return {"error": str(e)}
@@ -175,6 +186,8 @@ def listar_usuarios(db: Session):
 def listar_usuarios_no_admin(db: Session):
     return db.query(Usuario).filter(~Usuario.es_admin).all()
 
+def listar_empleados_activos(db: Session):
+    return db.query(Usuario).filter(~Usuario.es_admin and Usuario.estado=="activo").all
 
 # Obtener usuario por ID
 def obtener_usuario_por_id(db: Session, id_usuario: int):

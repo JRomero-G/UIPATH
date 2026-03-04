@@ -4,10 +4,11 @@ from turtle import color
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
 from PyQt5.QtWidgets import (
-    QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
+    QMessageBox, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
     QVBoxLayout, QHBoxLayout, QApplication, QStackedWidget,
     QGraphicsDropShadowEffect, QFrame, QSizePolicy
 )
+import requests
 
 from config import *
 from components.base_window import BaseWindow
@@ -172,14 +173,17 @@ class PasswordInput(QWidget):
             self.eye_btn.setText("🔓")
             self.eye_btn.setStyleSheet(f"color: {self.color}80; background: transparent; border: none;")
 
-
+# Cambios para hacer los campos de eliminar dinamicos y poder
+# llenar la informacion desde la consulta
 class UserInfoDisplay(QWidget):
     """Widget para mostrar información de usuario"""
     def __init__(self, parent=None, color="#ff4444"):
         super().__init__(parent)
         self.color = color
+
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(160)
+
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: rgba(30, 40, 60, 150);
@@ -192,40 +196,77 @@ class UserInfoDisplay(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(25, 20, 25, 20)
 
-        campos = [
-            ("Nombre:", "Juan Pérez García"),
-            ("Usuario:", "@juanperez"),
-            ("Correo:", "juan@email.com"),
-            ("Rol:", "Administrador")
-        ]
+        # ====== LABELS ======
 
-        for label_text, valor_text in campos:
-            row = QWidget()
-            row.setStyleSheet("background: transparent; border: none;")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(15)
+        self.lbl_nombre = self._crear_fila("Nombre:")
+        self.lbl_usuario = self._crear_fila("Usuario:")
+        self.lbl_correo = self._crear_fila("Correo:")
+        self.lbl_rol = self._crear_fila("Rol:")
 
-            lbl = QLabel(label_text)
-            lbl.setFont(QFont("Segoe UI", 12, QFont.Bold))
-            lbl.setStyleSheet(f"color: {self.color}; background: transparent;")
-            lbl.setFixedWidth(90)
+        layout.addWidget(self.lbl_nombre["row"])
+        layout.addWidget(self.lbl_usuario["row"])
+        layout.addWidget(self.lbl_correo["row"])
+        layout.addWidget(self.lbl_rol["row"])
 
-            val = QLabel(valor_text)
-            val.setFont(QFont("Segoe UI", 12))
-            val.setStyleSheet("color: white; background: transparent;")
-            val.setWordWrap(True)
-            val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # Estado inicial
+        self.clear()
 
-            row_layout.addWidget(lbl)
-            row_layout.addWidget(val, stretch=1)
-            layout.addWidget(row)
+    def _crear_fila(self, texto):
 
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(15)
+
+        lbl = QLabel(texto)
+        lbl.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        lbl.setStyleSheet(f"color: {self.color};")
+
+        val = QLabel("--------------")
+        val.setFont(QFont("Segoe UI", 12))
+        val.setStyleSheet("color: white;")
+        val.setWordWrap(True)
+
+        row_layout.addWidget(lbl)
+        row_layout.addWidget(val, stretch=1)
+
+        return {
+            "row": row,
+            "value": val
+        }
+
+    # ==========================
+    # LIMPIAR
+    # ==========================
+    def clear(self):
+
+        self.lbl_nombre["value"].setText("--------------")
+        self.lbl_usuario["value"].setText("--------------")
+        self.lbl_correo["value"].setText("--------------")
+        self.lbl_rol["value"].setText("--------------")
+
+    # ==========================
+    # CARGAR DATOS
+    # ==========================
+    def set_data(self, data):
+
+        self.lbl_nombre["value"].setText(data.get("nombre", ""))
+        self.lbl_usuario["value"].setText(data.get("usuario", ""))
+        self.lbl_correo["value"].setText(data.get("correo", ""))
+
+        if data.get("es_admin"):
+            self.lbl_rol["value"].setText("Administrador")
+        else:
+            self.lbl_rol["value"].setText("Empleado")
 
 class SearchComboWithButton(QWidget):
     """ComboBox de búsqueda con botón"""
     def __init__(self, placeholder="Buscar...", items=None, parent=None, color="#00ff88"):
         super().__init__(parent)
+
+        if items is None:
+            items = []
+
         self.color = color
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setMaximumHeight(45)
@@ -243,8 +284,17 @@ class SearchComboWithButton(QWidget):
         #self.combo.lineEdit().setReadOnly(True)
         #self.combo.lineEdit().setPlaceholderText(placeholder)
 
-        if items:
-            self.combo.addItems(items)
+        for item in items:
+            # Protección
+            if not isinstance(item, dict):
+                continue
+
+            nombre = item.get("nombre")
+            uid = item.get("id")
+
+            if nombre and uid is not None:
+                self.combo.addItem(nombre, uid)
+
 
         self.combo.setStyleSheet(f"""
             QComboBox {{
@@ -462,6 +512,7 @@ class UserManagementUI(BaseWindow):
         self.input_nombre = StaticInput("Nombre completo", color=color)
         self.input_usuario = StaticInput("Nombre de usuario", color=color)
         self.input_email = StaticInput("Correo electrónico", color=color)
+        self.input_telefono = StaticInput("Teléfono", color=color)
         self.input_password = PasswordInput(color=color)
 
     # ✅ NUEVO CAMPO: Confirmar contraseña
@@ -473,6 +524,7 @@ class UserManagementUI(BaseWindow):
         layout.addWidget(self.input_nombre)
         layout.addWidget(self.input_usuario)
         layout.addWidget(self.input_email)
+        layout.addWidget(self.input_telefono)
         layout.addWidget(self.input_password)
         layout.addWidget(self.input_confirm_password)  # ← agregado aquí
         layout.addWidget(self.combo_rol)
@@ -485,23 +537,76 @@ class UserManagementUI(BaseWindow):
 
         self.stack.addWidget(container)
 
+        btn_crear.clicked.connect(self.handle_crear_usuario)
+
+    def handle_crear_usuario(self):  
+        # Lee los valores de los campos
+        nombre = self.input_nombre.text().strip()
+        usuario = self.input_usuario.text().strip()
+        correo = self.input_email.text().strip()
+        telefono = self.input_telefono.text().strip()
+        password = self.input_password.input.text()
+        confirm_password = self.input_confirm_password.input.text()  # ← nuevo campo
+        
+        # Determina es_admin según el combobox
+        rol = self.combo_rol.currentText()
+        if rol == "Administrador":
+            es_admin = True
+        elif rol == "Empleado":
+            es_admin = False
+        else:
+            QMessageBox.warning(self, "Error", "Debe seleccionar un rol.")
+            return
+        
+        # Valida contraseñas
+        if password != confirm_password:
+            QMessageBox.warning(self, "Error", "Las contraseñas no coinciden.")
+            return
+        
+        # Llama a la función externa
+        resultado = registrar_usuario(nombre, usuario,correo, password, es_admin,telefono)
+
+        if "error" in resultado:
+            QMessageBox.critical(self, "Error", resultado["error"])
+        else:
+            QMessageBox.information(self, "Éxito", resultado["success"])
+            # limpiamos los campos
+            
+            self.input_nombre.clear()
+            self.input_usuario.clear() 
+            self.input_email.clear()
+            self.input_telefono.clear()
+            self.input_password.input.clear()
+            self.input_confirm_password.input.clear()
+            self.combo_rol.setCurrentIndex(0)
+            self.recargar_usuarios()
+        
+
     # === MODIFICAR TAB ===
     def setup_modificar(self):
         color = self.COLORES[1]
         container, layout, btn_layout = self.create_tab_card("Editar Usuario", color)
 
+        self.usuario_actual_id = None
+        # Cargar usuarios
+        lista_usuarios = self.cargar_usuarios()
+        print("DEBUG lista_usuarios:", lista_usuarios)
+        
         self.search_bar = SearchComboWithButton(
-            "🔍 Buscar usuario...",
-            items=["Juan Pérez", "Ana López", "Carlos Méndez", "María Ruiz"],
+            items=lista_usuarios,
             color=color
         )
         layout.addWidget(self.search_bar)
         layout.addSpacing(20)
 
+        # 👉 Conectar botón buscar
+        self.search_bar.btn_buscar.clicked.connect(self.buscar_usuario)
+
         campos = [
             ("Nombre completo", "edit_nombre"),
             ("Nombre de usuario", "edit_usuario"),
-            ("Correo electrónico", "edit_email")
+            ("Correo electrónico", "edit_email"),
+            ("Telefono","edit_telefono"),
         ]
 
         for placeholder, attr_name in campos:
@@ -510,12 +615,14 @@ class UserManagementUI(BaseWindow):
             setattr(self, attr_name, inp)
             layout.addWidget(inp)
 
+        # Rol
         self.edit_rol = StaticComboBox(color=color)
+        self.edit_rol.addItems(["Empleado", "Administrador"])
         layout.addWidget(self.edit_rol)
 
     # ✅ NUEVOS CAMPOS DE CONTRASEÑA
         self.edit_current_password = PasswordInput(color=color)
-        self.edit_current_password.input.setPlaceholderText("Contraseña actual")
+        self.edit_current_password.input.setPlaceholderText("Nueva contraseña (opcional)")
 
         self.edit_new_password = PasswordInput(color=color)
         self.edit_new_password.input.setPlaceholderText("Nueva contraseña")
@@ -526,22 +633,165 @@ class UserManagementUI(BaseWindow):
         layout.addStretch()
 
         btn_guardar = BaseButton("GUARDAR CAMBIOS", color=color)
+        btn_guardar.clicked.connect(self.guardar_cambios_usuario)
         btn_guardar.setMinimumWidth(220)
         btn_guardar.setMaximumWidth(300)
         btn_layout.addWidget(btn_guardar)
 
         self.stack.addWidget(container)
 
+    #===================== Buscamos al emplado seleccionado =======================
+    def buscar_usuario(self):
+
+        user_id = self.search_bar.combo.currentData()
+
+        if not user_id:
+            QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
+            return
+
+        data = obtener_informacion_del_usuario(user_id)
+
+        if not data:
+            QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
+            return
+
+        self.usuario_actual_id = user_id
+
+        # Llenar campos
+        self.edit_nombre.setText(data.get("nombre", ""))
+        self.edit_usuario.setText(data.get("usuario", ""))
+        self.edit_email.setText(data.get("correo", ""))
+        self.edit_telefono.setText(data.get("telefono", ""))
+
+        if data.get("es_admin"):
+            self.edit_rol.setCurrentText("Administrador")
+        else:
+            self.edit_rol.setCurrentText("Empleado")
+        
+        # Limpiar password
+        self.edit_new_password.input.clear()
+
+    # ====================Guardar los cambios =====================================
+    def guardar_cambios_usuario(self):
+
+        if not self.usuario_actual_id:
+            QMessageBox.warning(self, "Error", "Primero busque un usuario")
+            return
+
+        nombre = self.edit_nombre.text().strip()
+        usuario = self.edit_usuario.text().strip()
+        email = self.edit_email.text().strip()
+        telefono = self.edit_telefono.text().strip()
+        password = self.edit_new_password.input.text().strip()
+
+        es_admin = self.edit_rol.currentText() == "Administrador"
+
+        if not nombre or not usuario or not email:
+            QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
+            return
+
+        payload = {
+            "nombre": nombre,
+            "usuario": usuario,
+            "correo": email,
+            "telefono": telefono,
+            "es_admin": es_admin,
+        }
+
+        # Solo enviar password si existe
+        if password:
+            payload["password"] = password
+
+        try:
+            response = requests.put(
+                f"http://localhost:8000/usuarios/actualizar/{self.usuario_actual_id}",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {get_token()}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+
+            if response.status_code == 200:
+
+                QMessageBox.information(self, "Éxito", "Usuario actualizado")
+
+                self.edit_new_password.input.clear()
+
+                # Recargar lista
+                self.recargar_usuarios()
+
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    f"Error: {response.text}"
+                )
+
+        except requests.RequestException as e:
+            QMessageBox.critical(self, "Error", str(e))
+    
+    #================== Recargar usuarios despues de actualizar ====================
+    def recargar_usuarios(self):
+
+        lista = self.cargar_usuarios()
+
+        self.search_bar.combo.clear()
+
+        for u in lista:
+            self.search_bar.combo.addItem(u["nombre"], u["id"])
+
+    # ================== cargar empleados ==================
+    def cargar_usuarios(self):
+
+            try:
+                response = requests.get(
+                    "http://localhost:8000/usuarios/empleados",
+                    headers={
+                        "Authorization": f"Bearer {get_token()}"
+                    },
+                    timeout=10
+                )
+
+                if response.status_code != 200:
+                    return []
+
+                data = response.json()
+
+                usuarios = []
+
+                for u in data:
+                    usuarios.append({
+                        "id": u["id_usuario"],
+                        "nombre": u["nombre"]
+                    })
+
+                return usuarios
+
+            except Exception as e:
+                print("Error al cargar usuarios:", e)
+                return []
+    
+
     # === ELIMINAR TAB ===
     def setup_eliminar(self):
         color = self.COLORES[2]
         container, layout, btn_layout = self.create_tab_card("Eliminar Usuario", color)
 
+        self.usuario_actual_id = None
+
+        # Cargar usuarios
+        lista_usuarios = self.cargar_usuarios()
+
         self.search_bar_del = SearchComboWithButton(
-            "🔍 Buscar usuario a eliminar...",
-            items=["Juan Pérez", "Ana López", "Carlos Méndez", "María Ruiz"],
+            items= lista_usuarios,
             color=color
         )
+
+        # 👉 Conectar botón buscar
+        self.search_bar_del.btn_buscar.clicked.connect(self.buscar_usuario_a_eliminar)
+
         layout.addWidget(self.search_bar_del)
         layout.addSpacing(20)
 
@@ -553,8 +803,68 @@ class UserManagementUI(BaseWindow):
         btn_eliminar.setMinimumWidth(150)
         btn_eliminar.setMaximumWidth(200)
         btn_layout.addWidget(btn_eliminar)
+        btn_eliminar.clicked.connect(self.inhabilitar_usuario)
 
         self.stack.addWidget(container)
+
+    # ============== Buscar informacion Eliminar ======================
+    def buscar_usuario_a_eliminar(self):
+
+        user_id = self.search_bar_del.combo.currentData()
+
+        if not user_id:
+            QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
+            return
+
+        data = obtener_informacion_del_usuario(user_id)
+
+        if not data:
+            QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
+            return
+
+        self.usuario_actual_id = user_id
+
+        # Llenar campos
+        self.user_info.set_data(data)
+
+        
+    # ==================== Deshablitar =====================================
+    def inhabilitar_usuario(self):
+
+        if not self.usuario_actual_id:
+            QMessageBox.warning(self, "Error", "Primero busque un usuario")
+            return
+
+
+        try:
+            response = requests.put(
+                f"http://localhost:8000/usuarios/desactivar-usuarios/{self.usuario_actual_id}",
+                headers={
+                    "Authorization": f"Bearer {get_token()}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10
+            )
+
+            if response.status_code == 200:
+
+                QMessageBox.information(self, "Éxito", "Usuario Desactivado")
+
+                # Recargar lista
+                self.recargar_usuarios()
+                self.user_info.clear()
+                self.usuario_actual_id = None
+
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    f"Error: {response.text}"
+                )
+
+        except requests.RequestException as e:
+            QMessageBox.critical(self, "Error", str(e))
+    
 
     # === EVENTOS DE VENTANA ===
     def showEvent(self, event):
@@ -568,6 +878,75 @@ class UserManagementUI(BaseWindow):
         if hasattr(self, 'central'):
             self.central.setGeometry(0, 0, self.width(), self.height())
             self.window_buttons.setGeometry(0, 0, self.width(), 35)
+      
+
+#=================== FUNCIONES EXTERNAS (API) ==================
+def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
+        # Aquí la lógica para registrar un nuevo usuario
+        if not all([nombre, usuario, email, password]):
+            return {"error": "Todos los campos son obligatorios."}
+        
+        try:
+            response = requests.post(
+                "http://localhost:8000/usuarios/registro",
+                json={
+                    "usuario": usuario,
+                    "nombre": nombre,
+                    "password": password,
+                    "es_admin": es_Admin,
+                    "correo": email,
+                    "telefono": telefono
+                },
+                headers={"Content-Type": "application/json", "Accept": "application/json", "Authorization": f"Bearer {get_token()}"},
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                print("Usuario registrado exitosamente.")
+                return {"success": "Usuario registrado exitosamente."}
+            
+
+        except Exception as e:
+            return print(f"Error al registrar usuario: {e}")
+
+# ================= Desactivar Empleado =======================
+def eliminar_usuario(usuario_id):
+        # Aquí la lógica para eliminar un usuario
+        try:
+            response = requests.delete(
+                f"http://localhost:8000/usuarios/desactivar-usuarios/{usuario_id}",
+                headers={"Authorization": f"Bearer {get_token()}"},
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                print("Usuario eliminado exitosamente.")
+                return {"success": "Usuario eliminado exitosamente."}
+            
+
+        except Exception as e:
+            return print(f"Error al eliminar usuario: {e}")
+
+
+# ================== Obtener infirmacion actual del empleado ==================
+def obtener_informacion_del_usuario(usuario_id):
+        # Aquí la lógica para obtener información de un usuario
+        try:
+            token = get_session().get("token")
+            response = requests.get(
+                f"http://localhost:8000/usuarios/{usuario_id}",
+                headers={ "Content-Type": "application/json","Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                usuario_info = response.json()
+                print("Información del usuario obtenida exitosamente.")
+                return usuario_info
+            
+
+        except Exception as e:
+            return print(f"Error al obtener información del usuario: {e}")
 
 
 if __name__ == "__main__":

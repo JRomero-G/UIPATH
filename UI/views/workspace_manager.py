@@ -24,6 +24,10 @@ class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
+        # Guarda asignaciones pendientes
+        # { row: {id_infima, usuario_id} }
+        self.asignaciones_pendientes = {}
+
         self.setWindowTitle("Gestorex 1.1 - Manager")
 
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -183,9 +187,6 @@ class WorkspaceManagerUI(BaseWindow):
         """)
         return btn
 
-
-    # ================== 
-
     # ================== MENÚ TAB ==================
     def menu_tab(self, text, active=False):
         btn = QPushButton(text)
@@ -223,27 +224,22 @@ class WorkspaceManagerUI(BaseWindow):
 
     # ================== CARGAR DATOS DESDE API ==================
     def cargar_datos_bd(self):
+
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(
-                self, "Sesión", "Token no encontrado. Inicie sesión nuevamente."
-            )
+            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/infimas/ingresadas",
+                "http://127.0.0.1:8000/recomendaciones-usuario/admin/infimas-disponibles",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10,
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Error al obtener datos.\nCódigo: {response.status_code}",
-                )
+                QMessageBox.critical(self, "Error", "No se pudieron cargar datos.")
                 return
 
             data = response.json()
@@ -251,67 +247,228 @@ class WorkspaceManagerUI(BaseWindow):
             if isinstance(data, dict) and "data" in data:
                 data = data["data"]
 
-            if not data:
-                QMessageBox.information(
-                    self, "Información", "No hay registros disponibles."
-                )
-                return
-
-        except requests.RequestException as e:
-            QMessageBox.warning(
-                self, "Error", "No se pudo conectar al servidor."
-            )
-            print("EXCEPTION:", e)
+        except requests.RequestException:
+            QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
-        # 🔥 LIMPIAR TABLA
+        # Cargar usuarios
+        lista_usuarios = cargar_empleados(self)
+
+        # Limpiar tabla
         self.table.setRowCount(0)
 
+        # Limpiar asignaciones anteriores
+        self.asignaciones_pendientes.clear()
+
         for row, item in enumerate(data):
+
             self.table.insertRow(row)
+
+            id_infima = item.get("id_infima")
 
             nivel = item.get("nivel_de_oportunidad") or 1
 
             if nivel == 1:
-                row_color = QColor(150, 215, 175)
+                color = QColor(150, 215, 175)
             elif nivel == 2:
-                row_color = QColor(220, 200, 140)
+                color = QColor(220, 200, 140)
             else:
-                row_color = QColor(220, 170, 170)
+                color = QColor(220, 170, 170)
 
-            text_color = QColor(0, 0, 0)
+            # ====== COLUMNA 0 → COMBO ======
 
-            valores = [
-                item.get("usuario", ""),
+            combo = QComboBox()
+            combo.setStyleSheet(f"""
+                QComboBox {{
+                    background-color: rgb({color.red()},{color.green()},{color.blue()});
+                    color: black;
+                    border: none;
+                    padding: 3px;
+                }}
+
+                QComboBox QAbstractItemView {{
+                    background-color: rgb(220,235,255);
+                    color: black;
+                    selection-background-color: rgb(80,140,230);
+                    selection-color: white;
+                }}
+
+                QComboBox::item {{
+                    background-color: rgb(220,235,255);
+                    color: black;
+                }}
+
+                QComboBox::item:selected {{
+                    background-color: rgb(80,140,230);
+                    color: white;
+                }}
+            """)
+
+            combo.addItem("Seleccionar usuario")
+            combo.addItems(lista_usuarios)
+
+            combo.currentIndexChanged.connect(
+                partial(self.on_usuario_changed, row, combo, item)
+            )
+
+            self.table.setCellWidget(row, 0, combo)
+
+            # ====== DATOS ======
+
+            datos = [
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
                 item.get("etapa", ""),
             ]
 
-            for col, value in enumerate(valores):
-                cell = QTableWidgetItem(str(value))
+            for col, val in enumerate(datos, start=1):
+
+                cell = QTableWidgetItem(str(val))
+                cell.setFlags(Qt.ItemIsEnabled)
+                cell.setBackground(color)
+                cell.setForeground(QColor(0, 0, 0))
 
                 if col == 3:
                     cell.setTextAlignment(Qt.AlignCenter)
-                    cell.setFont(QFont("Arial", 9, QFont.Bold))
-
-                cell.setFlags(Qt.ItemIsEnabled)
-                cell.setForeground(text_color)
-                cell.setBackground(row_color)
 
                 self.table.setItem(row, col, cell)
 
     # 🔵 MÉTODO NUEVO PARA ABRIR VENTANA
     def abrir_ventana_usuarios(self):
-        print("Abriendo Workspace User RE...")
-        try:
-            from ..views.user_management import UserManagementUI
-            self.user = UserManagementUI()
-            self.user.show()
-            #self.hide()
-            QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
-        except ImportError as e:
-            print(f"Error de importación: {e}")
-            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
-        except Exception as e:
-            print(f"Error al crear ventana: {e}")
+            print("Abriendo Workspace User RE...")
+            try:
+                from views.user_management import UserManagementUI
+                self.user = UserManagementUI()
+                self.user.show()
+                #self.hide()
+                QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
+            except ImportError as e:
+                print(f"Error de importación: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+            except Exception as e:
+                print(f"Error al crear ventana: {e}")
+
+    # ================== GESTIÓN DE ASIGNACIONES PENDIENTES ==================
+    def on_usuario_changed(self, row, combo: QComboBox, item_data: dict):
+
+        texto = combo.currentText()
+
+        # Si vuelve a "Seleccionar", borrar buffer
+        if texto == "Seleccionar usuario":
+
+            if row in self.asignaciones_pendientes:
+                del self.asignaciones_pendientes[row]
+
+            return
+
+        usuario_id = self.usuarios_dict.get(texto)
+        id_infima = item_data.get("id_infima")
+
+        if not usuario_id or not id_infima:
+            return
+
+        # Guardar en memoria
+        self.asignaciones_pendientes[row] = {
+            "usuario_id": usuario_id,
+            "id_infima": id_infima
+        }
+
+        print("Pendientes:", self.asignaciones_pendientes)
+
+    # ==================== CONFIRMAR ASIGNACIONES PENDIENTES ==================
+    def confirmar_asignaciones(self):
+
+        if not self.asignaciones_pendientes:
+            QMessageBox.information(
+                self,
+                "Información",
+                "No hay asignaciones seleccionadas."
+            )
+            return
+
+        token = get_session().get("token")
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirmar",
+            f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if confirm != QMessageBox.Yes:
+            return
+
+        errores = 0
+
+        for fila, datos in self.asignaciones_pendientes.items():
+
+            payload = {
+                "usuario_id": datos["usuario_id"],
+                "id_infima": datos["id_infima"]
+            }
+
+            try:
+                resp = requests.post(
+                    "http://127.0.0.1:8000/admin/asignar-infima-individual",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10,
+                )
+
+                if resp.status_code == 200:
+
+                    # Pintar verde
+                    for c in range(self.table.columnCount()):
+                        item = self.table.item(fila, c)
+                        if item:
+                            item.setBackground(QColor(180, 240, 180))
+
+                    combo = self.table.cellWidget(fila, 0)
+                    if combo:
+                        combo.setEnabled(False)
+
+                else:
+                    errores += 1
+
+            except requests.RequestException:
+                errores += 1
+
+        # Limpiar memoria
+        self.asignaciones_pendientes.clear()
+
+        if errores == 0:
+            QMessageBox.information(
+                self, "OK", "Asignaciones completadas."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Parcial",
+                f"{errores} asignaciones fallaron."
+            )
+
+# ================== cargar empleados ==================
+def cargar_empleados(self):
+
+        token = get_session().get("token")
+
+        resp = requests.get(
+            "http://127.0.0.1:8000/usuarios/empleados",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+
+        if resp.status_code != 200:
+            return []
+
+        usuarios = resp.json()
+
+        # { nombre: id }
+        self.usuarios_dict = {
+            u["usuario"]: u["id_usuario"] for u in usuarios
+        }
+
+        return list(self.usuarios_dict.keys())            
