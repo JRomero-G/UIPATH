@@ -669,9 +669,9 @@ class UserManagementUI(BaseWindow):
         self.edit_telefono.setText(data.get("telefono", ""))
 
         if data.get("es_admin"):
-            self.edit_rol.setCurrentIndex[1]
+            self.edit_rol.setCurrentText("Administrador")
         else:
-            self.edit_rol.setCurrentIndex[2]
+            self.edit_rol.setCurrentText("Empleado")
         
         # Limpiar password
         self.edit_new_password.input.clear()
