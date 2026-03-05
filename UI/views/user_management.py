@@ -15,6 +15,7 @@ from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons
 
 
+
 class BaseButton(QPushButton):
     """ Botón unificado estilo sólido. Todos los botones se comportan como los de 'Eliminar'. """
     def __init__(self, text, color="#00ff88", parent=None):
@@ -419,10 +420,36 @@ class UserManagementUI(BaseWindow):
         layout = QHBoxLayout(header)
         layout.setContentsMargins(30, 0, 30, 0)
 
+    
+        # ===== BOTÓN REGRESAR =====
+        self.btn_back = QPushButton("←")
+        self.btn_back.setFixedSize(40, 40)
+        self.btn_back.setCursor(Qt.PointingHandCursor)
+        self.btn_back.setFont(QFont("Segoe UI", 16, QFont.Bold))
+
+        self.btn_back.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(30, 40, 60, 220);
+                border-radius: 20px;
+                color: white;
+                border: 1px solid rgba(100, 120, 150, 0.3);
+            }
+            QPushButton:hover {
+                background-color: rgba(50, 70, 110, 220);
+            }
+        """)
+        
+        self.btn_back.clicked.connect(self.abrir_workspace)
+        layout.addWidget(self.btn_back)
+        layout.addSpacing(10)
+
+
+        # ===== TÍTULO =====
         title = QLabel("Gestión de Usuarios")
         title.setFont(QFont("Segoe UI", 18, QFont.Bold))
         title.setStyleSheet("color: white; background: transparent;")
         layout.addWidget(title)
+
         layout.addStretch()
 
         self.tabs = []
@@ -600,10 +627,11 @@ class UserManagementUI(BaseWindow):
         container, layout, btn_layout = self.create_tab_card("Editar Usuario", color)
 
         self.usuario_actual_id = None
+
         # Cargar usuarios
         lista_usuarios = self.cargar_usuarios()
-        print("DEBUG lista_usuarios:", lista_usuarios)
         
+        # Barra de búsqueda con botón
         self.search_bar = SearchComboWithButton(
             items=lista_usuarios,
             color=color
@@ -611,46 +639,49 @@ class UserManagementUI(BaseWindow):
         layout.addWidget(self.search_bar)
         layout.addSpacing(20)
 
-        # 👉 Conectar botón buscar
+        # Conectar botón buscar
         self.search_bar.btn_buscar.clicked.connect(self.buscar_usuario)
 
+        # Campos de texto
         campos = [
             ("Nombre completo", "edit_nombre"),
             ("Nombre de usuario", "edit_usuario"),
             ("Correo electrónico", "edit_email"),
-            ("Telefono : +504-0000-0000","edit_telefono"),
+            ("Teléfono: +504-0000-0000", "edit_telefono"),
         ]
 
         for placeholder, attr_name in campos:
             inp = StaticInput(placeholder, color=color)
-            inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Ocupa todo el ancho posible
             setattr(self, attr_name, inp)
             layout.addWidget(inp)
 
         # Rol
         self.edit_rol = StaticComboBox(color=color)
+        self.edit_rol.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.edit_rol)
 
-    # ✅ NUEVOS CAMPOS DE CONTRASEÑA
+        # Campos de contraseña
         self.edit_current_password = PasswordInput(color=color)
         self.edit_current_password.input.setPlaceholderText("Nueva contraseña (opcional)")
+        self.edit_current_password.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout.addWidget(self.edit_current_password)
 
         self.edit_new_password = PasswordInput(color=color)
         self.edit_new_password.input.setPlaceholderText("Nueva contraseña")
-
-        layout.addWidget(self.edit_current_password)
+        self.edit_new_password.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.edit_new_password)
 
         layout.addStretch()
 
+        # Botón Guardar
         btn_guardar = BaseButton("GUARDAR CAMBIOS", color=color)
-        btn_guardar.clicked.connect(self.guardar_cambios_usuario)
         btn_guardar.setMinimumWidth(220)
         btn_guardar.setMaximumWidth(300)
         btn_layout.addWidget(btn_guardar)
+        btn_guardar.clicked.connect(self.guardar_cambios_usuario)
 
         self.stack.addWidget(container)
-
     #===================== Buscamos al emplado seleccionado =======================
     def buscar_usuario(self):
 
@@ -990,6 +1021,18 @@ class UserManagementUI(BaseWindow):
 
         self.edit_nombre.setValidator(validator_nombre)
         
+    def abrir_workspace(self):
+            """Volver al workspace principal"""
+            try:
+                from workspace_manager import WorkspaceManagerUI
+                self.workspace = WorkspaceManagerUI()
+                self.workspace.show()
+                # Cerrar esta ventana después de un breve delay
+                QTimer.singleShot(300, self.close)
+            except Exception as e:
+                print(f"Error al abrir workspace: {e}")
+                QMessageBox.critical(self, "Error", f"No se pudo abrir el workspace:\n{e}")
+        
 #=================== FUNCIONES EXTERNAS (API) ==================
 def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
         # Aquí la lógica para registrar un nuevo usuario
@@ -1059,6 +1102,8 @@ def obtener_informacion_del_usuario(usuario_id):
             return print(f"Error al obtener información del usuario: {e}")
 
 
+
+
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
@@ -1068,3 +1113,5 @@ if __name__ == "__main__":
     window = UserManagementUI()
     window.show()
     sys.exit(app.exec_())
+
+    

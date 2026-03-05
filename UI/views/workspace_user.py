@@ -2,6 +2,7 @@ import os
 # jason
 from PyQt5.QtWidgets import QMessageBox
 # naye
+from components.table_scroll_style import apply_table_scrollbar_style
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
@@ -152,6 +153,8 @@ class WorkspaceUserUI(BaseWindow):
         self.load_demo_data()
         self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
+        apply_table_scrollbar_style(self.table)
+
 
         # ================== BOTÓN INFERIOR ==================
         bottom_layout = QHBoxLayout()

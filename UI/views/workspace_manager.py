@@ -17,6 +17,7 @@ import requests
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons  # ← IMPORTADO
+from components.table_scroll_style import apply_table_scrollbar_style
 
 
 
@@ -129,6 +130,7 @@ class WorkspaceManagerUI(BaseWindow):
         """)
 
         main_layout.addWidget(self.table)
+        apply_table_scrollbar_style(self.table)
 
         self.cargar_datos_bd()
 
@@ -472,4 +474,6 @@ def cargar_empleados(self):
             u["usuario"]: u["id_usuario"] for u in usuarios
         }
 
-        return list(self.usuarios_dict.keys())            
+        return list(self.usuarios_dict.keys())  
+
+                      # cerrar ventana actual

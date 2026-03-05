@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (
 from config import *
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons
+from components.table_scroll_style import apply_table_scrollbar_style
+
 
 
 class WorkspaceUserREUI(BaseWindow):
@@ -113,6 +115,8 @@ class WorkspaceUserREUI(BaseWindow):
 
         self.load_demo_data()
         main_layout.addWidget(self.table)
+        apply_table_scrollbar_style(self.table)
+
 
         # ================== BOTÓN INFERIOR ==================
         bottom_layout = QHBoxLayout()
