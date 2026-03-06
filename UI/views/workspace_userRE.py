@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
 )
 
 from config import *
+from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons
 
@@ -72,8 +73,10 @@ class WorkspaceUserREUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 3)
+        # ✅ MOD: columna de check agregada antes de NIC
+        self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels([
+            "",  # Check
             "NIC",
             "Resumen",
             "Documento de contratación"
@@ -83,9 +86,14 @@ class WorkspaceUserREUI(BaseWindow):
         self.table.setTextElideMode(Qt.ElideNone)
 
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        # ✅ MOD: configuración de ancho fijo para la columna check
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 32)
+
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -113,16 +121,25 @@ class WorkspaceUserREUI(BaseWindow):
 
         self.load_demo_data()
         main_layout.addWidget(self.table)
+        apply_table_scrollbar_style(self.table) 
 
         # ================== BOTÓN INFERIOR ==================
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
 
-        self.btn_analizar = self.action_button("📤  Enviar")
+        self.btn_analizar = self.action_button("Enviar")
         self.btn_analizar.clicked.connect(self.open_loading)
+
+        self.btn_analizar.setEnabled(False)  # ✅ MOD: inicia deshabilitado
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
+
+        # ✅ MOD: cuando el usuario marca/desmarca checks manualmente, validar para habilitar Enviar
+        self.table.itemChanged.connect(self.on_table_item_changed)
+
+        # ✅ MOD: asegurar estado correcto al inicio
+        self.update_send_button_state()
 
         # Mostrar maximizada correctamente
         QTimer.singleShot(0, self.showMaximized)
@@ -212,32 +229,37 @@ class WorkspaceUserREUI(BaseWindow):
         return btn
 
     # ================== DOCUMENTOS ==================
-    def document_links(self, bg_color):
+    def document_links(self, bg_color, row_index):
+        # ✅ MOD: reemplazo de 2 links por 1 solo botón "Revisión de Documentos"
         container = QWidget()
         container.setStyleSheet(f"background-color: {bg_color};")
 
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignCenter)
 
-        def link(text):
-            lbl = QLabel(text)
-            lbl.setCursor(Qt.PointingHandCursor)
-            lbl.setStyleSheet("""
-                QLabel {
-                    color: rgb(90, 160, 220);
-                    font-weight: bold;
-                }
-                QLabel:hover {
-                    color: rgb(120, 190, 255);
-                    text-decoration: underline;
-                }
-            """)
-            return lbl
+        btn = QPushButton("📁  Revisión de Documentos")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton {
+                color: rgb(90, 160, 220);
+                font-weight: bold;
+                background: transparent;
+                border: none;
+                text-align: left;
+                padding: 2px 4px;
+            }
+            QPushButton:hover {
+                color: rgb(120, 190, 255);
+                text-decoration: underline;
+            }
+        """)
 
-        layout.addWidget(link("📄 Informe de necesidad"))
-        layout.addWidget(link("📎 Proforma"))
+        # ✅ MOD: al click, marca el check SOLO de esa fila
+        btn.clicked.connect(lambda: self.mark_row_checked(row_index))
 
+        layout.addWidget(btn)
         return container
 
     # ================== DATOS ==================
@@ -248,24 +270,75 @@ class WorkspaceUserREUI(BaseWindow):
             ("NIC:1160020493001-2026-00001", "Material educativo"),
         ]
 
+        # ✅ MOD: evitar que itemChanged se dispare mientras llenamos la tabla
+        self.table.blockSignals(True)
+
         self.table.setRowCount(len(data))
 
         for row, item in enumerate(data):
             row_color = QColor(150, 215, 175)
 
+            # ✅ MOD: Col 0: Check (agregado)
+            check_item = QTableWidgetItem()
+            check_item.setCheckState(Qt.Unchecked)
+            check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            check_item.setBackground(row_color)
+            check_item.setForeground(QColor(0, 0, 0))
+            self.table.setItem(row, 0, check_item)
+
+            # Col 1: NIC
             nic_item = QTableWidgetItem(item[0])
             nic_item.setFlags(Qt.ItemIsEnabled)
             nic_item.setBackground(row_color)
             nic_item.setForeground(QColor(0, 0, 0))
-            self.table.setItem(row, 0, nic_item)
+            self.table.setItem(row, 1, nic_item)
 
+            # Col 2: Resumen
             resumen_item = QTableWidgetItem(item[1])
             resumen_item.setFlags(Qt.ItemIsEnabled)
             resumen_item.setBackground(row_color)
             resumen_item.setForeground(QColor(0, 0, 0))
-            self.table.setItem(row, 1, resumen_item)
+            self.table.setItem(row, 2, resumen_item)
 
-            self.table.setCellWidget(row, 2, self.document_links(row_color.name()))
+            # Col 3: Documento (1 botón)
+            self.table.setCellWidget(row, 3, self.document_links(row_color.name(), row))
+
+        self.table.blockSignals(False)  # ✅ MOD
+
+    # ================== ✅ MOD: CHECK LOGIC (OPCIÓN B) ==================
+    def mark_row_checked(self, row_index):
+        """✅ MOD: Marca el check de una fila cuando se presiona 'Revisión de Documentos'."""
+        item = self.table.item(row_index, 0)
+        if not item:
+            return
+
+        # ✅ MOD: marcar sin disparar itemChanged en cadena
+        self.table.blockSignals(True)
+        item.setCheckState(Qt.Checked)
+        self.table.blockSignals(False)
+
+        # ✅ MOD: validar para habilitar Enviar si corresponde
+        self.update_send_button_state()
+
+    def on_table_item_changed(self, item):
+        """✅ MOD: Si el usuario marca/desmarca el check manualmente, valida."""
+        if item and item.column() == 0:
+            self.update_send_button_state()
+
+    def update_send_button_state(self):
+        """✅ MOD: Habilita Enviar solo si TODAS las filas están chequeadas."""
+        rows = self.table.rowCount()
+        if rows == 0:
+            self.btn_analizar.setEnabled(False)
+            return
+
+        for r in range(rows):
+            it = self.table.item(r, 0)
+            if not it or it.checkState() != Qt.Checked:
+                self.btn_analizar.setEnabled(False)
+                return
+
+        self.btn_analizar.setEnabled(True)
 
     # ================== LOADING ==================
     def open_loading(self):

@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
 )
 import requests
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
+from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons  # ← IMPORTADO
 
@@ -51,7 +52,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
         self.btn_actualizar.clicked.connect(self.cargar_datos_bd)
 
-        self.btn_reportes = self.menu_tab("Reportes", active=True)
+        self.btn_reportes = self.menu_tab("Asignaciones", active=True)
 
         # ORDEN NUEVO (Usuarios primero)
         menu_layout.addWidget(self.btn_usuarios)
@@ -78,8 +79,14 @@ class WorkspaceManagerUI(BaseWindow):
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
-        brand_layout.addWidget(logo_label)
-        brand_layout.addWidget(title)
+        # ✅ NUEVO: botón Asignar (a la izquierda del logo)
+        self.btn_asignar = self.menu_actualizar("Asignar")
+        self.btn_asignar.clicked.connect(self.confirmar_asignaciones)  # ✅ usa tu método existente
+
+        brand_layout.addWidget(self.btn_asignar)   # ← primero botón
+        brand_layout.addWidget(logo_label)         # ← luego logo (se queda en su sitio)
+        brand_layout.addWidget(title)              # ← luego el título
+
         menu_layout.addLayout(brand_layout)
 
         main_layout.addLayout(menu_layout)
@@ -129,6 +136,7 @@ class WorkspaceManagerUI(BaseWindow):
         """)
 
         main_layout.addWidget(self.table)
+        apply_table_scrollbar_style(self.table)
 
         self.cargar_datos_bd()
 
@@ -472,4 +480,4 @@ def cargar_empleados(self):
             u["usuario"]: u["id_usuario"] for u in usuarios
         }
 
-        return list(self.usuarios_dict.keys())            
+        return list(self.usuarios_dict.keys())
