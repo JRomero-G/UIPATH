@@ -9,8 +9,13 @@ from ..Controllers.infima_controller import (
     listar_infimas_ingresadas,
     obtener_infimas_disponibles_admin,
     obtener_infimas_en_generacion_y_finalizadas,
-    contador_de_infimas_en_generacion
+    contador_de_infimas_en_generacion,
+    actualizar_infimas_para_analisis,
+    eliminar_infima_permanentemente
 )
+
+from ..Models.usuarios_model import Usuario
+from ..Auth.Usuario_auth import usuario_actual
 from ..database import get_db
 
 router = APIRouter(prefix="/infimas", tags=["Infimas"])
@@ -50,7 +55,6 @@ def obtener_por_codigo(codigo: str, db: Session = Depends(get_db)):
 def obtener_infimas_disponibles_admin_endpoint(db: Session = Depends(get_db)):
     return obtener_infimas_disponibles_admin(db)
 
-
 # =================== Nuevo Endpoint: Visualizacion de infimas en generacion  ========================
 
 @router.get("/contador-infimas-en-generacion") # contador
@@ -62,3 +66,18 @@ def contar_infimas_en_generacion(db: Session = Depends(get_db)):
 @router.get("/infimas-en-generacion-y-finalizadas") #tabla 2 administracion
 def mostrar_infimas_en_generacion_y_finalizadas(db: Session = Depends(get_db)):
     return obtener_infimas_en_generacion_y_finalizadas(db)
+
+# ==================== Actualzar infimas a en generacion ===============================
+@router.put("/analizar-infimas")
+def analizar_infimas(db: Session = Depends(get_db),id_infima = int):
+    resultado = actualizar_infimas_para_analisis(db,id_infima)
+    return resultado
+
+@router.delete("/eliminar-infimas")
+def eliminar_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual), id_infima = int):
+    if not current_user.es_admin or not current_user.es_admin:
+        return {"error": "No tienes acceso"}
+    
+    resultado = eliminar_infima_permanentemente(db,id_infima)
+    return resultado
+    

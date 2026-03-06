@@ -143,3 +143,92 @@ def contador_de_infimas_en_generacion(db: Session):
         .filter(Infima.etapa == "en generacion")
         .count()
     )
+
+def actualizar_infimas_para_analisis(db: Session, id_infima = int):
+    infima = (db.query(Infima).filter(Infima.id_infima == id_infima).first())
+
+    if not infima:
+        return {"error": "Infima no encontrada"}
+    
+    try:
+        
+        infima.etapa = "en generacion"
+        db.commit()
+        db.refresh(infima)
+        return {"error": "Infima en generacion"}
+
+    except IntegrityError as e:
+        db.rollback()
+        return {"error": str(e)}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+    
+#elimnamos infimas de manera permanente e irreversible
+def eliminar_infima_permanentemente(db: Session, id_infima: int):
+    
+    # Verificar que la ínfima existe
+    infima = db.query(Infima).filter(Infima.id_infima == id_infima).first()
+    
+    if not infima:
+        return {"error": "Ínfima no encontrada"}
+    
+    # Guardar info para el mensaje de respuesta
+    codigo_necesidad = infima.codigo_necesidad
+    
+    try:
+        # 2. Primero eliminar todas las asignaciones (por el Foreign Key)
+        # Si no haces esto primero, dará error de integridad referencial
+        asignaciones_eliminadas = (
+            db.query(RecomendacionesUsuario)
+            .filter(RecomendacionesUsuario.id_infima == id_infima)
+            .delete(synchronize_session=False)  # No sincronizar sesión para mejor rendimiento
+        )
+        
+        # 3. Luego eliminar la ínfima
+        db.delete(infima)
+        
+        # 4. Confirmar cambios
+        db.commit()
+        
+        return {
+            "id_infima": id_infima,
+            "codigo_necesidad": codigo_necesidad,
+            "asignaciones_eliminadas": asignaciones_eliminadas,
+            "mensaje": f"Ínfima '{codigo_necesidad}' eliminada permanentemente. Se eliminaron {asignaciones_eliminadas} asignación(es)."
+        }
+
+    except IntegrityError as e:
+        db.rollback()
+        return {"error": f"Error de integridad: {str(e)}"}
+    
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Error inesperado: {str(e)}"}
+
+# Asigna individualmente cada ínfima a un usuario específico (manual por admin)
+def asignar_infimas_recomendadas_a_usuario_individual(db: Session,usuario_id: int,id_infima: int):
+
+    # Crear registros de asignación
+    asignacion = RecomendacionesUsuario(id_infima=id_infima,usuario_id=usuario_id)
+    
+
+    # Guardar en la base de datos
+    try:
+        db.add(asignacion)
+        db.commit()
+        db.refresh(asignacion)# Vuelve a consultar el registro recién insertado
+
+    except IntegrityError:
+        db.rollback()
+
+        return {
+            "error": "Conflicto: Infima ya fue asignada (error de integridad)"
+        }
+
+    return {
+        "ID de la asignacion": asignacion.id,
+        "ID del usuario": usuario_id,
+        "ID de la infima asignada": id_infima,
+        "mensaje": "Infima asignada Correctamente"
+    }
