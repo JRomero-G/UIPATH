@@ -351,7 +351,7 @@ class WorkspaceUserUI(BaseWindow):
             print("EXCEPTION:", e)
             return
 
-        # ✅ LIMPIAR TODO ANTES DE CARGAR
+        #  LIMPIAR TODO ANTES DE CARGAR
         self.table.setRowCount(0)
         self.Pendientes_de_analisis.clear()
         self.eliminacion_pendiente.clear()
@@ -364,7 +364,7 @@ class WorkspaceUserUI(BaseWindow):
         for row, item in enumerate(data):
             self.table.insertRow(row)
 
-            # ✅ GUARDAR DATOS DE LA FILA (ESTO FALTABA)
+            #  GUARDAR DATOS DE LA FILA (ESTO FALTABA)
             self.datos_filas[row] = item
 
             nivel = (
@@ -460,7 +460,7 @@ class WorkspaceUserUI(BaseWindow):
         
         # Obtener datos de la fila
         if row not in self.datos_filas:
-            print(f"⚠️ No hay datos para la fila {row}")
+            print(f" No hay datos para la fila {row}")
             return
         
         item_data = self.datos_filas[row]
@@ -482,7 +482,7 @@ class WorkspaceUserUI(BaseWindow):
         
         # Si está MARCADO → agregar a pendientes
         if esta_marcado:
-            # ✅ NUEVO: Verificar si ya está en pendientes de eliminación
+            #  NUEVO: Verificar si ya está en pendientes de eliminación
             if row in self.eliminacion_pendiente:
                 QMessageBox.warning(
                     self,
@@ -500,15 +500,15 @@ class WorkspaceUserUI(BaseWindow):
                 "id_infima": id_infima,
                 "codigo_necesidad": codigo_necesidad
             }
-            print(f"✅ Fila {row}: Ínfima {id_infima} ({codigo_necesidad}) agregada")
-            print(f"📊 Pendientes_de_analisis = {self.Pendientes_de_analisis}")
+            print(f" Fila {row}: Ínfima {id_infima} ({codigo_necesidad}) agregada")
+            print(f" Pendientes_de_analisis = {self.Pendientes_de_analisis}")
         
         # Si está DESMARCADO → quitar de pendientes
         else:
             if row in self.Pendientes_de_analisis:
                 del self.Pendientes_de_analisis[row]
-                print(f"❌ Fila {row}: Ínfima {id_infima} removida")
-                print(f"📊 Pendientes_de_analisis = {self.Pendientes_de_analisis}")
+                print(f" Fila {row}: Ínfima {id_infima} removida")
+                print(f" Pendientes_de_analisis = {self.Pendientes_de_analisis}")
 
     def on_eliminar_clicked(self, row_original: int):
         """
@@ -518,7 +518,7 @@ class WorkspaceUserUI(BaseWindow):
         # porque el row original puede haber cambiado después del sort
         
         if row_original not in self.datos_filas:
-            print(f"⚠️ No hay datos para la fila original {row_original}")
+            print(f" No hay datos para la fila original {row_original}")
             return
         
         item_data = self.datos_filas[row_original]
@@ -526,10 +526,10 @@ class WorkspaceUserUI(BaseWindow):
         codigo_necesidad = item_data.get("codigo_necesidad", "N/A")
         
         if not id_infima:
-            print(f"⚠️ Fila {row_original}: no tiene id_infima")
+            print(f" Fila {row_original}: no tiene id_infima")
             return
         
-        # ✅ Buscar en qué fila ACTUAL está este id_infima (después del sort)
+        #  Buscar en qué fila ACTUAL está este id_infima (después del sort)
         row_actual = None
         for r in range(self.table.rowCount()):
             # Buscar por el código NIC en columna 1
@@ -539,10 +539,10 @@ class WorkspaceUserUI(BaseWindow):
                 break
         
         if row_actual is None:
-            print(f"⚠️ No se encontró la fila actual para id_infima {id_infima}")
+            print(f" No se encontró la fila actual para id_infima {id_infima}")
             return
         
-        print(f"🔍 Fila original: {row_original}, Fila actual: {row_actual}")
+        print(f" Fila original: {row_original}, Fila actual: {row_actual}")
         
         # Verificar si ya está en pendientes de análisis
         if row_original in self.Pendientes_de_analisis:
@@ -557,7 +557,7 @@ class WorkspaceUserUI(BaseWindow):
         # Si ya está en pendientes de eliminación → removerla
         if row_original in self.eliminacion_pendiente:
             del self.eliminacion_pendiente[row_original]
-            print(f"❌ Fila {row_original}: Ínfima {id_infima} removida de eliminación")
+            print(f" Fila {row_original}: Ínfima {id_infima} removida de eliminación")
             
             # Restaurar color original según nivel
             nivel = item_data.get("nivel_de_oportunidad", "no asignado")
@@ -568,13 +568,13 @@ class WorkspaceUserUI(BaseWindow):
             else:
                 row_color = QColor(220, 170, 170)
             
-            # ✅ Repintar fila ACTUAL (no la original)
+            #  Repintar fila ACTUAL (no la original)
             for c in range(self.table.columnCount()):
                 item = self.table.item(row_actual, c)  # ← Usar row_actual
                 if item:
                     item.setBackground(row_color)
-            
-            print(f"🎨 Fila {row_actual} restaurada a color original")
+        
+            print(f" Fila {row_actual} restaurada a color original")
         
         # Si NO está → agregarla
         else:
@@ -582,18 +582,18 @@ class WorkspaceUserUI(BaseWindow):
                 "id_infima": id_infima,
                 "codigo_necesidad": codigo_necesidad
             }
-            print(f"🗑️ Fila {row_original}: Ínfima {id_infima} agregada para eliminación")
+            print(f" Fila {row_original}: Ínfima {id_infima} agregada para eliminación")
             
-            # ✅ Pintar fila ACTUAL de rojo claro
+            #  Pintar fila ACTUAL de rojo claro
             color_eliminacion = QColor(255, 200, 200)
             for c in range(self.table.columnCount()):
                 item = self.table.item(row_actual, c)  # ← Usar row_actual
                 if item:
                     item.setBackground(color_eliminacion)
             
-            print(f"🎨 Fila {row_actual} pintada de rojo (eliminación)")
+            print(f" Fila {row_actual} pintada de rojo (eliminación)")
         
-        print(f"📊 Pendientes_de_eliminacion = {self.eliminacion_pendiente}")
+        print(f" Pendientes_de_eliminacion = {self.eliminacion_pendiente}")
 
     # Confirmar análisis (IGUAL ESTRUCTURA QUE confirmar_asignaciones del manager)
     def confirmar_analisis(self):
@@ -627,7 +627,7 @@ class WorkspaceUserUI(BaseWindow):
             )
             
             if confirm_eliminar != QMessageBox.Yes:
-                print("❌ Usuario canceló la eliminación")
+                print(" Usuario canceló la eliminación")
                 return  # ← Cancelar el proceso
             
             # Eliminar ínfimas
@@ -646,7 +646,7 @@ class WorkspaceUserUI(BaseWindow):
             )
             
             if confirm_analizar != QMessageBox.Yes:
-                print("❌ Usuario canceló el análisis")
+                print(" Usuario canceló el análisis")
                 # No recargar tabla para que mantenga las selecciones
                 return
             
@@ -703,22 +703,22 @@ class WorkspaceUserUI(BaseWindow):
                     timeout=10,
                 )
                 
-                print(f"📤 DELETE /eliminar-infimas/{payload} → Status: {resp.status_code}")
+                print(f" DELETE /eliminar-infimas/{payload} → Status: {resp.status_code}")
                 
                 if resp.status_code == 200 and resp.json().get("success"):
                     exitosas += 1
-                    print(f"🗑️ Ínfima {payload} eliminada")
+                    print(f" Ínfima {payload} eliminada")
                 else:
                     errores += 1
                     try:
                         error_msg = resp.json().get("detail", "Error desconocido")
                     except:
                         error_msg = resp.text
-                    print(f"❌ Error al eliminar ínfima {payload}: {error_msg}")
+                    print(f" Error al eliminar ínfima {payload}: {error_msg}")
             
             except requests.RequestException as e:
                 errores += 1
-                print(f"❌ Error conexión al eliminar ínfima {payload}: {e}")
+                print(f" Error conexión al eliminar ínfima {payload}: {e}")
         
         return exitosas, errores
 
@@ -743,7 +743,7 @@ class WorkspaceUserUI(BaseWindow):
                     timeout=10,
                 )
                 
-                print(f"📤 PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
+                print(f" PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
                 
                 if resp.status_code == 200:
                     exitosas += 1
@@ -762,7 +762,7 @@ class WorkspaceUserUI(BaseWindow):
                         check_item.setFlags(Qt.ItemIsEnabled)
                     self.table.blockSignals(False)
                     
-                    print(f"✅ Ínfima {id_infima} marcada para análisis")
+                    print(f" Ínfima {id_infima} marcada para análisis")
                 
                 else:
                     errores += 1
@@ -770,11 +770,11 @@ class WorkspaceUserUI(BaseWindow):
                         error_msg = resp.json().get("detail", "Error desconocido")
                     except:
                         error_msg = resp.text
-                    print(f"❌ Error al analizar ínfima {id_infima}: {error_msg}")
+                    print(f" Error al analizar ínfima {id_infima}: {error_msg}")
             
             except requests.RequestException as e:
                 errores += 1
-                print(f"❌ Error conexión al analizar ínfima {id_infima}: {e}")
+                print(f" Error conexión al analizar ínfima {id_infima}: {e}")
         
         return exitosas, errores
 
