@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 )
 
 from config import *
-#from UI.components.table_scroll_style import apply_table_scrollbar_style
+from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons
 

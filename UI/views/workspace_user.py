@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
 import requests  # jason
 from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
 from config import set_session, _session, get_session
-#from UI.components.table_scroll_style import apply_table_scrollbar_style
+from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
 from components.table_validations import setup_row_logic
 from components.btns_windows import WindowButtons  # ← IMPORTADO
