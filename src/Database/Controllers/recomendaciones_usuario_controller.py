@@ -159,7 +159,8 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
     return (
         db.query(Infima)
         .join(RecomendacionesUsuario)
-        .filter(RecomendacionesUsuario.usuario_id == usuario_id)
+        .filter(RecomendacionesUsuario.usuario_id == usuario_id
+        ,Infima.etapa != "en generacion")
         .order_by(Infima.fecha_publicacion.desc())
         .all()
     )

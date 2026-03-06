@@ -418,7 +418,7 @@ class WorkspaceManagerUI(BaseWindow):
 
             try:
                 resp = requests.post(
-                    "http://127.0.0.1:8000/admin/asignar-infima-individual",
+                    "http://127.0.0.1:8000/recomendaciones-usuario/admin/asignar-infima-individual",
                     json=payload,
                     headers={
                         "Authorization": f"Bearer {token}",
@@ -447,6 +447,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         # Limpiar memoria
         self.asignaciones_pendientes.clear()
+        self.cargar_datos_bd()
 
         if errores == 0:
             QMessageBox.information(

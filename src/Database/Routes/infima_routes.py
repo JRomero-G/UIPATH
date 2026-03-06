@@ -68,16 +68,14 @@ def mostrar_infimas_en_generacion_y_finalizadas(db: Session = Depends(get_db)):
     return obtener_infimas_en_generacion_y_finalizadas(db)
 
 # ==================== Actualzar infimas a en generacion ===============================
-@router.put("/analizar-infimas")
+@router.patch("/analizar-infimas/{id_infima}")
 def analizar_infimas(db: Session = Depends(get_db),id_infima = int):
     resultado = actualizar_infimas_para_analisis(db,id_infima)
     return resultado
 
-@router.delete("/eliminar-infimas")
-def eliminar_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual), id_infima = int):
-    if not current_user.es_admin or not current_user.es_admin:
-        return {"error": "No tienes acceso"}
-    
+@router.delete("/eliminar-infimas/{id_infima}")
+def eliminar_infimas(id_infima: int,db: Session = Depends(get_db)):
+
     resultado = eliminar_infima_permanentemente(db,id_infima)
     return resultado
     

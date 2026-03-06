@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from ..Models.infima_model import Infima
+from ..Models.evaluacion_model import Evaluacion
 # Nuevas importaciones
 from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
 from sqlalchemy import not_
@@ -155,7 +156,11 @@ def actualizar_infimas_para_analisis(db: Session, id_infima = int):
         infima.etapa = "en generacion"
         db.commit()
         db.refresh(infima)
-        return {"error": "Infima en generacion"}
+        return {
+        "id_infima": id_infima,
+        "etapa": "en generacion",
+        "mensaje": "Ínfima actualizada a 'en generacion'"
+        }
 
     except IntegrityError as e:
         db.rollback()
@@ -166,46 +171,48 @@ def actualizar_infimas_para_analisis(db: Session, id_infima = int):
     
 #elimnamos infimas de manera permanente e irreversible
 def eliminar_infima_permanentemente(db: Session, id_infima: int):
-    
-    # Verificar que la ínfima existe
+
+    print("Intentando eliminar:", id_infima)
+
     infima = db.query(Infima).filter(Infima.id_infima == id_infima).first()
-    
+
     if not infima:
         return {"error": "Ínfima no encontrada"}
-    
-    # Guardar info para el mensaje de respuesta
+
     codigo_necesidad = infima.codigo_necesidad
-    
+
     try:
-        # 2. Primero eliminar todas las asignaciones (por el Foreign Key)
-        # Si no haces esto primero, dará error de integridad referencial
-        asignaciones_eliminadas = (
+
+        # eliminar recomendaciones
+        recomendaciones_eliminadas = (
             db.query(RecomendacionesUsuario)
             .filter(RecomendacionesUsuario.id_infima == id_infima)
-            .delete(synchronize_session=False)  # No sincronizar sesión para mejor rendimiento
+            .delete(synchronize_session=False)
         )
-        
-        # 3. Luego eliminar la ínfima
+
+        #  eliminar evaluaciones
+        evaluaciones_eliminadas = (
+            db.query(Evaluacion)
+            .filter(Evaluacion.codigo_necesidad == codigo_necesidad)
+            .delete(synchronize_session=False)
+        )
+
+        # eliminar
         db.delete(infima)
-        
-        # 4. Confirmar cambios
+
         db.commit()
-        
+
         return {
-            "id_infima": id_infima,
-            "codigo_necesidad": codigo_necesidad,
-            "asignaciones_eliminadas": asignaciones_eliminadas,
-            "mensaje": f"Ínfima '{codigo_necesidad}' eliminada permanentemente. Se eliminaron {asignaciones_eliminadas} asignación(es)."
+            "success": True,
+            "mensaje": f"Ínfima '{codigo_necesidad}' eliminada",
+            "recomendaciones_eliminadas": recomendaciones_eliminadas,
+            "Eliminadas de evaluaciones": evaluaciones_eliminadas
         }
 
-    except IntegrityError as e:
-        db.rollback()
-        return {"error": f"Error de integridad: {str(e)}"}
-    
     except Exception as e:
         db.rollback()
-        return {"error": f"Error inesperado: {str(e)}"}
-
+        return {"error": str(e)}
+    
 # Asigna individualmente cada ínfima a un usuario específico (manual por admin)
 def asignar_infimas_recomendadas_a_usuario_individual(db: Session,usuario_id: int,id_infima: int):
 

@@ -28,6 +28,15 @@ class WorkspaceUserUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
+        # infimas pendientes para analizar
+        self.Pendientes_de_analisis = {}
+
+        # infimas pendientes de eliminacion
+        self.eliminacion_pendiente = {}
+
+        self.datos_filas = {}              # {row: dict_completo_de_infima}
+
+
         self.setWindowTitle("Gestorex 1.1 - Usuario")
         # Ahora la ventana es redimensionable
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -150,7 +159,7 @@ class WorkspaceUserUI(BaseWindow):
             }
         """)
 
-        self.load_demo_data()
+        self.Cargar_infimas()
         self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
         apply_table_scrollbar_style(self.table) 
@@ -159,8 +168,12 @@ class WorkspaceUserUI(BaseWindow):
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
 
+        # ======================= Boton Analizar ====================
         self.btn_analizar = self.action_button("Analizar")
-        self.btn_analizar.clicked.connect(self.open_workspace_userRE)
+        self.btn_analizar.clicked.connect(self.confirmar_analisis)
+
+        #===================== Boton Actualizar =================
+        self.btn_actualizar.clicked.connect(self.Cargar_infimas)
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
@@ -255,9 +268,10 @@ class WorkspaceUserUI(BaseWindow):
         """)
         return btn
 
-    def delete_button(self, bg_color):
+    def delete_button(self, bg_color, row):
         container = QWidget()
         container.setStyleSheet(f"background-color: {bg_color};")
+        container.setCursor(Qt.PointingHandCursor)  # ← Agregar cursor
 
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -282,15 +296,20 @@ class WorkspaceUserUI(BaseWindow):
             icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
             text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
 
+        # ✅ NUEVO: Detectar clic en el botón
+        def mouse_press_event(event):
+            self.on_eliminar_clicked(row)  # ← Llamar función al hacer clic
+
         container.enterEvent = enter_event
         container.leaveEvent = leave_event
+        container.mousePressEvent = mouse_press_event  # ← Conectar evento
 
         layout.addWidget(icon)
         layout.addWidget(text)
         return container
 
     # ==================Cargar datos en la tabla ==================
-    def load_demo_data(self):
+    def Cargar_infimas(self):
         sesion = get_session()
         print("Sesion completa: ", sesion)
         print("Token guardado: ", sesion.get("token"))
@@ -313,6 +332,7 @@ class WorkspaceUserUI(BaseWindow):
 
             data = response.json()
             print("INFIMAS RECIBIDA:", len(data))
+            #print("INFIMAS CARGADAS:", data)
 
             # Si la API devuelve {"data": [...]}
             if isinstance(data, dict) and "data" in data:
@@ -324,14 +344,18 @@ class WorkspaceUserUI(BaseWindow):
                 )
                 print("DATA INVALIDA:", data)
                 return
+            
 
         except requests.RequestException as e:
             QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
             return
 
-        # limpiar tabla
+        # ✅ LIMPIAR TODO ANTES DE CARGAR
         self.table.setRowCount(0)
+        self.Pendientes_de_analisis.clear()
+        self.eliminacion_pendiente.clear()
+        self.datos_filas.clear()
 
         if not data:
             print("⚠️ No hay registros para mostrar")
@@ -339,6 +363,9 @@ class WorkspaceUserUI(BaseWindow):
 
         for row, item in enumerate(data):
             self.table.insertRow(row)
+
+            # ✅ GUARDAR DATOS DE LA FILA (ESTO FALTABA)
+            self.datos_filas[row] = item
 
             nivel = (
                 item.get("nivel_de_oportunidad") or "no asignado"
@@ -405,16 +432,357 @@ class WorkspaceUserUI(BaseWindow):
             self.table.setItem(row, 4, cell)
 
             # Col 5: Acción
-            self.table.setCellWidget(row, 5, self.delete_button(row_color.name()))
+            self.table.setCellWidget(row, 5, self.delete_button(row_color.name(),row))
             # ================= Fin Celdas nuevo ==================
 
-            setup_row_logic(self.table, row, nic_col=0, action_col=5) ## 
+            # ✅ AGREGAR: Conectar evento de checkbox (FUERA DEL LOOP - IGUAL QUE MANAGER)
+        try:
+            self.table.itemChanged.disconnect()
+        except:
+            pass
+            
+        self.table.itemChanged.connect(self.on_table_item_changed)
+            
+        print("✅ Ínfimas cargadas y eventos conectados")
+
+        setup_row_logic(self.table, row, nic_col=0, action_col=5) ## 
+
+    def on_table_item_changed(self, item: QTableWidgetItem):
+        """
+        Se ejecuta cuando CUALQUIER item de la tabla cambia.
+        Filtramos solo cambios en columna 0 (checkboxes).
+        """
+        # Solo procesar cambios en columna 0 (checkboxes)
+        if item.column() != 0:
+            return
+        
+        row = item.row()
+        
+        # Obtener datos de la fila
+        if row not in self.datos_filas:
+            print(f"⚠️ No hay datos para la fila {row}")
+            return
+        
+        item_data = self.datos_filas[row]
+        
+        # Procesar el check/uncheck
+        self.on_infima_check_analisis(row, item, item_data)
+
+    def on_infima_check_analisis(self, row: int, check_item: QTableWidgetItem, item_data: dict):
+        """
+        Cuando el usuario marca/desmarca el checkbox para análisis.
+        """
+        esta_marcado = check_item.checkState() == Qt.CheckState.Checked
+        id_infima = item_data.get("id_infima")
+        codigo_necesidad = item_data.get("codigo_necesidad", "N/A")
+        
+        if not id_infima:
+            print(f"⚠️ Fila {row}: no tiene id_infima")
+            return
+        
+        # Si está MARCADO → agregar a pendientes
+        if esta_marcado:
+            # ✅ NUEVO: Verificar si ya está en pendientes de eliminación
+            if row in self.eliminacion_pendiente:
+                QMessageBox.warning(
+                    self,
+                    "Conflicto",
+                    f"La ínfima '{codigo_necesidad}' ya está marcada para eliminación.\n"
+                    "Quítala de eliminación primero si deseas analizarla."
+                )
+                # Bloquear señales para desmarcar sin disparar evento
+                self.table.blockSignals(True)
+                check_item.setCheckState(Qt.Unchecked)
+                self.table.blockSignals(False)
+                return
+            
+            self.Pendientes_de_analisis[row] = {
+                "id_infima": id_infima,
+                "codigo_necesidad": codigo_necesidad
+            }
+            print(f"✅ Fila {row}: Ínfima {id_infima} ({codigo_necesidad}) agregada")
+            print(f"📊 Pendientes_de_analisis = {self.Pendientes_de_analisis}")
+        
+        # Si está DESMARCADO → quitar de pendientes
+        else:
+            if row in self.Pendientes_de_analisis:
+                del self.Pendientes_de_analisis[row]
+                print(f"❌ Fila {row}: Ínfima {id_infima} removida")
+                print(f"📊 Pendientes_de_analisis = {self.Pendientes_de_analisis}")
+
+    def on_eliminar_clicked(self, row_original: int):
+        """
+        Cuando el usuario hace clic en el botón Eliminar.
+        """
+        #  Buscar la fila actual en la tabla usando id_infima
+        # porque el row original puede haber cambiado después del sort
+        
+        if row_original not in self.datos_filas:
+            print(f"⚠️ No hay datos para la fila original {row_original}")
+            return
+        
+        item_data = self.datos_filas[row_original]
+        id_infima = item_data.get("id_infima")
+        codigo_necesidad = item_data.get("codigo_necesidad", "N/A")
+        
+        if not id_infima:
+            print(f"⚠️ Fila {row_original}: no tiene id_infima")
+            return
+        
+        # ✅ Buscar en qué fila ACTUAL está este id_infima (después del sort)
+        row_actual = None
+        for r in range(self.table.rowCount()):
+            # Buscar por el código NIC en columna 1
+            nic_item = self.table.item(r, 1)
+            if nic_item and nic_item.text() == codigo_necesidad:
+                row_actual = r
+                break
+        
+        if row_actual is None:
+            print(f"⚠️ No se encontró la fila actual para id_infima {id_infima}")
+            return
+        
+        print(f"🔍 Fila original: {row_original}, Fila actual: {row_actual}")
+        
+        # Verificar si ya está en pendientes de análisis
+        if row_original in self.Pendientes_de_analisis:
+            QMessageBox.warning(
+                self,
+                "Conflicto",
+                f"La ínfima '{codigo_necesidad}' ya está marcada para análisis.\n"
+                "Desmarca el checkbox primero si deseas eliminarla."
+            )
+            return
+        
+        # Si ya está en pendientes de eliminación → removerla
+        if row_original in self.eliminacion_pendiente:
+            del self.eliminacion_pendiente[row_original]
+            print(f"❌ Fila {row_original}: Ínfima {id_infima} removida de eliminación")
+            
+            # Restaurar color original según nivel
+            nivel = item_data.get("nivel_de_oportunidad", "no asignado")
+            if nivel == "nivel 1":
+                row_color = QColor(150, 215, 175)
+            elif nivel == "nivel 2":
+                row_color = QColor(220, 200, 140)
+            else:
+                row_color = QColor(220, 170, 170)
+            
+            # ✅ Repintar fila ACTUAL (no la original)
+            for c in range(self.table.columnCount()):
+                item = self.table.item(row_actual, c)  # ← Usar row_actual
+                if item:
+                    item.setBackground(row_color)
+            
+            print(f"🎨 Fila {row_actual} restaurada a color original")
+        
+        # Si NO está → agregarla
+        else:
+            self.eliminacion_pendiente[row_original] = {
+                "id_infima": id_infima,
+                "codigo_necesidad": codigo_necesidad
+            }
+            print(f"🗑️ Fila {row_original}: Ínfima {id_infima} agregada para eliminación")
+            
+            # ✅ Pintar fila ACTUAL de rojo claro
+            color_eliminacion = QColor(255, 200, 200)
+            for c in range(self.table.columnCount()):
+                item = self.table.item(row_actual, c)  # ← Usar row_actual
+                if item:
+                    item.setBackground(color_eliminacion)
+            
+            print(f"🎨 Fila {row_actual} pintada de rojo (eliminación)")
+        
+        print(f"📊 Pendientes_de_eliminacion = {self.eliminacion_pendiente}")
+
+    # Confirmar análisis (IGUAL ESTRUCTURA QUE confirmar_asignaciones del manager)
+    def confirmar_analisis(self):
+        """
+        Procesa todas las ínfimas marcadas con checkbox.
+        Cambia su etapa a 'en generacion'.
+        """
+        
+        if not self.Pendientes_de_analisis and not self.eliminacion_pendiente:
+            QMessageBox.information(
+                self,
+                "Información",
+                "No hay ínfimas seleccionadas para anailisis ni para eliminacion."
+            )
+            return
+        
+        token = get_session().get("token")
+        
+        if not token:
+            QMessageBox.warning(self, "Error", "No hay sesión activa.")
+            return
+        
+        # ====== PASO 1: CONFIRMAR ELIMINACIÓN (si hay) ======
+        if self.eliminacion_pendiente:
+            confirm_eliminar = QMessageBox.question(
+                self,
+                "⚠️ Confirmar Eliminación",
+                f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n"
+                "Esta acción las quitará de tus asignaciones.",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if confirm_eliminar != QMessageBox.Yes:
+                print("❌ Usuario canceló la eliminación")
+                return  # ← Cancelar el proceso
+            
+            # Eliminar ínfimas
+            eliminadas_exitosas, eliminadas_errores = self.ejecutar_eliminacion(token)
+        else:
+            eliminadas_exitosas = 0
+            eliminadas_errores = 0
+
+        # ====== PASO 2: CONFIRMAR ANÁLISIS (si hay) ======
+        if self.Pendientes_de_analisis:
+            confirm_analizar = QMessageBox.question(
+                self,
+                "✅ Confirmar Análisis",
+                f"¿Marcar {len(self.Pendientes_de_analisis)} ínfima(s) para análisis?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if confirm_analizar != QMessageBox.Yes:
+                print("❌ Usuario canceló el análisis")
+                # No recargar tabla para que mantenga las selecciones
+                return
+            
+            # Analizar ínfimas
+            analizadas_exitosas, analizadas_errores = self.ejecutar_analisis(token)
+        
+        else:
+            analizadas_exitosas = 0
+            analizadas_errores = 0
+        
+        # ====== PASO 3: LIMPIAR Y RECARGAR ======
+        self.Pendientes_de_analisis.clear()
+        self.eliminacion_pendiente.clear()
+        self.Cargar_infimas()
+        
+        # ====== PASO 4: MOSTRAR RESULTADO ======
+        mensaje = ""
+        if eliminadas_exitosas > 0 or analizadas_exitosas > 0:
+            mensaje += f"✅ Completado:\n"
+            if eliminadas_exitosas > 0:
+                mensaje += f"  • {eliminadas_exitosas} ínfima(s) eliminada(s)\n"
+            if analizadas_exitosas > 0:
+                mensaje += f"  • {analizadas_exitosas} ínfima(s) marcada(s) para análisis\n"
+        
+        if eliminadas_errores > 0 or analizadas_errores > 0:
+            mensaje += f"\n⚠️ Errores:\n"
+            if eliminadas_errores > 0:
+                mensaje += f"  • {eliminadas_errores} error(es) al eliminar\n"
+            if analizadas_errores > 0:
+                mensaje += f"  • {analizadas_errores} error(es) al analizar\n"
+        
+        if eliminadas_errores > 0 or analizadas_errores > 0:
+            QMessageBox.warning(self, "Completado con errores", mensaje)
+        else:
+            QMessageBox.information(self, "Éxito", mensaje)
+
+    def ejecutar_eliminacion(self, token):
+        """
+        Elimina las ínfimas en pendientes_de_eliminacion.
+        Retorna: (exitosas, errores)
+        """
+        exitosas = 0
+        errores = 0
+        
+        pendientes_copia = dict(self.eliminacion_pendiente)
+        
+        for fila, datos in pendientes_copia.items():
+            payload = datos["id_infima"]
+            
+            try:
+                resp = requests.delete(
+                    f"http://127.0.0.1:8000/infimas/eliminar-infimas/{payload}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                
+                print(f"📤 DELETE /eliminar-infimas/{payload} → Status: {resp.status_code}")
+                
+                if resp.status_code == 200 and resp.json().get("success"):
+                    exitosas += 1
+                    print(f"🗑️ Ínfima {payload} eliminada")
+                else:
+                    errores += 1
+                    try:
+                        error_msg = resp.json().get("detail", "Error desconocido")
+                    except:
+                        error_msg = resp.text
+                    print(f"❌ Error al eliminar ínfima {payload}: {error_msg}")
+            
+            except requests.RequestException as e:
+                errores += 1
+                print(f"❌ Error conexión al eliminar ínfima {payload}: {e}")
+        
+        return exitosas, errores
+
+
+    def ejecutar_analisis(self, token):
+        """
+        Analiza las ínfimas en Pendientes_de_analisis.
+        Retorna: (exitosas, errores)
+        """
+        exitosas = 0
+        errores = 0
+        
+        pendientes_copia = dict(self.Pendientes_de_analisis)
+        
+        for fila, datos in pendientes_copia.items():
+            id_infima = datos["id_infima"]
+            
+            try:
+                resp = requests.patch(
+                    f"http://127.0.0.1:8000/infimas/analizar-infimas/{id_infima}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                
+                print(f"📤 PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
+                
+                if resp.status_code == 200:
+                    exitosas += 1
+                    
+                    # Pintar fila de verde
+                    for c in range(self.table.columnCount()):
+                        item = self.table.item(fila, c)
+                        if item:
+                            item.setBackground(QColor(180, 240, 180))
+                    
+                    # Desmarcar checkbox
+                    self.table.blockSignals(True)
+                    check_item = self.table.item(fila, 0)
+                    if check_item:
+                        check_item.setCheckState(Qt.Unchecked)
+                        check_item.setFlags(Qt.ItemIsEnabled)
+                    self.table.blockSignals(False)
+                    
+                    print(f"✅ Ínfima {id_infima} marcada para análisis")
+                
+                else:
+                    errores += 1
+                    try:
+                        error_msg = resp.json().get("detail", "Error desconocido")
+                    except:
+                        error_msg = resp.text
+                    print(f"❌ Error al analizar ínfima {id_infima}: {error_msg}")
+            
+            except requests.RequestException as e:
+                errores += 1
+                print(f"❌ Error conexión al analizar ínfima {id_infima}: {e}")
+        
+        return exitosas, errores
 
     # llamar al RE
     def open_workspace_userRE(self):
         print("Abriendo Workspace User RE...")
         try:
-            from ..views.workspace_userRE import WorkspaceUserREUI
+            from views.workspace_userRE import WorkspaceUserREUI
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
             #self.hide()
