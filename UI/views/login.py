@@ -11,6 +11,7 @@ from components.animated_background import AnimatedCurvedLine
 from components.animated_input import AnimatedInput
 from components.neon_button import NeonButton
 from components.btns_windows import WindowButtons  # ← IMPORTADO
+from components.classic_msgbox import ClassicMsgBox #Importado para los mensajes de error
 
 
 from ..views.workspace_manager import WorkspaceManagerUI
@@ -235,7 +236,8 @@ class LoginUI(BaseWindow):
                 QTimer.singleShot(2000, self.hide)
 
             else:
-                QMessageBox.warning(self, "Error", "Credenciales inválidas.")
+               ClassicMsgBox.critical("Error", "Credenciales inválidas.")
+               
 
         except requests.RequestException:
-            QMessageBox.critical(self, "Error", "No se pudo conectar al servidor.")
+            ClassicMsgBox.critical( "Error", "No se pudo conectar al servidor.")

@@ -1,8 +1,8 @@
 import os
 from turtle import color
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal,QRegularExpression
-from PyQt5.QtGui import QFont, QColor,QRegularExpressionValidator
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRegularExpression
+from PyQt5.QtGui import QFont, QColor, QRegularExpressionValidator
 from PyQt5.QtWidgets import (
     QMessageBox, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
     QVBoxLayout, QHBoxLayout, QApplication, QStackedWidget,
@@ -13,7 +13,6 @@ import requests
 from config import *
 from components.base_window import BaseWindow
 from components.btns_windows import WindowButtons
-
 
 
 class BaseButton(QPushButton):
@@ -147,7 +146,7 @@ class PasswordInput(QWidget):
         self.input.setEchoMode(QLineEdit.Password)
         self.input.setMaximumHeight(45)
 
-        self.eye_btn = QPushButton("🔓")
+        self.eye_btn = QPushButton("🔒")
         self.eye_btn.setFixedSize(42, 42)
         self.eye_btn.setCheckable(True)
         self.eye_btn.setCursor(Qt.PointingHandCursor)
@@ -167,11 +166,11 @@ class PasswordInput(QWidget):
     def toggle_password(self, checked):
         if checked:
             self.input.setEchoMode(QLineEdit.Normal)
-            self.eye_btn.setText("🔒")
+            self.eye_btn.setText("🔓")
             self.eye_btn.setStyleSheet(f"color: {self.color}; background: transparent; border: none;")
         else:
             self.input.setEchoMode(QLineEdit.Password)
-            self.eye_btn.setText("🔓")
+            self.eye_btn.setText("🔒")
             self.eye_btn.setStyleSheet(f"color: {self.color}80; background: transparent; border: none;")
 
     def clear(self):
@@ -179,10 +178,9 @@ class PasswordInput(QWidget):
         self.input.clear()
         self.eye_btn.setChecked(False)
         self.input.setEchoMode(QLineEdit.Password)
-        self.eye_btn.setText("🔓")
+        self.eye_btn.setText("🔒")
 
-# Cambios para hacer los campos de eliminar dinamicos y poder
-# llenar la informacion desde la consulta
+
 class UserInfoDisplay(QWidget):
     """Widget para mostrar información de usuario"""
     def __init__(self, parent=None, color="#ff4444"):
@@ -204,8 +202,6 @@ class UserInfoDisplay(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(25, 20, 25, 20)
 
-        # ====== LABELS ======
-
         self.lbl_nombre = self._crear_fila("Nombre:")
         self.lbl_usuario = self._crear_fila("Usuario:")
         self.lbl_correo = self._crear_fila("Correo:")
@@ -216,11 +212,9 @@ class UserInfoDisplay(QWidget):
         layout.addWidget(self.lbl_correo["row"])
         layout.addWidget(self.lbl_rol["row"])
 
-        # Estado inicial
         self.clear()
 
     def _crear_fila(self, texto):
-
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -238,26 +232,15 @@ class UserInfoDisplay(QWidget):
         row_layout.addWidget(lbl)
         row_layout.addWidget(val, stretch=1)
 
-        return {
-            "row": row,
-            "value": val
-        }
+        return {"row": row, "value": val}
 
-    # ==========================
-    # LIMPIAR
-    # ==========================
     def clear(self):
-
         self.lbl_nombre["value"].setText("--------------")
         self.lbl_usuario["value"].setText("--------------")
         self.lbl_correo["value"].setText("--------------")
         self.lbl_rol["value"].setText("--------------")
 
-    # ==========================
-    # CARGAR DATOS
-    # ==========================
     def set_data(self, data):
-
         self.lbl_nombre["value"].setText(data.get("nombre", ""))
         self.lbl_usuario["value"].setText(data.get("usuario", ""))
         self.lbl_correo["value"].setText(data.get("correo", ""))
@@ -266,6 +249,7 @@ class UserInfoDisplay(QWidget):
             self.lbl_rol["value"].setText("Administrador")
         else:
             self.lbl_rol["value"].setText("Empleado")
+
 
 class SearchComboWithButton(QWidget):
     """ComboBox de búsqueda con botón"""
@@ -289,20 +273,14 @@ class SearchComboWithButton(QWidget):
         self.combo.setMaximumHeight(45)
         self.combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.combo.setEditable(False)
-        #self.combo.lineEdit().setReadOnly(True)
-        #self.combo.lineEdit().setPlaceholderText(placeholder)
 
         for item in items:
-            # Protección
             if not isinstance(item, dict):
                 continue
-
             nombre = item.get("nombre")
             uid = item.get("id")
-
             if nombre and uid is not None:
                 self.combo.addItem(nombre, uid)
-
 
         self.combo.setStyleSheet(f"""
             QComboBox {{
@@ -345,11 +323,7 @@ class SearchComboWithButton(QWidget):
 
 
 class UserManagementUI(BaseWindow):
-    COLORES = {
-        0: "#00ff88",
-        1: "#ff9500",
-        2: "#ff3333"
-    }
+    COLORES = {0: "#00ff88", 1: "#ff9500", 2: "#ff3333"}
 
     def __init__(self):
         super().__init__()
@@ -400,10 +374,9 @@ class UserManagementUI(BaseWindow):
         self.setup_crear()
         self.setup_modificar()
         self.setup_eliminar()
-        #validaciones
+
         self.aplicar_validaciones()
         self.aplicar_validaciones_modificar()
-        
 
         self.show_tab(0)
 
@@ -420,43 +393,42 @@ class UserManagementUI(BaseWindow):
         layout = QHBoxLayout(header)
         layout.setContentsMargins(30, 0, 30, 0)
 
-    
-        # ===== BOTÓN REGRESAR =====
-        self.btn_back = QPushButton("←")
-        self.btn_back.setFixedSize(40, 40)
-        self.btn_back.setCursor(Qt.PointingHandCursor)
-        self.btn_back.setFont(QFont("Segoe UI", 16, QFont.Bold))
-
-        self.btn_back.setStyleSheet("""
+        # =========================
+        # ✅ MOD: BOTÓN VOLVER (donde marcaste en rojo)
+        # =========================
+        self.btn_volver = QPushButton("←")  # ✅ NUEVO
+        self.btn_volver.setCursor(Qt.PointingHandCursor)
+        self.btn_volver.setFixedSize(42, 42)
+        self.btn_volver.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        self.btn_volver.setStyleSheet("""
             QPushButton {
-                background-color: rgba(30, 40, 60, 220);
-                border-radius: 20px;
+                background-color: rgba(255, 255, 255, 18);
                 color: white;
-                border: 1px solid rgba(100, 120, 150, 0.3);
+                border-radius: 10px;
+                border: 1px solid rgba(255,255,255,40);
             }
             QPushButton:hover {
-                background-color: rgba(50, 70, 110, 220);
+                background-color: rgba(255, 255, 255, 30);
+                border: 1px solid rgba(255,255,255,70);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 40);
             }
         """)
-        
-        self.btn_back.clicked.connect(self.abrir_workspace)
-        layout.addWidget(self.btn_back)
-        layout.addSpacing(10)
+        self.btn_volver.clicked.connect(self.volver_a_manager)  # ✅ NUEVO
+        layout.addWidget(self.btn_volver)  # ✅ NUEVO
 
-
-        # ===== TÍTULO =====
         title = QLabel("Gestión de Usuarios")
         title.setFont(QFont("Segoe UI", 18, QFont.Bold))
         title.setStyleSheet("color: white; background: transparent;")
         layout.addWidget(title)
-
         layout.addStretch()
 
         self.tabs = []
         tab_data = [
-            ("➕ Crear Usuario", self.COLORES[0]),
-            ("✏️ Modificar Usuario", self.COLORES[1]),
-            ("🗑️ Eliminar Usuario", self.COLORES[2])
+            ("Crear Usuario", self.COLORES[0]),
+            ("Modificar Usuario", self.COLORES[1]),
+            ("Eliminar Usuario", self.COLORES[2])
         ]
 
         tabs_widget = QWidget()
@@ -479,6 +451,19 @@ class UserManagementUI(BaseWindow):
         layout.addWidget(tabs_widget)
         return header
 
+    # =========================
+    # ✅ MOD: MÉTODO VOLVER A WORKSPACE MANAGER
+    # =========================
+    def volver_a_manager(self):
+        """✅ NUEVO: regresar a WorkspaceManagerUI"""
+        try:
+            from ..views.workspace_manager import WorkspaceManagerUI  # ✅ NUEVO (ajusta si el nombre cambia)
+            self.manager = WorkspaceManagerUI()
+            self.manager.show()
+            QTimer.singleShot(200, self.hide)  # ✅ NUEVO: cierra esta ventana
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo volver al Manager: {e}")
+
     def show_tab(self, index):
         self.stack.setCurrentIndex(index)
         for btn in self.tabs:
@@ -496,7 +481,7 @@ class UserManagementUI(BaseWindow):
         card.setMinimumWidth(450)
         card.setMaximumWidth(700)
         card.setMinimumHeight(420)
-        card.setMaximumHeight(580)
+        card.setMaximumHeight(720)#--------------------------------------
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setStyleSheet(f"""
             QFrame {{
@@ -527,7 +512,7 @@ class UserManagementUI(BaseWindow):
         fields_area = QWidget()
         fields_area.setStyleSheet("background: transparent;")
         fields_layout = QVBoxLayout(fields_area)
-        fields_layout.setSpacing(12)
+        fields_layout.setSpacing(5)#--- espacio entre las cajas de exto
         fields_layout.setContentsMargins(0, 0, 0, 0)
         fields_layout.setAlignment(Qt.AlignTop)
         card_layout.addWidget(fields_area, stretch=1)
@@ -627,11 +612,10 @@ class UserManagementUI(BaseWindow):
         container, layout, btn_layout = self.create_tab_card("Editar Usuario", color)
 
         self.usuario_actual_id = None
-
         # Cargar usuarios
         lista_usuarios = self.cargar_usuarios()
+        print("DEBUG lista_usuarios:", lista_usuarios)
         
-        # Barra de búsqueda con botón
         self.search_bar = SearchComboWithButton(
             items=lista_usuarios,
             color=color
@@ -639,49 +623,46 @@ class UserManagementUI(BaseWindow):
         layout.addWidget(self.search_bar)
         layout.addSpacing(20)
 
-        # Conectar botón buscar
+        # 👉 Conectar botón buscar
         self.search_bar.btn_buscar.clicked.connect(self.buscar_usuario)
 
-        # Campos de texto
         campos = [
             ("Nombre completo", "edit_nombre"),
             ("Nombre de usuario", "edit_usuario"),
             ("Correo electrónico", "edit_email"),
-            ("Teléfono: +504-0000-0000", "edit_telefono"),
+            ("Telefono : +504-0000-0000","edit_telefono"),
         ]
 
         for placeholder, attr_name in campos:
             inp = StaticInput(placeholder, color=color)
-            inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)  # Ocupa todo el ancho posible
+            inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             setattr(self, attr_name, inp)
             layout.addWidget(inp)
 
         # Rol
         self.edit_rol = StaticComboBox(color=color)
-        self.edit_rol.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self.edit_rol)
 
-        # Campos de contraseña
+    # ✅ NUEVOS CAMPOS DE CONTRASEÑA
         self.edit_current_password = PasswordInput(color=color)
         self.edit_current_password.input.setPlaceholderText("Nueva contraseña (opcional)")
-        self.edit_current_password.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        layout.addWidget(self.edit_current_password)
 
         self.edit_new_password = PasswordInput(color=color)
         self.edit_new_password.input.setPlaceholderText("Nueva contraseña")
-        self.edit_new_password.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        layout.addWidget(self.edit_current_password)
         layout.addWidget(self.edit_new_password)
 
         layout.addStretch()
 
-        # Botón Guardar
         btn_guardar = BaseButton("GUARDAR CAMBIOS", color=color)
+        btn_guardar.clicked.connect(self.guardar_cambios_usuario)
         btn_guardar.setMinimumWidth(220)
         btn_guardar.setMaximumWidth(300)
         btn_layout.addWidget(btn_guardar)
-        btn_guardar.clicked.connect(self.guardar_cambios_usuario)
 
         self.stack.addWidget(container)
+
     #===================== Buscamos al emplado seleccionado =======================
     def buscar_usuario(self):
 
@@ -1021,18 +1002,6 @@ class UserManagementUI(BaseWindow):
 
         self.edit_nombre.setValidator(validator_nombre)
         
-    def abrir_workspace(self):
-            """Volver al workspace principal"""
-            try:
-                from workspace_manager import WorkspaceManagerUI
-                self.workspace = WorkspaceManagerUI()
-                self.workspace.show()
-                # Cerrar esta ventana después de un breve delay
-                QTimer.singleShot(300, self.close)
-            except Exception as e:
-                print(f"Error al abrir workspace: {e}")
-                QMessageBox.critical(self, "Error", f"No se pudo abrir el workspace:\n{e}")
-        
 #=================== FUNCIONES EXTERNAS (API) ==================
 def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
         # Aquí la lógica para registrar un nuevo usuario
@@ -1102,8 +1071,6 @@ def obtener_informacion_del_usuario(usuario_id):
             return print(f"Error al obtener información del usuario: {e}")
 
 
-
-
 if __name__ == "__main__":
     import sys
     app = QApplication(sys.argv)
@@ -1113,5 +1080,3 @@ if __name__ == "__main__":
     window = UserManagementUI()
     window.show()
     sys.exit(app.exec_())
-
-    

@@ -2,7 +2,6 @@ import os
 # jason
 from PyQt5.QtWidgets import QMessageBox
 # naye
-from components.table_scroll_style import apply_table_scrollbar_style
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
@@ -19,6 +18,7 @@ from PyQt5.QtWidgets import (
 import requests  # jason
 from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
 from config import set_session, _session, get_session
+#from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
 from components.table_validations import setup_row_logic
 from components.btns_windows import WindowButtons  # ← IMPORTADO
@@ -153,14 +153,13 @@ class WorkspaceUserUI(BaseWindow):
         self.load_demo_data()
         self.table.sortItems(4, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
-        apply_table_scrollbar_style(self.table)
-
+        apply_table_scrollbar_style(self.table) 
 
         # ================== BOTÓN INFERIOR ==================
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
 
-        self.btn_analizar = self.action_button("📊  Analizar")
+        self.btn_analizar = self.action_button("Analizar")
         self.btn_analizar.clicked.connect(self.open_workspace_userRE)
 
         bottom_layout.addWidget(self.btn_analizar)
