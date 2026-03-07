@@ -1,0 +1,5 @@
+2026-03-06 17:19:18,189 [WARNING] ⚠️  Plantilla 'FICHA_TECNICA_MICROFONO_Y_MEMORIA.docx' no encontrada. Se usará formato básico.
+2026-03-06 17:19:18,189 [INFO] 📡 Conectando a base de datos MySQL...
+2026-03-06 17:19:19,085 [INFO] ✅ Conexión a MySQL establecida correctamente.
+2026-03-06 17:19:19,285 [ERROR] ❌ Error al ejecutar la consulta MySQL: 1146 (42S02): Table 'gestorex.ínfimas' doesn't exist
+2026-03-06 17:19:19,285 [CRITICAL] ❌ Error crítico no manejado: 1146 (42S02): Table 'gestorex.ínfimas' doesn't exist

@@ -1,0 +1,6 @@
+2026-03-06 19:36:43,089 [WARNING] ⚠️  Plantilla 'FICHA_TECNICA_MICROFONO_Y_MEMORIA.docx' no encontrada. Se usará formato básico.
+2026-03-06 19:36:43,089 [INFO] 📡 Conectando a base de datos MySQL...
+2026-03-06 19:36:43,246 [WARNING] ⚠️  Intento 1/3 — Error MySQL: 2003 (HY000): Can't connect to MySQL server on '35.225.240.246:3306' (10065)
+2026-03-06 19:36:45,264 [WARNING] ⚠️  Intento 2/3 — Error MySQL: 2003 (HY000): Can't connect to MySQL server on '35.225.240.246:3306' (10065)
+2026-03-06 19:36:49,283 [WARNING] ⚠️  Intento 3/3 — Error MySQL: 2003 (HY000): Can't connect to MySQL server on '35.225.240.246:3306' (10065)
+2026-03-06 19:36:49,285 [CRITICAL] ❌ Error crítico no manejado: ❌ No se pudo conectar a MySQL después de varios intentos.

@@ -1,0 +1,41 @@
+[
+  {
+    "nic": "nic-1768161120001-2026-00140",
+    "estado": "error",
+    "ficha_generada": null,
+    "proveedor_seleccionado": {
+      "proveedor": "Kywi",
+      "nombre_producto": "search",
+      "precio": 2.0,
+      "url": "https://www.kywi.com.ec/search?q=Sutura%20cerclaje%20uterino%20doble%20aguja%20no%20reabsorbible",
+      "url_busqueda": "https://www.kywi.com.ec/search?q=Sutura%20cerclaje%20uterino%20doble%20aguja%20no%20reabsorbible"
+    },
+    "error": "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'NoneType'"
+  },
+  {
+    "nic": "nic-0760028270001-2026-00004",
+    "estado": "error",
+    "ficha_generada": null,
+    "proveedor_seleccionado": {
+      "proveedor": "Kywi",
+      "nombre_producto": "search",
+      "precio": 2.0,
+      "url": "https://www.kywi.com.ec/search?q=NAPTILUS%202026%20Actualizaci%C3%B3n%20sistema%20contabilidad%20gubernamental%20NAPTILUS%202026",
+      "url_busqueda": "https://www.kywi.com.ec/search?q=NAPTILUS%202026%20Actualizaci%C3%B3n%20sistema%20contabilidad%20gubernamental%20NAPTILUS%202026"
+    },
+    "error": "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'NoneType'"
+  },
+  {
+    "nic": "nic-1660011370001-2026-00006",
+    "estado": "error",
+    "ficha_generada": null,
+    "proveedor_seleccionado": {
+      "proveedor": "Kywi",
+      "nombre_producto": "search",
+      "precio": 2.0,
+      "url": "https://www.kywi.com.ec/search?q=Actualizaci%C3%B3n%20Sistema%20Contable%20Naptilus",
+      "url_busqueda": "https://www.kywi.com.ec/search?q=Actualizaci%C3%B3n%20Sistema%20Contable%20Naptilus"
+    },
+    "error": "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'NoneType'"
+  }
+]
