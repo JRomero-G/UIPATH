@@ -452,15 +452,15 @@ class UserManagementUI(BaseWindow):
         return header
 
     # =========================
-    # ✅ MOD: MÉTODO VOLVER A WORKSPACE MANAGER
+    #  MOD: MÉTODO VOLVER A WORKSPACE MANAGER
     # =========================
     def volver_a_manager(self):
-        """✅ NUEVO: regresar a WorkspaceManagerUI"""
+        """ NUEVO: regresar a WorkspaceManagerUI"""
         try:
-            from ..views.workspace_manager import WorkspaceManagerUI  # ✅ NUEVO (ajusta si el nombre cambia)
+            from ..views.workspace_manager import WorkspaceManagerUI  #(ajusta si el nombre cambia)
             self.manager = WorkspaceManagerUI()
             self.manager.show()
-            QTimer.singleShot(200, self.hide)  # ✅ NUEVO: cierra esta ventana
+            QTimer.singleShot(200, self.hide)  #cierra esta ventana
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo volver al Manager: {e}")
 
@@ -538,7 +538,7 @@ class UserManagementUI(BaseWindow):
         self.input_telefono = StaticInput("Teléfono: +504-0000-0000", color=color)
         self.input_password = PasswordInput(color=color)
 
-    # ✅ NUEVO CAMPO: Confirmar contraseña
+    # Confirmar contraseña
         self.input_confirm_password = PasswordInput(color=color)
         self.input_confirm_password.input.setPlaceholderText("Confirmar contraseña")
 
@@ -915,12 +915,12 @@ class UserManagementUI(BaseWindow):
         if hasattr(self, 'central'):
             self.central.setGeometry(0, 0, self.width(), self.height())
             self.window_buttons.setGeometry(0, 0, self.width(), 35)
-      
+    
     # ========== Aplicar validaciones ===============
     def aplicar_validaciones(self):
 
         # ================= TELÉFONO =================
-        telefono_regex = QRegularExpression(r"\d{4}-\d{4}-\d{4}")
+        telefono_regex = QRegularExpression(r"^[0-9+-]+$")
         telefono_validator = QRegularExpressionValidator(telefono_regex)
 
         self.input_telefono.setValidator(telefono_validator)
@@ -964,7 +964,7 @@ class UserManagementUI(BaseWindow):
     def aplicar_validaciones_modificar(self):
 
         # ================= TELÉFONO =================
-        telefono_regex = QRegularExpression(r"\d{4}-\d{4}-\d{4}")
+        telefono_regex = QRegularExpression(r"^[0-9+-]+$")
         validator_tel = QRegularExpressionValidator(telefono_regex)
 
         self.edit_telefono.setValidator(validator_tel)
