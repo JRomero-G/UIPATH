@@ -178,19 +178,20 @@ class WorkspaceUserUI(BaseWindow):
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
 
-    # ✅ Abrir maximizada
+    # Abrir maximizada
     def showEvent(self, event):
         super().showEvent(event)
         self.showMaximized()
-        # ← AÑADIDO: Actualizar ancho de botones al maximizar
+        #Actualizar ancho de botones al maximizar
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
-    # ← AÑADIDO: Actualizar botones al redimensionar
+    # Actualizar botones al redimensionar - Misma Funcion que showEvent se deberia eliminar
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
     # ================== BOTONES ==================
+
     def menu_actualizar(self, text):
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
@@ -272,6 +273,7 @@ class WorkspaceUserUI(BaseWindow):
         container = QWidget()
         container.setStyleSheet(f"background-color: {bg_color};")
         container.setCursor(Qt.PointingHandCursor)  # ← Agregar cursor
+        container.setProperty("enabled_state", True)  # ← estado habilitado por defecto
 
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -280,11 +282,15 @@ class WorkspaceUserUI(BaseWindow):
 
         icon = QLabel("🗑")
         icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
+        icon.setObjectName("icon")  # ← nombre para encontrar el boton
 
         text = QLabel("Eliminar")
         text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
+        text.setObjectName("text")  # ← nombre para encontrarlo después
 
         def enter_event(event):
+            if not container.property("enabled_state"):  # ← verificar estado
+                return
             icon.setStyleSheet("color: rgb(220, 20, 20); font-size: 17px;")
             text.setStyleSheet("""
                 color: rgb(220, 60, 60);
@@ -293,11 +299,15 @@ class WorkspaceUserUI(BaseWindow):
             """)
 
         def leave_event(event):
+            if not container.property("enabled_state"):  # ← verificar estado
+                return
             icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
             text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
 
-        # ✅ NUEVO: Detectar clic en el botón
+        # Detectar clic en el botón
         def mouse_press_event(event):
+            if not container.property("enabled_state"):  # ← bloquear clic
+                return
             self.on_eliminar_clicked(row)  # ← Llamar función al hacer clic
 
         container.enterEvent = enter_event
@@ -308,7 +318,48 @@ class WorkspaceUserUI(BaseWindow):
         layout.addWidget(text)
         return container
 
+
+
+    #================= Funciones Auxiliares para evitar confilcto de selecciones ==========================
+
+    def deshabilitar_boton_eliminar(self, row):
+        """Desactiva visualmente el botón eliminar de una fila."""
+        widget = self.table.cellWidget(row, 5)
+        if not widget:
+            return
+
+        widget.setProperty("enabled_state", False)
+        widget.setCursor(Qt.ForbiddenCursor)  # ← Cursor de prohibido
+
+        # Cambiar estilo a gris apagado
+        icon = widget.findChild(QLabel, "icon")
+        text = widget.findChild(QLabel, "text")
+        if icon:
+            icon.setStyleSheet("color: rgb(180, 180, 180); font-size: 15px;")
+        if text:
+            text.setStyleSheet("color: rgb(180, 180, 180); font-weight: bold;")
+
+    def habilitar_boton_eliminar(self, row):
+        """Reactiva visualmente el botón eliminar de una fila."""
+        widget = self.table.cellWidget(row, 5)
+        if not widget:
+            return
+
+        widget.setProperty("enabled_state", True)
+        widget.setCursor(Qt.PointingHandCursor)
+
+        # Restaurar estilo original
+        icon = widget.findChild(QLabel, "icon")
+        text = widget.findChild(QLabel, "text")
+        if icon:
+            icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
+        if text:
+            text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
+
+
+
     # ==================Cargar datos en la tabla ==================
+
     def Cargar_infimas(self):
         sesion = get_session()
         print("Sesion completa: ", sesion)
@@ -351,7 +402,7 @@ class WorkspaceUserUI(BaseWindow):
             print("EXCEPTION:", e)
             return
 
-        #  LIMPIAR TODO ANTES DE CARGAR
+        #  Limpiar antes de cargar los datos
         self.table.setRowCount(0)
         self.Pendientes_de_analisis.clear()
         self.eliminacion_pendiente.clear()
@@ -360,16 +411,19 @@ class WorkspaceUserUI(BaseWindow):
         if not data:
             print("⚠️ No hay registros para mostrar")
             return
-
+        
+        # Ciclo para cargar las filas en la tabla, obtenemos el numero de 
+        # registros en "data" para crear la fila y guardamos la informacion en item 
         for row, item in enumerate(data):
             self.table.insertRow(row)
 
-            #  GUARDAR DATOS DE LA FILA (ESTO FALTABA)
+            #  Guardamos las "filas" de cada registro obtenido en la respuesta del endpoint
+            #  y que guardamos en "data" 
             self.datos_filas[row] = item
 
             nivel = (
                 item.get("nivel_de_oportunidad") or "no asignado"
-            )  # no tiene nivel asignado por defecto 1
+            )  # sino tiene nivel asignado por defecto sera "no asignado" aunque deberia ser "nivel 3" 
 
             if nivel == "nivel 1":
                 row_color = QColor(150, 215, 175)
@@ -435,7 +489,7 @@ class WorkspaceUserUI(BaseWindow):
             self.table.setCellWidget(row, 5, self.delete_button(row_color.name(),row))
             # ================= Fin Celdas nuevo ==================
 
-            # ✅ AGREGAR: Conectar evento de checkbox (FUERA DEL LOOP - IGUAL QUE MANAGER)
+            #Conectar evento de checkbox (FUERA DEL LOOP)
         try:
             self.table.itemChanged.disconnect()
         except:
@@ -443,9 +497,9 @@ class WorkspaceUserUI(BaseWindow):
             
         self.table.itemChanged.connect(self.on_table_item_changed)
             
-        print("✅ Ínfimas cargadas y eventos conectados")
+        print("Ínfimas cargadas y eventos conectados")
 
-        setup_row_logic(self.table, row, nic_col=0, action_col=5) ## 
+        setup_row_logic(self.table, row, nic_col=0, action_col=5) 
 
     def on_table_item_changed(self, item: QTableWidgetItem):
         """
@@ -456,13 +510,15 @@ class WorkspaceUserUI(BaseWindow):
         if item.column() != 0:
             return
         
+        #fila del checbox
         row = item.row()
         
-        # Obtener datos de la fila
+        # Verificamos que la fila forme parte delos registros obtenidos  guardados en data_filas previamente
         if row not in self.datos_filas:
             print(f" No hay datos para la fila {row}")
             return
         
+        # Obtenemos los datos de la fila
         item_data = self.datos_filas[row]
         
         # Procesar el check/uncheck
@@ -477,20 +533,14 @@ class WorkspaceUserUI(BaseWindow):
         codigo_necesidad = item_data.get("codigo_necesidad", "N/A")
         
         if not id_infima:
-            print(f"⚠️ Fila {row}: no tiene id_infima")
+            print(f" Fila {row}: no tiene id_infima")
             return
         
         # Si está MARCADO → agregar a pendientes
         if esta_marcado:
-            #  NUEVO: Verificar si ya está en pendientes de eliminación
+            #  Verificar si ya está en pendientes de eliminación
             if row in self.eliminacion_pendiente:
-                QMessageBox.warning(
-                    self,
-                    "Conflicto",
-                    f"La ínfima '{codigo_necesidad}' ya está marcada para eliminación.\n"
-                    "Quítala de eliminación primero si deseas analizarla."
-                )
-                # Bloquear señales para desmarcar sin disparar evento
+                # Ya está en eliminación → rechazar sin warning (ya está bloqueado visualmente)
                 self.table.blockSignals(True)
                 check_item.setCheckState(Qt.Unchecked)
                 self.table.blockSignals(False)
@@ -500,6 +550,9 @@ class WorkspaceUserUI(BaseWindow):
                 "id_infima": id_infima,
                 "codigo_necesidad": codigo_necesidad
             }
+
+            self.deshabilitar_boton_eliminar(row)  # Desactivamos el boton eliminar para evitar conflicto
+
             print(f" Fila {row}: Ínfima {id_infima} ({codigo_necesidad}) agregada")
             print(f" Pendientes_de_analisis = {self.Pendientes_de_analisis}")
         
@@ -507,6 +560,7 @@ class WorkspaceUserUI(BaseWindow):
         else:
             if row in self.Pendientes_de_analisis:
                 del self.Pendientes_de_analisis[row]
+                self.habilitar_boton_eliminar(row)  # ← Habilitamos el boton si ya no esta seleccionada
                 print(f" Fila {row}: Ínfima {id_infima} removida")
                 print(f" Pendientes_de_analisis = {self.Pendientes_de_analisis}")
 
@@ -544,46 +598,59 @@ class WorkspaceUserUI(BaseWindow):
         
         print(f" Fila original: {row_original}, Fila actual: {row_actual}")
         
-        # Verificar si ya está en pendientes de análisis
-        if row_original in self.Pendientes_de_analisis:
-            QMessageBox.warning(
-                self,
-                "Conflicto",
-                f"La ínfima '{codigo_necesidad}' ya está marcada para análisis.\n"
-                "Desmarca el checkbox primero si deseas eliminarla."
-            )
-            return
-        
         # Si ya está en pendientes de eliminación → removerla
-        if row_original in self.eliminacion_pendiente:
-            del self.eliminacion_pendiente[row_original]
-            print(f" Fila {row_original}: Ínfima {id_infima} removida de eliminación")
+        if row_actual in self.eliminacion_pendiente:
+            del self.eliminacion_pendiente[row_actual]
+            print(f"Ínfima {id_infima} removida de eliminación")
             
+            # Rehabilitar checkbox
+            self.table.blockSignals(True)
+            check_item = self.table.item(row_actual, 0)
+            if check_item:
+                check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            self.table.blockSignals(False)
+
             # Restaurar color original según nivel
             nivel = item_data.get("nivel_de_oportunidad", "no asignado")
             if nivel == "nivel 1":
                 row_color = QColor(150, 215, 175)
+                hex_color = "#96d7af"
             elif nivel == "nivel 2":
                 row_color = QColor(220, 200, 140)
+                hex_color = "#dcc88c"
             else:
                 row_color = QColor(220, 170, 170)
+                hex_color = "#dcaaaa"
             
             #  Repintar fila ACTUAL (no la original)
             for c in range(self.table.columnCount()):
                 item = self.table.item(row_actual, c)  # ← Usar row_actual
                 if item:
                     item.setBackground(row_color)
-        
+
+            # Restaurar también el widget del botón
+            widget = self.table.cellWidget(row_actual, 5)
+            if widget:
+                widget.setStyleSheet(f"background-color: {hex_color};")
+
             print(f" Fila {row_actual} restaurada a color original")
-        
-        # Si NO está → agregarla
+            
+            # Si NO está → agregarla
         else:
-            self.eliminacion_pendiente[row_original] = {
+            # Agregar a eliminación
+            self.eliminacion_pendiente[row_actual] = {
                 "id_infima": id_infima,
                 "codigo_necesidad": codigo_necesidad
             }
-            print(f" Fila {row_original}: Ínfima {id_infima} agregada para eliminación")
+            print(f"Ínfima {id_infima} agregada para eliminación")
             
+            # Deshabilitar checkbox
+            self.table.blockSignals(True)
+            check_item = self.table.item(row_actual, 0)
+            if check_item:
+                check_item.setFlags(Qt.ItemIsEnabled)  # ← Quitar Qt.ItemIsUserCheckable
+            self.table.blockSignals(False)
+
             #  Pintar fila ACTUAL de rojo claro
             color_eliminacion = QColor(255, 200, 200)
             for c in range(self.table.columnCount()):
@@ -591,10 +658,15 @@ class WorkspaceUserUI(BaseWindow):
                 if item:
                     item.setBackground(color_eliminacion)
             
-            print(f" Fila {row_actual} pintada de rojo (eliminación)")
+            # Pintar también el widget del botón
+            widget = self.table.cellWidget(row_actual, 5)
+            if widget:
+                widget.setStyleSheet("background-color: #ffc8c8;")  # mismo rojo claro en hex
+            #print(f" Fila {row_actual} pintada de rojo (eliminación)")
         
         print(f" Pendientes_de_eliminacion = {self.eliminacion_pendiente}")
 
+    
     # Confirmar análisis (IGUAL ESTRUCTURA QUE confirmar_asignaciones del manager)
     def confirmar_analisis(self):
         """
@@ -721,7 +793,6 @@ class WorkspaceUserUI(BaseWindow):
                 print(f" Error conexión al eliminar ínfima {payload}: {e}")
         
         return exitosas, errores
-
 
     def ejecutar_analisis(self, token):
         """
