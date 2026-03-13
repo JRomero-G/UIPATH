@@ -164,3 +164,63 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         .order_by(Infima.fecha_publicacion.desc())
         .all()
     )
+
+# =============== INFIMAS ASIGNADAS Y A QUIEN SE ASIGNARON ============================
+
+# INFIMAS EN ETAPA EN GENERACION
+def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session, etapa: str = "en generacion"):
+    return(
+        db.query(
+            Usuario.usuario,
+            Usuario.nombre,
+            Infima.codigo_necesidad,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
+        .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
+        # Filtramos por etapa
+        .filter(Infima.etapa == etapa)
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
+# INFIMAS EN ETAPA FINALIZADA
+def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session, etapa: str = "finalizada"):
+    return(
+        db.query(
+            Usuario.usuario,
+            Usuario.nombre,
+            Infima.codigo_necesidad,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
+        .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
+        # Filtramos por etapa
+        .filter(Infima.etapa == etapa)
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
+# INFIMAS EN ETAPA ENVIADA
+def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str = "enviada"):
+    return(
+        db.query(
+            Usuario.usuario,
+            Usuario.nombre,
+            Infima.codigo_necesidad,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
+        .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
+        # Filtramos por etapa
+        .filter(Infima.etapa == etapa)
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
