@@ -14,9 +14,9 @@ from components.btns_windows import WindowButtons  # ← IMPORTADO
 from components.classic_msgbox import ClassicMsgBox #Importado para los mensajes de error
 
 
-from ..views.workspace_manager import WorkspaceManagerUI
-from ..views.workspace_user import WorkspaceUserUI
-from ..views.loading import LoadingUI
+from views.workspace_manager import WorkspaceManagerUI
+from views.workspace_user import WorkspaceUserUI
+from views.loading import LoadingUI
 
 
 class LoginUI(BaseWindow):
@@ -236,8 +236,7 @@ class LoginUI(BaseWindow):
                 QTimer.singleShot(2000, self.hide)
 
             else:
-               ClassicMsgBox.critical("Error", "Credenciales inválidas.")
-               
+                ClassicMsgBox.critical("Error", "Credenciales inválidas.")
 
         except requests.RequestException:
             ClassicMsgBox.critical( "Error", "No se pudo conectar al servidor.")

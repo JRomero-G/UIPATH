@@ -8,7 +8,9 @@ from ..Controllers.recomendaciones_usuario_controller import (
     obtener_infimas_recomendadas_asignadas_del_usuario,
     obtener_infimas_asignadas_en_generacion_y_a_que_usuarios,
     obtener_infimas_asignadas_finalizadas_y_a_que_usuarios,
-    obtener_infimas_asignadas_enviadas_y_a_que_usuarios
+    obtener_infimas_asignadas_enviadas_y_a_que_usuarios,
+    obtener_infimas_asignadas_y_a_que_usuarios,
+    obtener_infimas_asignadas_y_a_que_usuarios_filtro
 )
 from ..Auth.Usuario_auth import usuario_actual
 from ..database import get_db
@@ -93,10 +95,21 @@ def Obtener_infimas_finalizadas_empleados(db: Session = Depends(get_db), current
     return obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db)
 
 # ruta para infimas asignadas en etapa enviada
-@router.get("/admin/obtener-infimas-finalizada-de-empleados")
-def Obtener_infimas_finalizadas_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+@router.get("/admin/obtener-infimas-enviadas-de-empleados")
+def Obtener_infimas_enviadas_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
     return obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db)
 
+@router.get("/admin/obtener-infimas-asignadas")
+def obtener_infimas_asignadas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    return {
+        "data": obtener_infimas_asignadas_y_a_que_usuarios(db)
+    }
+
+@router.get("/admin/obtener-infimas-asignadas-por-usuario/{id_usuario}")
+def obtener_infimas_asignadas_por_usuario(id_usuario: int,db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    return {
+        "data": obtener_infimas_asignadas_y_a_que_usuarios_filtro(db, id_usuario)
+    }
 
 # ================= RUTAS DEL EMPLEADO ==================
 

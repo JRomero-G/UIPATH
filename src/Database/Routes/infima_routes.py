@@ -11,7 +11,8 @@ from ..Controllers.infima_controller import (
     obtener_infimas_en_generacion_y_finalizadas,
     contador_de_infimas_en_generacion,
     actualizar_infimas_para_analisis,
-    eliminar_infima_permanentemente
+    eliminar_infima_permanentemente,
+    obtener_infimas_rechazadas
 )
 
 from ..Models.usuarios_model import Usuario
@@ -19,16 +20,6 @@ from ..Auth.Usuario_auth import usuario_actual
 from ..database import get_db
 
 router = APIRouter(prefix="/infimas", tags=["Infimas"])
-
-
-@router.post("/registro-masivo")
-def registro_masivo(payload: dict, db: Session = Depends(get_db)):
-    return procesar_lote_infimas(db, payload)
-
-
-@router.post("/registrar_Una")
-def registrar(data: dict, db: Session = Depends(get_db)):
-    return registrar_infima(db, data)
 
 
 @router.get("/Todas")
@@ -79,3 +70,13 @@ def eliminar_infimas(id_infima: int,db: Session = Depends(get_db)):
     resultado = eliminar_infima_permanentemente(db,id_infima)
     return resultado
     
+
+#INFIMAS RECHAZADAS
+@router.get("/obtener-infimas-rechazadas")
+def obtener_infimas_asignadas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    if current_user.es_admin:
+        return {
+            "data": obtener_infimas_rechazadas(db)
+        }
+    else:
+        return {"error": "Acceso no Autorizado"}

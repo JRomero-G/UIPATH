@@ -4,6 +4,7 @@ from ..Models.infima_model import Infima
 from ..Models.usuarios_model import Usuario
 # Nueva importacion
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import or_
 
 
 # ================= Nuevos Controladores ===============
@@ -154,7 +155,7 @@ def asignar_infimas_recomendadas_a_usuario_individual(db: Session,usuario_id: in
     }
 
 
-# Devuelve las ínfimas asignadas a un usuario específico y paginadas para evitar sobre carga
+# Devuelve las ínfimas asignadas a un usuario específico 
 def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: int):
     return (
         db.query(Infima)
@@ -168,7 +169,7 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
 # =============== INFIMAS ASIGNADAS Y A QUIEN SE ASIGNARON ============================
 
 # INFIMAS EN ETAPA EN GENERACION
-def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session, etapa: str = "en generacion"):
+def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session):
     return(
         db.query(
             Usuario.usuario,
@@ -180,14 +181,14 @@ def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session, etapa:
         .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
         .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
         # Filtramos por etapa
-        .filter(Infima.etapa == etapa)
+        .filter(Infima.etapa == "en generacion")
         # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
 
 # INFIMAS EN ETAPA FINALIZADA
-def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session, etapa: str = "finalizada"):
+def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session):
     return(
         db.query(
             Usuario.usuario,
@@ -199,7 +200,7 @@ def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session, etapa: s
         .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
         .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
         # Filtramos por etapa
-        .filter(Infima.etapa == etapa)
+        .filter(Infima.etapa == "finalizada")
         # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
@@ -223,4 +224,80 @@ def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str 
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+
+# ETAPAS EN GENERACION Y FINALIZADAS
+def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
+    
+    resultado = (    db.query(
+            Usuario.usuario,
+            Usuario.nombre,
+            Infima.codigo_necesidad,
+            Infima.etapa,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
+        .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
+        # Filtramos por etapa
+        .filter(
+            or_(
+                Infima.etapa == "en generacion",
+                Infima.etapa == "finalizada"
+            )
+        )
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "etapa": r.etapa,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
+# ETAPAS EN GENERACION Y FINALIZADAS Con filtros
+def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: int):
+    
+    resultado = (    db.query(
+            Usuario.usuario,
+            Usuario.nombre,
+            Infima.codigo_necesidad,
+            Infima.etapa,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        .join(RecomendacionesUsuario, Usuario.id_usuario == RecomendacionesUsuario.usuario_id)
+        .join(Infima, Infima.id_infima == RecomendacionesUsuario.id_infima)
+        # Filtramos por etapa
+        .filter(
+            Usuario.id_usuario == id_usuario,
+            or_(
+                Infima.etapa == "en generacion",
+                Infima.etapa == "finalizada"
+            )
+        )
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "etapa": r.etapa,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
 

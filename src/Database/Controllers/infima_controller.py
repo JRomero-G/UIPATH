@@ -4,7 +4,7 @@ from ..Models.infima_model import Infima
 from ..Models.evaluacion_model import Evaluacion
 # Nuevas importaciones
 from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
-from sqlalchemy import not_
+from sqlalchemy import not_, or_
 
 def registrar_infima(db: Session, data: dict):
     infima = Infima(
@@ -239,3 +239,30 @@ def asignar_infimas_recomendadas_a_usuario_individual(db: Session,usuario_id: in
         "ID de la infima asignada": id_infima,
         "mensaje": "Infima asignada Correctamente"
     }
+
+# OBTENER INFIMAS RECHAZADAS
+# ETAPAS EN GENERACION Y FINALIZADAS
+def obtener_infimas_rechazadas(db: Session):
+    
+    resultado = (    db.query(
+            Infima.codigo_necesidad,
+            Infima.etapa,
+            Infima.descripcion_objeto_compra,
+            Infima.fecha_limite_proformas,
+        )
+        # Filtramos por etapa
+        .filter(Infima.etapa == "no seleccionada")
+        # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
+        .order_by(Infima.fecha_limite_proformas.asc())
+        .all()
+    )
+
+    return [
+        {
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "etapa": r.etapa,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
