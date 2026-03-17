@@ -1,5 +1,6 @@
 import os
 from functools import partial
+
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
 from PyQt5.QtWidgets import (
@@ -12,25 +13,28 @@ from PyQt5.QtWidgets import (
     QHeaderView,
     QMessageBox,
     QComboBox,
+    QWidget,
+    QStackedWidget,
 )
+
 import requests
 from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
 from components.base_window import BaseWindow
-from components.btns_windows import WindowButtons  # ← IMPORTADO
-
+from components.btns_windows import WindowButtons
 
 
 class WorkspaceManagerUI(BaseWindow):
-    def __init__(self):
-        super().__init__()
+    def _init_(self):
+        super()._init_()
 
-        # Guarda asignaciones pendientes
-        # { row: {id_infima, usuario_id} }
+        # =========================================================
+        # DATOS GENERALES
+        # =========================================================
         self.asignaciones_pendientes = {}
+        self.usuarios_dict = {}
 
         self.setWindowTitle("Gestorex 1.1 - Manager")
-
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
@@ -42,30 +46,89 @@ class WorkspaceManagerUI(BaseWindow):
         main_layout.setContentsMargins(30, 50, 30, 20)
         main_layout.setSpacing(18)
 
+        # =========================================================
+        # HEADER SUPERIOR
+        # =========================================================
         menu_layout = QHBoxLayout()
         menu_layout.setSpacing(12)
 
-        # 🔵 BOTÓN USUARIOS (NUEVO)
+        # ---------------------------------------------------------
+        # IZQUIERDA: BOTONES GENERALES Y PESTAÑAS
+        # ---------------------------------------------------------
         self.btn_usuarios = self.menu_usuarios_icon()
         self.btn_usuarios.clicked.connect(self.abrir_ventana_usuarios)
 
         self.btn_actualizar = self.menu_actualizar("⟳  Actualizar")
-        self.btn_actualizar.clicked.connect(self.cargar_datos_bd)
+        self.btn_actualizar.clicked.connect(self.actualizar_vista_actual)
 
-        self.btn_reportes = self.menu_tab("Asignaciones", active=True)
+        # Pestaña 1: Asignaciones
+        self.btn_asignaciones_tab = self.menu_tab("Asignaciones", active=True)
+        self.btn_asignaciones_tab.clicked.connect(self.mostrar_tab_asignaciones)
 
-        # ORDEN NUEVO (Usuarios primero)
+        # Pestaña 2: Reportes
+        self.btn_reportes_tab = self.menu_tab("Reportes", active=False)
+        self.btn_reportes_tab.clicked.connect(self.mostrar_tab_reportes)
+
+        # Pestaña 3: Ínfimas rechazadas
+        self.btn_rechazadas_tab = self.menu_tab("Ínfimas rechazadas", active=False)
+        self.btn_rechazadas_tab.clicked.connect(self.mostrar_tab_rechazadas)
+
         menu_layout.addWidget(self.btn_usuarios)
         menu_layout.addWidget(self.btn_actualizar)
-        menu_layout.addWidget(self.btn_reportes)
+        menu_layout.addWidget(self.btn_asignaciones_tab)
+        menu_layout.addWidget(self.btn_reportes_tab)
+        menu_layout.addWidget(self.btn_rechazadas_tab)
         menu_layout.addStretch()
 
+        # ---------------------------------------------------------
+        # DERECHA: ACCIÓN DINÁMICA + LOGO
+        # ---------------------------------------------------------
         brand_layout = QHBoxLayout()
         brand_layout.setSpacing(8)
         brand_layout.setAlignment(Qt.AlignVCenter)
 
+        # Acción visible en ASIGNACIONES
+        self.btn_asignar = self.menu_actualizar("Asignar")
+        self.btn_asignar.clicked.connect(self.confirmar_asignaciones)
+
+        # Acción visible en REPORTES
+        self.combo_usuarios_reportes = QComboBox()
+        self.combo_usuarios_reportes.setFixedHeight(32)
+        self.combo_usuarios_reportes.setFont(QFont("Arial", 11, QFont.Bold))
+        self.combo_usuarios_reportes.setMinimumWidth(180)
+        self.combo_usuarios_reportes.addItem("Usuarios")
+        self.combo_usuarios_reportes.currentIndexChanged.connect(
+            self.on_usuario_reporte_changed
+        )
+        self.combo_usuarios_reportes.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 35);
+                color: white;
+                border-radius: 8px;
+                padding: 4px 14px;
+                border: 1px solid rgba(255,255,255,40);
+            }
+            QComboBox:hover {
+                background-color: rgba(255, 255, 255, 55);
+                border: 1px solid rgba(255,255,255,70);
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: rgb(25, 35, 55);
+                color: white;
+                border: 1px solid rgba(255,255,255,80);
+                selection-background-color: rgba(120, 220, 255, 140);
+            }
+        """)
+        self.combo_usuarios_reportes.hide()
+
+        # En RECHAZADAS no habrá botón/acción, por eso aquí no agregamos nada extra.
+
         logo_label = QLabel()
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.abspath(_file_))
         logo_path = os.path.join(base_dir, "..", "assets", "logo2.png")
 
         pixmap = QPixmap(logo_path).scaled(
@@ -79,43 +142,50 @@ class WorkspaceManagerUI(BaseWindow):
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
-        # ✅ NUEVO: botón Asignar (a la izquierda del logo)
-        self.btn_asignar = self.menu_actualizar("Asignar")
-        self.btn_asignar.clicked.connect(self.confirmar_asignaciones)  # ✅ usa tu método existente
-
-        brand_layout.addWidget(self.btn_asignar)   # ← primero botón
-        brand_layout.addWidget(logo_label)         # ← luego logo (se queda en su sitio)
-        brand_layout.addWidget(title)              # ← luego el título
+        brand_layout.addWidget(self.btn_asignar)
+        brand_layout.addWidget(self.combo_usuarios_reportes)
+        brand_layout.addWidget(logo_label)
+        brand_layout.addWidget(title)
 
         menu_layout.addLayout(brand_layout)
-
         main_layout.addLayout(menu_layout)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(
+        # =========================================================
+        # CONTENIDO CENTRAL CON PESTAÑAS
+        # =========================================================
+        self.stack_pages = QStackedWidget()
+        main_layout.addWidget(self.stack_pages)
+
+        # =========================================================
+        # PÁGINA 1: ASIGNACIONES
+        # =========================================================
+        self.page_asignaciones = QWidget()
+        page_asignaciones_layout = QVBoxLayout(self.page_asignaciones)
+        page_asignaciones_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.table_asignaciones = QTableWidget(0, 4)
+        self.table_asignaciones.setHorizontalHeaderLabels(
             ["Usuario", "NIC", "Descripción", "Etapa"]
         )
+        self.table_asignaciones.setWordWrap(True)
+        self.table_asignaciones.setTextElideMode(Qt.ElideNone)
 
-        self.table.setWordWrap(True)
-        self.table.setTextElideMode(Qt.ElideNone)
+        header_asignaciones = self.table_asignaciones.horizontalHeader()
+        header_asignaciones.setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(0, 120)
+        header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
+        header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(3, 120)
 
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 120)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table.setColumnWidth(3, 120)
-
-        self.table.verticalHeader().setSectionResizeMode(
+        self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
         )
-        self.table.verticalHeader().setMinimumSectionSize(38)
-        self.table.verticalHeader().setVisible(False)
+        self.table_asignaciones.verticalHeader().setMinimumSectionSize(38)
+        self.table_asignaciones.verticalHeader().setVisible(False)
+        self.table_asignaciones.setAlternatingRowColors(True)
 
-        self.table.setAlternatingRowColors(True)
-
-        self.table.setStyleSheet("""
+        self.table_asignaciones.setStyleSheet("""
             QTableWidget {
                 background-color: rgba(255,255,255,15);
                 color: white;
@@ -124,7 +194,6 @@ class WorkspaceManagerUI(BaseWindow):
                 alternate-background-color: rgb(255, 255, 255);
                 border: 1px solid rgba(255,255,255,90);
             }
-
             QHeaderView::section {
                 background-color: rgba(0,0,0,110);
                 color: white;
@@ -135,11 +204,123 @@ class WorkspaceManagerUI(BaseWindow):
             }
         """)
 
-        main_layout.addWidget(self.table)
-        apply_table_scrollbar_style(self.table)
+        page_asignaciones_layout.addWidget(self.table_asignaciones)
+        apply_table_scrollbar_style(self.table_asignaciones)
 
-        self.cargar_datos_bd()
+        # =========================================================
+        # PÁGINA 2: REPORTES
+        # =========================================================
+        self.page_reportes = QWidget()
+        page_reportes_layout = QVBoxLayout(self.page_reportes)
+        page_reportes_layout.setContentsMargins(0, 0, 0, 0)
 
+        self.table_reportes = QTableWidget(0, 4)
+        self.table_reportes.setHorizontalHeaderLabels(
+            ["Usuario", "NIC", "Descripción", "Etapa"]
+        )
+        self.table_reportes.setWordWrap(True)
+        self.table_reportes.setTextElideMode(Qt.ElideNone)
+
+        header_reportes = self.table_reportes.horizontalHeader()
+        header_reportes.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header_reportes.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header_reportes.setSectionResizeMode(2, QHeaderView.Stretch)
+        header_reportes.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+        self.table_reportes.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
+        self.table_reportes.verticalHeader().setMinimumSectionSize(38)
+        self.table_reportes.verticalHeader().setVisible(False)
+        self.table_reportes.setAlternatingRowColors(True)
+
+        self.table_reportes.setStyleSheet("""
+            QTableWidget {
+                background-color: rgba(255,255,255,15);
+                color: white;
+                gridline-color: rgba(255,255,255,25);
+                border-radius: 10px;
+                alternate-background-color: rgb(255, 255, 255);
+                border: 1px solid rgba(255,255,255,90);
+            }
+            QHeaderView::section {
+                background-color: rgba(0,0,0,110);
+                color: white;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+                border-bottom: 2px solid rgba(255,255,255,120);
+            }
+        """)
+
+        page_reportes_layout.addWidget(self.table_reportes)
+        apply_table_scrollbar_style(self.table_reportes)
+
+        # =========================================================
+        # PÁGINA 3: ÍNFIMAS RECHAZADAS
+        # =========================================================
+        self.page_rechazadas = QWidget()
+        page_rechazadas_layout = QVBoxLayout(self.page_rechazadas)
+        page_rechazadas_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.table_rechazadas = QTableWidget(0, 3)
+        self.table_rechazadas.setHorizontalHeaderLabels(
+            ["NIC", "Descripción", "Etapa"]
+        )
+        self.table_rechazadas.setWordWrap(True)
+        self.table_rechazadas.setTextElideMode(Qt.ElideNone)
+
+        header_rechazadas = self.table_rechazadas.horizontalHeader()
+        header_rechazadas.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header_rechazadas.setSectionResizeMode(1, QHeaderView.Stretch)
+        header_rechazadas.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        self.table_rechazadas.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents
+        )
+        self.table_rechazadas.verticalHeader().setMinimumSectionSize(38)
+        self.table_rechazadas.verticalHeader().setVisible(False)
+        self.table_rechazadas.setAlternatingRowColors(True)
+
+        self.table_rechazadas.setStyleSheet("""
+            QTableWidget {
+                background-color: rgba(255,255,255,15);
+                color: white;
+                gridline-color: rgba(255,255,255,25);
+                border-radius: 10px;
+                alternate-background-color: rgb(255, 255, 255);
+                border: 1px solid rgba(255,255,255,90);
+            }
+            QHeaderView::section {
+                background-color: rgba(0,0,0,110);
+                color: white;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+                border-bottom: 2px solid rgba(255,255,255,120);
+            }
+        """)
+
+        page_rechazadas_layout.addWidget(self.table_rechazadas)
+        apply_table_scrollbar_style(self.table_rechazadas)
+
+        # =========================================================
+        # AGREGAR PÁGINAS AL STACK
+        # =========================================================
+        self.stack_pages.addWidget(self.page_asignaciones)
+        self.stack_pages.addWidget(self.page_reportes)
+        self.stack_pages.addWidget(self.page_rechazadas)
+
+        # =========================================================
+        # VISTA INICIAL Y CARGAS
+        # =========================================================
+        self.mostrar_tab_asignaciones()
+        self.cargar_datos_asignaciones()
+        self.cargar_lista_usuarios_reportes()
+
+    # =========================================================
+    # EVENTOS DE VENTANA
+    # =========================================================
     def showEvent(self, event):
         super().showEvent(event)
         self.showMaximized()
@@ -149,7 +330,9 @@ class WorkspaceManagerUI(BaseWindow):
         super().resizeEvent(event)
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
 
-    # 🔵 MÉTODO NUEVO BOTÓN REDONDO
+    # =========================================================
+    # ESTILOS DE BOTONES
+    # =========================================================
     def menu_usuarios_icon(self):
         btn = QPushButton("⚙")
         btn.setCursor(Qt.PointingHandCursor)
@@ -195,7 +378,6 @@ class WorkspaceManagerUI(BaseWindow):
         """)
         return btn
 
-    # ================== MENÚ TAB ==================
     def menu_tab(self, text, active=False):
         btn = QPushButton(text)
         btn.setCursor(Qt.PointingHandCursor)
@@ -230,9 +412,62 @@ class WorkspaceManagerUI(BaseWindow):
             """)
         return btn
 
-    # ================== CARGAR DATOS DESDE API ==================
-    def cargar_datos_bd(self):
+    # =========================================================
+    # CONTROL DE PESTAÑAS
+    # =========================================================
+    def mostrar_tab_asignaciones(self):
+        """Muestra la vista de ASIGNACIONES."""
+        self.stack_pages.setCurrentWidget(self.page_asignaciones)
 
+        self.btn_asignaciones_tab.setStyleSheet(self.menu_tab("x", True).styleSheet())
+        self.btn_reportes_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+        self.btn_rechazadas_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+
+        self.btn_asignar.show()
+        self.combo_usuarios_reportes.hide()
+
+    def mostrar_tab_reportes(self):
+        """Muestra la vista de REPORTES."""
+        self.stack_pages.setCurrentWidget(self.page_reportes)
+
+        self.btn_asignaciones_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+        self.btn_reportes_tab.setStyleSheet(self.menu_tab("x", True).styleSheet())
+        self.btn_rechazadas_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+
+        self.btn_asignar.hide()
+        self.combo_usuarios_reportes.show()
+
+        self.cargar_datos_reportes()
+
+    def mostrar_tab_rechazadas(self):
+        """Muestra la vista de ÍNFIMAS RECHAZADAS."""
+        self.stack_pages.setCurrentWidget(self.page_rechazadas)
+
+        self.btn_asignaciones_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+        self.btn_reportes_tab.setStyleSheet(self.menu_tab("x", False).styleSheet())
+        self.btn_rechazadas_tab.setStyleSheet(self.menu_tab("x", True).styleSheet())
+
+        # En esta pestaña no hay botón/acción superior
+        self.btn_asignar.hide()
+        self.combo_usuarios_reportes.hide()
+
+        self.cargar_datos_rechazadas()
+
+    def actualizar_vista_actual(self):#---------------------------------------------------------------------------------------
+        """Actualiza la pestaña actualmente visible."""
+        current_widget = self.stack_pages.currentWidget()
+
+        if current_widget == self.page_asignaciones:
+            self.cargar_datos_asignaciones()
+        elif current_widget == self.page_reportes:
+            self.cargar_datos_reportes()
+        elif current_widget == self.page_rechazadas:
+            self.cargar_datos_rechazadas()
+
+    # =========================================================
+    # ===================== ASIGNACIONES ======================
+    # =========================================================
+    def cargar_datos_asignaciones(self):
         token = get_session().get("token")
 
         if not token:
@@ -259,20 +494,12 @@ class WorkspaceManagerUI(BaseWindow):
             QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
-        # Cargar usuarios
         lista_usuarios = cargar_empleados(self)
-
-        # Limpiar tabla
-        self.table.setRowCount(0)
-
-        # Limpiar asignaciones anteriores
+        self.table_asignaciones.setRowCount(0)
         self.asignaciones_pendientes.clear()
 
         for row, item in enumerate(data):
-
-            self.table.insertRow(row)
-
-            id_infima = item.get("id_infima")
+            self.table_asignaciones.insertRow(row)
 
             nivel = item.get("nivel_de_oportunidad") or 1
 
@@ -283,8 +510,7 @@ class WorkspaceManagerUI(BaseWindow):
             else:
                 color = QColor(220, 170, 170)
 
-            # ====== COLUMNA 0 → COMBO ======
-
+            # Columna 0: Usuario (combo)
             combo = QComboBox()
             combo.setStyleSheet(f"""
                 QComboBox {{
@@ -293,19 +519,16 @@ class WorkspaceManagerUI(BaseWindow):
                     border: none;
                     padding: 3px;
                 }}
-
                 QComboBox QAbstractItemView {{
                     background-color: rgb(220,235,255);
                     color: black;
                     selection-background-color: rgb(80,140,230);
                     selection-color: white;
                 }}
-
                 QComboBox::item {{
                     background-color: rgb(220,235,255);
                     color: black;
                 }}
-
                 QComboBox::item:selected {{
                     background-color: rgb(80,140,230);
                     color: white;
@@ -314,15 +537,13 @@ class WorkspaceManagerUI(BaseWindow):
 
             combo.addItem("Seleccionar usuario")
             combo.addItems(lista_usuarios)
-
             combo.currentIndexChanged.connect(
                 partial(self.on_usuario_changed, row, combo, item)
             )
 
-            self.table.setCellWidget(row, 0, combo)
+            self.table_asignaciones.setCellWidget(row, 0, combo)
 
-            # ====== DATOS ======
-
+            # Columnas 1, 2, 3
             datos = [
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
@@ -330,7 +551,6 @@ class WorkspaceManagerUI(BaseWindow):
             ]
 
             for col, val in enumerate(datos, start=1):
-
                 cell = QTableWidgetItem(str(val))
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
@@ -339,35 +559,16 @@ class WorkspaceManagerUI(BaseWindow):
                 if col == 3:
                     cell.setTextAlignment(Qt.AlignCenter)
 
-                self.table.setItem(row, col, cell)
-        print("Infimas disponibles Actualizadas")
+                self.table_asignaciones.setItem(row, col, cell)
 
-    # 🔵 MÉTODO NUEVO PARA ABRIR VENTANA
-    def abrir_ventana_usuarios(self):
-            print("Abriendo Workspace User RE...")
-            try:
-                from views.user_management import UserManagementUI
-                self.user = UserManagementUI()
-                self.user.show()
-                #self.hide()
-                QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
-            except ImportError as e:
-                print(f"Error de importación: {e}")
-                QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
-            except Exception as e:
-                print(f"Error al crear ventana: {e}")
+        print("Ínfimas disponibles actualizadas")
 
-    # ================== GESTIÓN DE ASIGNACIONES PENDIENTES ==================
     def on_usuario_changed(self, row, combo: QComboBox, item_data: dict):
-
         texto = combo.currentText()
 
-        # Si vuelve a "Seleccionar", borrar buffer
         if texto == "Seleccionar usuario":
-
             if row in self.asignaciones_pendientes:
                 del self.asignaciones_pendientes[row]
-
             return
 
         usuario_id = self.usuarios_dict.get(texto)
@@ -376,7 +577,6 @@ class WorkspaceManagerUI(BaseWindow):
         if not usuario_id or not id_infima:
             return
 
-        # Guardar en memoria
         self.asignaciones_pendientes[row] = {
             "usuario_id": usuario_id,
             "id_infima": id_infima
@@ -384,9 +584,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         print("Pendientes:", self.asignaciones_pendientes)
 
-    # ==================== CONFIRMAR ASIGNACIONES PENDIENTES ==================
     def confirmar_asignaciones(self):
-
         if not self.asignaciones_pendientes:
             QMessageBox.information(
                 self,
@@ -410,7 +608,6 @@ class WorkspaceManagerUI(BaseWindow):
         errores = 0
 
         for fila, datos in self.asignaciones_pendientes.items():
-
             payload = {
                 "usuario_id": datos["usuario_id"],
                 "id_infima": datos["id_infima"]
@@ -428,57 +625,197 @@ class WorkspaceManagerUI(BaseWindow):
                 )
 
                 if resp.status_code == 200:
-
-                    # Pintar verde
-                    for c in range(self.table.columnCount()):
-                        item = self.table.item(fila, c)
+                    for c in range(self.table_asignaciones.columnCount()):
+                        item = self.table_asignaciones.item(fila, c)
                         if item:
                             item.setBackground(QColor(180, 240, 180))
 
-                    combo = self.table.cellWidget(fila, 0)
+                    combo = self.table_asignaciones.cellWidget(fila, 0)
                     if combo:
                         combo.setEnabled(False)
-
                 else:
                     errores += 1
 
             except requests.RequestException:
                 errores += 1
 
-        # Limpiar memoria
         self.asignaciones_pendientes.clear()
-        self.cargar_datos_bd()
+        self.cargar_datos_asignaciones()
 
         if errores == 0:
-            QMessageBox.information(
-                self, "OK", "Asignaciones completadas."
-            )
+            QMessageBox.information(self, "OK", "Asignaciones completadas.")
         else:
-            QMessageBox.warning(
-                self,
-                "Parcial",
-                f"{errores} asignaciones fallaron."
-            )
+            QMessageBox.warning(self, "Parcial", f"{errores} asignaciones fallaron.")
 
-# ================== cargar empleados ==================
+    # =========================================================
+    # ======================= REPORTES ========================
+    # =========================================================
+    def cargar_datos_reportes(self):
+        """
+        FUNCIÓN DECLARADA PARA REPORTES.
+        Aquí se cargará la información desde BD para poblar la tabla de reportes.
+
+        Columnas esperadas:
+        - Usuario
+        - NIC
+        - Descripción
+        - Etapa
+
+        Esta funcionalidad la implementará otra persona.
+        """
+        self.table_reportes.setRowCount(0)
+        pass
+
+    def cargar_lista_usuarios_reportes(self):
+        """
+        FUNCIÓN DECLARADA.
+        Debe cargar todos los usuarios en el combo de la pestaña Reportes.
+        La lógica real puede ser reemplazada o ampliada luego.
+        """
+        self.combo_usuarios_reportes.blockSignals(True)
+        self.combo_usuarios_reportes.clear()
+        self.combo_usuarios_reportes.addItem("Usuarios")
+        self.combo_usuarios_reportes.addItem("Todos los usuarios")
+
+        try:
+            lista_usuarios = cargar_empleados(self)
+            for usuario in lista_usuarios:
+                self.combo_usuarios_reportes.addItem(usuario)
+        except Exception:
+            pass
+
+        self.combo_usuarios_reportes.blockSignals(False)
+
+    def on_usuario_reporte_changed(self):
+        """
+        FUNCIÓN DECLARADA.
+        Al seleccionar un usuario en la pestaña Reportes,
+        se debe filtrar la tabla para mostrar únicamente
+        las ínfimas que ese usuario está trabajando.
+
+        La funcionalidad real NO se implementa aquí.
+        """
+        usuario_seleccionado = self.combo_usuarios_reportes.currentText()
+        print("Filtro de reportes por usuario:", usuario_seleccionado)
+        pass
+
+    def obtener_usuario_reporte(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver el usuario que está trabajando la ínfima.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    def obtener_nic_reporte(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver el NIC correspondiente a la ínfima.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    def obtener_descripcion_reporte(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver la descripción correspondiente a la ínfima.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    def obtener_etapa_reporte(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver una de estas tres etapas:
+        - en generacion
+        - finalizada
+        - enviada
+
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    # =========================================================
+    # ================== ÍNFIMAS RECHAZADAS ===================
+    # =========================================================
+    def cargar_datos_rechazadas(self):
+        """
+        FUNCIÓN DECLARADA PARA ÍNFIMAS RECHAZADAS.
+
+        Esta tabla debe mostrar únicamente ínfimas que estén
+        en etapa rechazada.
+
+        Columnas esperadas:
+        - NIC
+        - Descripción
+        - Etapa
+
+        La funcionalidad real se implementará después.
+        """
+        self.table_rechazadas.setRowCount(0)
+        pass
+
+    def obtener_nic_rechazada(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver el NIC de la ínfima rechazada.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    def obtener_descripcion_rechazada(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver la descripción de la ínfima rechazada.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    def obtener_etapa_rechazada(self, infima_id):
+        """
+        FUNCIÓN DECLARADA.
+        Debe devolver la etapa de la ínfima rechazada.
+        Se espera una etapa relacionada al rechazo.
+        La lógica vendrá desde BD y será implementada por otra persona.
+        """
+        pass
+
+    # =========================================================
+    # VENTANA DE USUARIOS
+    # =========================================================
+    def abrir_ventana_usuarios(self):
+        print("Abriendo gestión de usuarios...")
+        try:
+            from ..views.user_management import UserManagementUI
+            self.user = UserManagementUI()
+            self.user.show()
+            QTimer.singleShot(2000, self.hide)
+        except ImportError as e:
+            print(f"Error de importación: {e}")
+            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+        except Exception as e:
+            print(f"Error al crear ventana: {e}")
+
+
+# =========================================================
+# FUNCIÓN EXTERNA: CARGAR EMPLEADOS
+# =========================================================
 def cargar_empleados(self):
+    token = get_session().get("token")
 
-        token = get_session().get("token")
+    resp = requests.get(
+        "http://127.0.0.1:8000/usuarios/empleados-activos",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
 
-        resp = requests.get(
-            "http://127.0.0.1:8000/usuarios/empleados-activos",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
+    if resp.status_code != 200:
+        return []
 
-        if resp.status_code != 200:
-            return []
+    usuarios = resp.json()
 
-        usuarios = resp.json()
+    self.usuarios_dict = {
+        u["usuario"]: u["id_usuario"] for u in usuarios
+    }
 
-        # { nombre: id }
-        self.usuarios_dict = {
-            u["usuario"]: u["id_usuario"] for u in usuarios
-        }
-
-        return list(self.usuarios_dict.keys())
+    return list(self.usuarios_dict.keys())
