@@ -9,7 +9,7 @@ ROOT_DIR = os.path.dirname(UI_DIR)
 sys.path.insert(0, ROOT_DIR)
 
 from PyQt5.QtWidgets import QApplication
-from views.login import LoginUI
+from .views.login import LoginUI
 
 
 if __name__ == "__main__":

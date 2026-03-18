@@ -947,7 +947,7 @@ class WorkspaceManagerUI(BaseWindow):
     def abrir_ventana_usuarios(self):
         print("Abriendo gestión de usuarios...")
         try:
-            from views.user_management import UserManagementUI
+            from ..views.user_management import UserManagementUI
 
             self.user = UserManagementUI()
             self.user.show()
