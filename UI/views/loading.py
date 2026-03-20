@@ -4,11 +4,11 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QWidget
 
-from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from components.base_window import BaseWindow
+from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from UI.components.base_window import BaseWindow
 
-from views.workspace_user import WorkspaceUserUI
-from views.workspace_manager import WorkspaceManagerUI
+from UI.views.workspace_user import WorkspaceUserUI
+from UI.views.workspace_manager import WorkspaceManagerUI
 
 
 # ================== PUNTOS TIPO VIDEO ONDA REAL ==================

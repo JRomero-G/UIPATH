@@ -8,15 +8,16 @@ from urllib.parse import urljoin, urlparse
 import time
 import shutil
 from google.cloud import storage
+from Config import Global
 
 # =====================================================
 # 1. CONFIGURACIÓN GENERAL
 # =====================================================
 MYSQL_CONFIG = {
-    "host": "35.225.240.246",
-    "user": "root",
-    "password": "Admin123%",
-    "database": "gestorex",
+    "host": Global.DB_HOST,
+    "user": Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
 }
 
 # Ruta base del proyecto
@@ -51,7 +52,7 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
     BASE_DIR, "data", "Clave_bucket_AIgemini.json"
 )
 
-BUCKET_NAME = "nexusbucket1"
+BUCKET_NAME = Global.BUCKET_NAME
 
 storage_client = storage.Client()
 bucket = storage_client.bucket(BUCKET_NAME)

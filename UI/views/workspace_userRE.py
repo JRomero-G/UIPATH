@@ -8,10 +8,10 @@ from PyQt5.QtWidgets import (
     QHeaderView, QWidget
 )
 
-from config import *
+from UI.config import *
 from UI.components.table_scroll_style import apply_table_scrollbar_style
-from components.base_window import BaseWindow
-from components.btns_windows import WindowButtons
+from UI.components.base_window import BaseWindow
+from UI.components.btns_windows import WindowButtons
 
 
 class WorkspaceUserREUI(BaseWindow):
@@ -342,7 +342,7 @@ class WorkspaceUserREUI(BaseWindow):
 
     # ================== LOADING ==================
     def open_loading(self):
-        from ..views.loading import LoadingUI
+        from UI.views.loading import LoadingUI
         self.loading = LoadingUI(duration_ms=3000)
         self.loading.show()
         QTimer.singleShot(2000, self.hide)

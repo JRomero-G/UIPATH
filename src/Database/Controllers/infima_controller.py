@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from ..Models.infima_model import Infima
-from ..Models.evaluacion_model import Evaluacion
+from src.Database.Models.infima_model import Infima
+from src.Database.Models.evaluacion_model import Evaluacion
 # Nuevas importaciones
-from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from src.Database.Models.recomendaciones_usuario_model import RecomendacionesUsuario
 from sqlalchemy import not_, or_
 
 def registrar_infima(db: Session, data: dict):

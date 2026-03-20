@@ -8,25 +8,49 @@ Conecta a MySQL, obtiene datos, clasifica con IA y actualiza estados
 import os
 import re
 import json
+import tempfile
 import datetime
 import pandas as pd
 import mysql.connector
 from google.oauth2 import service_account
 import vertexai
 from vertexai.generative_models import GenerativeModel
+from Config import Global
 
 # =========================
 # 1. CONFIGURACIÓN
 # =========================
 
 MYSQL_CONFIG = {
-    "host": "35.225.240.246",
-    "user": "root",
-    "password": "Admin123%",
-    "database": "gestorex",
+    "host": Global.DB_HOST,
+    "user": Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
 }
 
-GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
+#GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
+
+def obtener_ruta_credenciales():
+    """
+    Retorna una ruta válida al archivo de credenciales.
+    - En Render: crea archivo temporal desde JSON
+    - En local: usa archivo físico
+    """
+
+    # PRODUCCIÓN (Render)
+    credentials_json = os.getenv("GEMINI_CREDENTIALS_JSON")
+
+    if credentials_json:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+            temp.write(credentials_json)
+            return temp.name
+
+    # LOCAL
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI
+
+    raise Exception("No se encontraron credenciales de Gemini")
+
 
 # =========================
 # 2. INICIALIZACIÓN DE VERTEX AI
@@ -34,15 +58,22 @@ GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
 
 def inicializar_vertex_ai():
     """Inicializa VertexAI con las credenciales de servicio"""
+
+    ruta_credenciales = obtener_ruta_credenciales()
+
+    #Crear credenciales
     credentials = service_account.Credentials.from_service_account_file(
-        GEMINI_CREDENTIALS_PATH
+        ruta_credenciales
     )
     
     # Obtener project_id del archivo de credenciales
-    with open(GEMINI_CREDENTIALS_PATH, 'r') as f:
+    with open(ruta_credenciales, 'r') as f:
         creds_data = json.load(f)
-        project_id = creds_data.get('project_id')
-    
+        project_id = creds_data.get("project_id")
+        
+    if not project_id:
+        raise Exception("No se encontró project_id en las credenciales")
+            
     vertexai.init(
         project=project_id,
         credentials=credentials,

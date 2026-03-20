@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, Text, DECIMAL
-from .base import Base
+from src.Database.Models.base import Base
 
 class Contraindicacion(Base):
     __tablename__ = "contraindicaciones"

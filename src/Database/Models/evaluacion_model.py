@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DECIMAL, Text, TIMESTAMP, ForeignKey
-from .base import Base
+from  src.Database.Models.base import Base
 
 class Evaluacion(Base):
     __tablename__ = "evaluaciones"

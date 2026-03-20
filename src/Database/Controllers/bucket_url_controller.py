@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from ..Models.bucket_url_model import BucketURL
+from src.Database.Models.bucket_url_model import BucketURL
 
 
 "Registra una URL asociada a una infima (archivos generados por IA)"

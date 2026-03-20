@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
-from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
-from ..Models.infima_model import Infima
-from ..Models.usuarios_model import Usuario
+from src.Database.Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from src.Database.Models.infima_model import Infima
+from src.Database.Models.usuarios_model import Usuario
 # Nueva importacion
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_

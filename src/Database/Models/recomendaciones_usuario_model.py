@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, ForeignKey, UniqueConstraint
-from .base import Base
+from  src.Database.Models.base import Base
 
 
 class RecomendacionesUsuario(Base):

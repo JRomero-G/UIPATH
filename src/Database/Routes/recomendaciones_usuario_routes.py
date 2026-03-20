@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..Models.usuarios_model import Usuario
-from ..Controllers.recomendaciones_usuario_controller import (
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.Controllers.recomendaciones_usuario_controller import (
     asignar_infimas_recomendadas_a_usuario_lote,
     asignar_infimas_recomendadas_a_usuario_individual,
     obtener_infimas_recomendadas_asignadas_del_usuario,
@@ -12,13 +12,13 @@ from ..Controllers.recomendaciones_usuario_controller import (
     obtener_infimas_asignadas_y_a_que_usuarios,
     obtener_infimas_asignadas_y_a_que_usuarios_filtro
 )
-from ..Auth.Usuario_auth import usuario_actual
-from ..database import get_db
+from src.Database.Auth.Usuario_auth import usuario_actual
+from src.Database.database import get_db
 
 # Nuevas importaciones
 from pydantic import BaseModel
 from typing import List
-from ..Controllers.infima_controller import obtener_infimas_disponibles_admin
+from src.Database.Controllers.infima_controller import obtener_infimas_disponibles_admin
 
 router = APIRouter(
     prefix="/recomendaciones-usuario", 

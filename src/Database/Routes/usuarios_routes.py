@@ -1,8 +1,6 @@
-from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
-from ..ejemplo_flujo_ia_registro_infima import Infima
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from ..Controllers.usuarios_controller import (
+from src.Database.Controllers.usuarios_controller import (
     registrar_usuario,
     listar_usuarios,
     actualizar_usuario,
@@ -13,9 +11,9 @@ from ..Controllers.usuarios_controller import (
     listar_usuarios_no_admin,
     listar_empleados_activos,
 )
-from ..Auth.Usuario_auth import usuario_actual
-from ..Models.usuarios_model import Usuario
-from ..database import get_db
+from src.Database.Auth.Usuario_auth import usuario_actual
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.database import get_db
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
