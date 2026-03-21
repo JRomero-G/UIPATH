@@ -13,7 +13,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = Global.ACCESS_TOKEN_EXPIRE_MINUTES
 
 # -------- HASHING Y BCRYPT --------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-MAX_PASSWORD_BYTES = Global.MAX_PASSWORD_BYTES
+MAX_PASSWORD_BYTES = int(Global.MAX_PASSWORD_BYTES)
 
 def safe_truncate_password(password: str) -> str:
     """Trunca la contraseña de forma segura a 72 bytes para bcrypt"""
