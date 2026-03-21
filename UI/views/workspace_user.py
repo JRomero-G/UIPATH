@@ -24,6 +24,7 @@ from UI.components.base_window import BaseWindow
 from UI.components.table_validations import setup_row_logic
 from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
 from src.Config.version import CURRENT_VERSION
+from src.utils.updater import verificar_actualizacion_async
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -186,6 +187,11 @@ class WorkspaceUserUI(BaseWindow):
         self.showMaximized()
         #Actualizar ancho de botones al maximizar
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
+        #verificar actualización después de que cargue la UI
+        QTimer.singleShot(2000, self._verificar_actualizacion)
+
+    def _verificar_actualizacion(self):
+        self._hilo_update = verificar_actualizacion_async(self)
 
     # Actualizar botones al redimensionar - Misma Funcion que showEvent se deberia eliminar
     def resizeEvent(self, event):

@@ -12,7 +12,6 @@ from UI.components.animated_input import AnimatedInput
 from UI.components.neon_button import NeonButton
 from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
 from UI.components.classic_msgbox import ClassicMsgBox #Importado para los mensajes de error
-from src.utils.updater import verificar_actualizacion_async
 
 from UI.views.loading import LoadingUI
 from Config import Global
@@ -86,6 +85,7 @@ class LoginUI(BaseWindow):
         super().resizeEvent(event)
         self.update_positions()
         self.update_lines()
+
 
     # ================= POSICIONES CENTRADAS =================
     def update_positions(self):
@@ -233,9 +233,6 @@ class LoginUI(BaseWindow):
                 self.loading = LoadingUI(rol=rol, duration_ms=3000)
                 self.loading.show()
                 QTimer.singleShot(2000, self.hide)
-
-
-                self._hilo_update = verificar_actualizacion_async(self.loading)
 
             else:
                 ClassicMsgBox.critical("Error", "Credenciales inválidas.")

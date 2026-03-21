@@ -24,6 +24,7 @@ from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
 from Config import Global
 from src.Config.version import CURRENT_VERSION
+from src.utils.updater import verificar_actualizacion_async
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -331,6 +332,11 @@ class WorkspaceManagerUI(BaseWindow):
         super().showEvent(event)
         self.showMaximized()
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
+        # ← NUEVO: verificar actualización después de que cargue la UI
+        QTimer.singleShot(2000, self._verificar_actualizacion)
+
+    def _verificar_actualizacion(self):
+        self._hilo_update = verificar_actualizacion_async(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
