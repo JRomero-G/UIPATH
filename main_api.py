@@ -13,7 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
 
+
 app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
 app.include_router(auth_router)
 app.include_router(usuarios_router)
