@@ -5,6 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath('.'))
 from src.Config.version import CURRENT_VERSION
 
+block_cipher = None  # ← agregar esta línea
 
 a = Analysis(
     ['run.py'],
@@ -152,7 +153,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,               # <-- True mientras pruebas errores
+    console=False,               
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
