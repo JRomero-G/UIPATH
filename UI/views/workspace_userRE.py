@@ -12,6 +12,7 @@ from UI.config import *
 from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
+from Config import Global
 
 
 class WorkspaceUserREUI(BaseWindow):
