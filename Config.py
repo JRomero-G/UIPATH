@@ -13,6 +13,10 @@ class Global:
     BACKEND_URL = os.getenv("BACKEND_URL")
     BUCKET_NAME = os.getenv("BUCKET_NAME")
     CREDENTIALS_GEMINI = os.getenv("CREDENCIALES_GEMINI")
+    SECRET_KEY_JWT= os.getenv("SECRET_KEY_JWT")
+    ALGORITHM = os.getenv("ALGORITHM")
+    ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
+    MAX_PASSWORD_BYTES = os.getenv("MAX_PASSWORD_BYTES")
     
 # NECESARIO INSTALAR: pip install pyinstaller
 
