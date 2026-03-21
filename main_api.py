@@ -11,6 +11,8 @@ from src.Database.Routes.recomendaciones_usuario_routes import router as recomen
 from src.Database.database import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.Config.version_route import router as version_router
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -29,6 +31,7 @@ app.include_router(evaluaciones_router)
 app.include_router(logs_eventos_router)
 app.include_router(palabra_clave_router)
 app.include_router(recomendaciones_usuario_router)
+app.include_router(version_router)
 
 
 # Evita errores de conexión entre frontend y backend
@@ -41,3 +44,4 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+

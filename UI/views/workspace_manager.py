@@ -22,6 +22,7 @@ from UI.config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
+from Config import Global
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -448,7 +449,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         self.btn_asignar.hide()
         self.combo_usuarios_reportes.show()
-        url_inicial ="http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+        url_inicial =f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
         self.cargar_datos_reportes(url_inicial)
 
     def mostrar_tab_rechazadas(self):
@@ -488,9 +489,9 @@ class WorkspaceManagerUI(BaseWindow):
 
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/recomendaciones-usuario/admin/infimas-disponibles",
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/infimas-disponibles",
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
+                timeout=70,
             )
 
             if response.status_code != 200:
@@ -627,13 +628,13 @@ class WorkspaceManagerUI(BaseWindow):
 
             try:
                 resp = requests.post(
-                    "http://127.0.0.1:8000/recomendaciones-usuario/admin/asignar-infima-individual",
+                    f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/asignar-infima-individual",
                     json=payload,
                     headers={
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
-                    timeout=20,
+                    timeout=60,
                 )
 
                 if resp.status_code == 200:
@@ -688,7 +689,7 @@ class WorkspaceManagerUI(BaseWindow):
             response = requests.get(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
+                timeout=70,
             )
 
             if response.status_code != 200:
@@ -779,9 +780,9 @@ class WorkspaceManagerUI(BaseWindow):
         user_id = self.combo_usuarios_reportes.currentData()
 
         if user_id is None:
-            url = "http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+            url = f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
         else:
-            url = f"http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas-por-usuario/{user_id}"
+            url = f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas-por-usuario/{user_id}"
         
         print(f"Asignaciones Filtradas por: {user_id}")
         self.cargar_datos_reportes(url)
@@ -852,7 +853,7 @@ class WorkspaceManagerUI(BaseWindow):
             # CONSUMIR AMBOS ENDPOINTS
             # =====================================================
             response = requests.get(
-                "http://127.0.0.1:8000/infimas/obtener-infimas-rechazadas",
+                f"{Global.BACKEND_URL}/infimas/obtener-infimas-rechazadas",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10,
             )
@@ -965,7 +966,7 @@ def cargar_empleados(self):
     token = get_session().get("token")
 
     resp = requests.get(
-        "http://127.0.0.1:8000/usuarios/empleados-activos",
+        f"{Global.BACKEND_URL}/usuarios/empleados-activos",
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
