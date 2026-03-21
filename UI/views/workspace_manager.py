@@ -25,6 +25,7 @@ from UI.components.btns_windows import WindowButtons
 from Config import Global
 from src.Config.version import CURRENT_VERSION
 from src.utils.updater import verificar_actualizacion_async
+from UI.components.classic_msgbox import ClassicMsgBox
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -491,7 +492,8 @@ class WorkspaceManagerUI(BaseWindow):
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
+            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
@@ -502,7 +504,8 @@ class WorkspaceManagerUI(BaseWindow):
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar datos.")
+                ClassicMsgBox.warning("Error", "No se pudieron cargar datos.")
+                #QMessageBox.critical(self, "Error", "No se pudieron cargar datos.")
                 return
 
             data = response.json()
@@ -511,7 +514,8 @@ class WorkspaceManagerUI(BaseWindow):
                 data = data["data"]
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.warning( "Error", "Servidor no disponible.")
+            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
         lista_usuarios = cargar_empleados(self)
@@ -608,20 +612,17 @@ class WorkspaceManagerUI(BaseWindow):
 
     def confirmar_asignaciones(self):
         if not self.asignaciones_pendientes:
-            QMessageBox.information(
-                self, "Información", "No hay asignaciones seleccionadas."
-            )
+            ClassicMsgBox.info("Información", "No hay asignaciones seleccionadas.")
+            #QMessageBox.information(self, "Información", "No hay asignaciones seleccionadas.")
             return
 
         token = get_session().get("token")
 
-        confirm = QMessageBox.question(
-            self,
+        confirm =  ClassicMsgBox.question(self,
             "Confirmar",
             f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-
+            QMessageBox.Yes | QMessageBox.No)
+            #QMessageBox.question(self,"Confirmar",f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",QMessageBox.Yes | QMessageBox.No,)
         if confirm != QMessageBox.Yes:
             return
 
@@ -663,9 +664,11 @@ class WorkspaceManagerUI(BaseWindow):
         self.cargar_datos_asignaciones()
 
         if errores == 0:
-            QMessageBox.information(self, "OK", "Asignaciones completadas.")
+            ClassicMsgBox.info( "Exito", "Asignaciones completadas.")
+            #QMessageBox.information(self, "OK", "Asignaciones completadas.")
         else:
-            QMessageBox.warning(self, "Parcial", f"{errores} asignaciones fallaron.")
+            ClassicMsgBox.warning("Parcial", f"{errores} asignaciones fallaron.")
+            #QMessageBox.warning(self, "Parcial", f"{errores} asignaciones fallaron.")
 
     # =========================================================
     # ======================= REPORTES ========================
@@ -686,7 +689,8 @@ class WorkspaceManagerUI(BaseWindow):
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
+            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
@@ -700,7 +704,8 @@ class WorkspaceManagerUI(BaseWindow):
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar los reportes.")
+                ClassicMsgBox.warning("Error", "No se pudieron cargar los reportes.")
+                #QMessageBox.critical(self, "Error", "No se pudieron cargar los reportes.")
                 return
 
             data_obtenida = response.json()
@@ -712,7 +717,8 @@ class WorkspaceManagerUI(BaseWindow):
             print(f"Reportes obtenidos: {len(data_obtenida)}")
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.critical("Error", "Servidor no disponible.")
+            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
         # =====================================================
@@ -852,7 +858,8 @@ class WorkspaceManagerUI(BaseWindow):
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
+            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
@@ -866,7 +873,8 @@ class WorkspaceManagerUI(BaseWindow):
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar las infimas rechazadas.")
+                ClassicMsgBox.warning("Error", "No se pudieron cargar las infimas rechazadas.")
+                #QMessageBox.critical(self, "Error", "No se pudieron cargar las infimas rechazadas.")
                 return
 
             data_rechazadas = response.json()
@@ -880,10 +888,11 @@ class WorkspaceManagerUI(BaseWindow):
             # =====================================================
             data = data_rechazadas
 
-            print(f"Infimas Rechazadas obtenidas: {len(data)}")
+            #print(f"Infimas Rechazadas obtenidas: {len(data)}")
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.warning("Error", "Servidor no disponible.")
+            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
         # =====================================================
@@ -961,7 +970,8 @@ class WorkspaceManagerUI(BaseWindow):
             QTimer.singleShot(2000, self.hide)
         except ImportError as e:
             print(f"Error de importación: {e}")
-            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+            ClassicMsgBox.critical("Error", f"No se pudo abrir la ventana")
+            #QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")
 

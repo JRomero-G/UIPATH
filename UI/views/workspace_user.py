@@ -25,6 +25,8 @@ from UI.components.table_validations import setup_row_logic
 from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
 from src.Config.version import CURRENT_VERSION
 from src.utils.updater import verificar_actualizacion_async
+from UI.components.classic_msgbox import ClassicMsgBox
+
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -378,11 +380,8 @@ class WorkspaceUserUI(BaseWindow):
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Error al obtener ínfimas.\nCódigo: {response.status_code}",
-                )
+                ClassicMsgBox.critical("Error",f"Error al obtener ínfimas.")
+                #QMessageBox.critical(self,"Error",f"Error al obtener ínfimas.",)
                 return
 
             data = response.json()
@@ -394,15 +393,15 @@ class WorkspaceUserUI(BaseWindow):
                 data = data["data"]
 
             if not isinstance(data, list):
-                QMessageBox.critical(
-                    self, "Error", "La API no devolvió una lista de registros."
-                )
-                print("DATA INVALIDA:", data)
+                #ClassicMsgBox.warning("Error", "La API no devolvió una lista de registros.")
+                #QMessageBox.critical(self, "Error", "La API no devolvió una lista de registros.")
+                print("DATA INVALIDA en cargar Infimas:", data)
                 return
             
 
         except requests.RequestException as e:
-            QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
+            ClassicMsgBox.warning("Error", "No se pudo conectar al servidor.")
+            #QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
             return
 
@@ -413,6 +412,7 @@ class WorkspaceUserUI(BaseWindow):
         self.datos_filas.clear()
 
         if not data:
+            ClassicMsgBox.warning("Advertencia", "No hay registros para mostrar")
             print("⚠️ No hay registros para mostrar")
             return
         
@@ -679,28 +679,25 @@ class WorkspaceUserUI(BaseWindow):
         """
         
         if not self.Pendientes_de_analisis and not self.eliminacion_pendiente:
-            QMessageBox.information(
-                self,
-                "Información",
-                "No hay ínfimas seleccionadas para anailisis ni para eliminacion."
-            )
+            ClassicMsgBox.info("Información","No hay ínfimas seleccionadas para anailisis ni para eliminacion.")
+            #QMessageBox.information(self,"Información","No hay ínfimas seleccionadas para anailisis ni para eliminacion.")
             return
         
         token = get_session().get("token")
         
         if not token:
-            QMessageBox.warning(self, "Error", "No hay sesión activa.")
+            ClassicMsgBox.critical( "Error", "No hay sesión activa.")
+            #QMessageBox.critical(self, "Error", "No hay sesión activa.")
             return
         
         # ====== PASO 1: CONFIRMAR ELIMINACIÓN (si hay) ======
         if self.eliminacion_pendiente:
-            confirm_eliminar = QMessageBox.question(
-                self,
-                "⚠️ Confirmar Eliminación",
+            
+            confirm_eliminar = ClassicMsgBox.warning("⚠️ Confirmar Eliminación",
                 f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n"
                 "Esta acción las quitará de tus asignaciones.",
-                QMessageBox.Yes | QMessageBox.No
-            )
+                QMessageBox.Yes | QMessageBox.No)
+            #QMessageBox.question(self,"⚠️ Confirmar Eliminación",f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n""Esta acción las quitará de tus asignaciones.",QMessageBox.Yes | QMessageBox.No            )
             
             if confirm_eliminar != QMessageBox.Yes:
                 print(" Usuario canceló la eliminación")
@@ -714,12 +711,12 @@ class WorkspaceUserUI(BaseWindow):
 
         # ====== PASO 2: CONFIRMAR ANÁLISIS (si hay) ======
         if self.Pendientes_de_analisis:
-            confirm_analizar = QMessageBox.question(
-                self,
-                "✅ Confirmar Análisis",
+            
+            
+
+            confirm_analizar = ClassicMsgBox.warning("✅ Confirmar Análisis",
                 f"¿Marcar {len(self.Pendientes_de_analisis)} ínfima(s) para análisis?",
-                QMessageBox.Yes | QMessageBox.No
-            )
+                QMessageBox.Yes | QMessageBox.No)
             
             if confirm_analizar != QMessageBox.Yes:
                 print(" Usuario canceló el análisis")
@@ -755,9 +752,11 @@ class WorkspaceUserUI(BaseWindow):
                 mensaje += f"  • {analizadas_errores} error(es) al analizar\n"
         
         if eliminadas_errores > 0 or analizadas_errores > 0:
-            QMessageBox.warning(self, "Completado con errores", mensaje)
+            ClassicMsgBox.warning("Exito Parcial", mensaje)
+            #QMessageBox.warning(self, "Completado con errores", mensaje)
         else:
-            QMessageBox.information(self, "Éxito", mensaje)
+            ClassicMsgBox.warning("Exito", mensaje)
+            #QMessageBox.information(self, "Éxito", mensaje)
 
     def ejecutar_eliminacion(self, token):
         """
@@ -862,6 +861,7 @@ class WorkspaceUserUI(BaseWindow):
             QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
         except ImportError as e:
             print(f"Error de importación: {e}")
-            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+            ClassicMsgBox.warning("Error", f"No se pudo abrir la ventana")
+            #QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")
