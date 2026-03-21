@@ -11,6 +11,7 @@ import requests
 from UI.config import *
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
+from src.Config.version import CURRENT_VERSION
 
 from Config import Global
 
@@ -326,7 +327,7 @@ class UserManagementUI(BaseWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Gestorex 1.1 - Usuario")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Usuario")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")

@@ -23,6 +23,7 @@ from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.table_validations import setup_row_logic
 from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
+from src.Config.version import CURRENT_VERSION
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -38,7 +39,7 @@ class WorkspaceUserUI(BaseWindow):
         self.datos_filas = {}              # {row: dict_completo_de_infima}
 
 
-        self.setWindowTitle("Gestorex 1.1 - Usuario")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Usuario")
         # Ahora la ventana es redimensionable
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
@@ -82,7 +83,7 @@ class WorkspaceUserUI(BaseWindow):
         )
         logo_label.setPixmap(pixmap)
 
-        title = QLabel("Gestorex 1.1")
+        title = QLabel(f"Gestorex {CURRENT_VERSION}")
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
