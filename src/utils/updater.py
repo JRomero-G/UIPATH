@@ -7,7 +7,7 @@ from packaging import version as pkg_version
 
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                             QLabel, QPushButton, QProgressBar)
+                            QLabel, QPushButton, QProgressBar)
 
 from src.Config.version import CURRENT_VERSION
 

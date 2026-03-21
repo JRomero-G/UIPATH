@@ -23,6 +23,7 @@ from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
 from Config import Global
+from src.Config.version import CURRENT_VERSION
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -35,7 +36,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.asignaciones_pendientes = {}
         self.usuarios_dict = {}
 
-        self.setWindowTitle("Gestorex 1.1 - Manager")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Manager")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
@@ -139,7 +140,7 @@ class WorkspaceManagerUI(BaseWindow):
         )
         logo_label.setPixmap(pixmap)
 
-        title = QLabel("Gestorex 1.1")
+        title = QLabel(f"Gestorex {CURRENT_VERSION}")
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 

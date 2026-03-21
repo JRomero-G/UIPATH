@@ -13,13 +13,14 @@ from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
 from Config import Global
+from src.Config.version import CURRENT_VERSION
 
 
 class WorkspaceUserREUI(BaseWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Gestorex 1.1 - Usuario")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Usuario")
 
         # Ventana responsive
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -63,7 +64,7 @@ class WorkspaceUserREUI(BaseWindow):
         )
         logo_label.setPixmap(pixmap)
 
-        title = QLabel("Gestorex 1.1")
+        title = QLabel(f"Gestorex {CURRENT_VERSION}")
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
