@@ -18,10 +18,10 @@ from PyQt5.QtWidgets import (
 )
 
 import requests
-from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
+from UI.config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
-from components.base_window import BaseWindow
-from components.btns_windows import WindowButtons
+from UI.components.base_window import BaseWindow
+from UI.components.btns_windows import WindowButtons
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -633,7 +633,7 @@ class WorkspaceManagerUI(BaseWindow):
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
-                    timeout=10,
+                    timeout=20,
                 )
 
                 if resp.status_code == 200:
@@ -673,7 +673,6 @@ class WorkspaceManagerUI(BaseWindow):
         - Descripción
         - Etapa
 
-        Esta funcionalidad la implementará otra persona.
         """
 
         token = get_session().get("token")
@@ -947,7 +946,7 @@ class WorkspaceManagerUI(BaseWindow):
     def abrir_ventana_usuarios(self):
         print("Abriendo gestión de usuarios...")
         try:
-            from ..views.user_management import UserManagementUI
+            from UI.views.user_management import UserManagementUI
 
             self.user = UserManagementUI()
             self.user.show()

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
-from .base import Base
+from src.Database.Models.base import Base
+
 
 class BucketURL(Base):
     __tablename__ = "bucket_url"

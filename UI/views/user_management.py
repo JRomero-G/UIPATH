@@ -1,7 +1,5 @@
-import os
-from turtle import color
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRegularExpression
+from PyQt5.QtCore import Qt, QTimer, QRegularExpression
 from PyQt5.QtGui import QFont, QColor, QRegularExpressionValidator
 from PyQt5.QtWidgets import (
     QMessageBox, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
@@ -10,10 +8,11 @@ from PyQt5.QtWidgets import (
 )
 import requests
 
-from config import *
-from components.base_window import BaseWindow
-from components.btns_windows import WindowButtons
+from UI.config import *
+from UI.components.base_window import BaseWindow
+from UI.components.btns_windows import WindowButtons
 
+from Config import Global
 
 class BaseButton(QPushButton):
     """ Botón unificado estilo sólido. Todos los botones se comportan como los de 'Eliminar'. """
@@ -457,7 +456,7 @@ class UserManagementUI(BaseWindow):
     def volver_a_manager(self):
         """ NUEVO: regresar a WorkspaceManagerUI"""
         try:
-            from ..views.workspace_manager import WorkspaceManagerUI  #(ajusta si el nombre cambia)
+            from UI.views.workspace_manager import WorkspaceManagerUI  #(ajusta si el nombre cambia)
             self.manager = WorkspaceManagerUI()
             self.manager.show()
             QTimer.singleShot(200, self.hide)  #cierra esta ventana
@@ -571,6 +570,34 @@ class UserManagementUI(BaseWindow):
         password = self.input_password.input.text()
         confirm_password = self.input_confirm_password.input.text()  # ← nuevo campo
         
+        # Valida telefono
+        if not nombre:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
+            return
+        
+        if not usuario:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
+            return
+        
+        if not correo:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            return
+        
+                
+        if not correo:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            return
+        
+        # Valida contraseñas 
+        if not password:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
+            return
+        
+        # Valida telefono 
+        if not telefono:
+            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
+            return
+        
         # Determina es_admin según el combobox
         rol = self.combo_rol.currentText()
         if rol == "Administrador":
@@ -581,11 +608,7 @@ class UserManagementUI(BaseWindow):
             QMessageBox.warning(self, "Error", "Debe seleccionar un rol.")
             return
         
-        # Valida contraseñas
-        if password != confirm_password:
-            QMessageBox.warning(self, "Error", "Las contraseñas no coinciden.")
-            return
-        
+
         # Llama a la función externa
         resultado = registrar_usuario(nombre, usuario,correo, password, es_admin,telefono)
 
@@ -599,7 +622,6 @@ class UserManagementUI(BaseWindow):
             self.input_usuario.clear() 
             self.input_email.clear()
             self.input_telefono.clear()
-            self.input_telefono.setInputMask("+504-0000-0000")
             self.input_password.input.clear()
             self.input_confirm_password.input.clear()
             self.combo_rol.setCurrentIndex(0)
@@ -614,7 +636,6 @@ class UserManagementUI(BaseWindow):
         self.usuario_actual_id = None
         # Cargar usuarios
         lista_usuarios = self.cargar_usuarios()
-        print("DEBUG lista_usuarios:", lista_usuarios)
         
         self.search_bar = SearchComboWithButton(
             items=lista_usuarios,
@@ -623,7 +644,7 @@ class UserManagementUI(BaseWindow):
         layout.addWidget(self.search_bar)
         layout.addSpacing(20)
 
-        # 👉 Conectar botón buscar
+        # Conectar botón buscar
         self.search_bar.btn_buscar.clicked.connect(self.buscar_usuario)
 
         campos = [
@@ -643,7 +664,7 @@ class UserManagementUI(BaseWindow):
         self.edit_rol = StaticComboBox(color=color)
         layout.addWidget(self.edit_rol)
 
-    # ✅ NUEVOS CAMPOS DE CONTRASEÑA
+    # NUEVOS CAMPOS DE CONTRASEÑA
         self.edit_current_password = PasswordInput(color=color)
         self.edit_current_password.input.setPlaceholderText("Nueva contraseña (opcional)")
 
@@ -712,7 +733,6 @@ class UserManagementUI(BaseWindow):
         if not nombre or not usuario or not email or not telefono:
             QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
             return
-        
 
         payload = {
             "nombre": nombre,
@@ -728,7 +748,7 @@ class UserManagementUI(BaseWindow):
 
         try:
             response = requests.put(
-                f"http://localhost:8000/usuarios/actualizar/{self.usuario_actual_id}",
+                f"{Global.BACKEND_URL}/usuarios/actualizar/{self.usuario_actual_id}",
                 json=payload,
                 headers={
                     "Authorization": f"Bearer {get_token()}",
@@ -769,7 +789,7 @@ class UserManagementUI(BaseWindow):
 
             try:
                 response = requests.get(
-                    "http://localhost:8000/usuarios/empleados-activos",
+                    f"{Global.BACKEND_URL}/usuarios/empleados-activos",
                     headers={
                         "Authorization": f"Bearer {get_token()}"
                     },
@@ -811,7 +831,7 @@ class UserManagementUI(BaseWindow):
             color=color
         )
 
-        # 👉 Conectar botón buscar
+        # Conectar botón buscar
         self.search_bar_del.btn_buscar.clicked.connect(self.buscar_usuario_a_eliminar)
 
         layout.addWidget(self.search_bar_del)
@@ -860,7 +880,7 @@ class UserManagementUI(BaseWindow):
 
         try:
             response = requests.put(
-                f"http://localhost:8000/usuarios/desactivar-usuarios/{self.usuario_actual_id}",
+                f"{Global.BACKEND_URL}/usuarios/desactivar-usuarios/{self.usuario_actual_id}",
                 headers={
                     "Authorization": f"Bearer {get_token()}",
                     "Content-Type": "application/json"
@@ -1010,7 +1030,7 @@ def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
         
         try:
             response = requests.post(
-                "http://localhost:8000/usuarios/registro",
+                f"{Global.BACKEND_URL}/usuarios/registro",
                 json={
                     "usuario": usuario,
                     "nombre": nombre,
@@ -1036,7 +1056,7 @@ def eliminar_usuario(usuario_id):
         # Aquí la lógica para eliminar un usuario
         try:
             response = requests.delete(
-                f"http://localhost:8000/usuarios/desactivar-usuarios/{usuario_id}",
+                f"{Global.BACKEND_URL}/usuarios/desactivar-usuarios/{usuario_id}",
                 headers={"Authorization": f"Bearer {get_token()}"},
                 timeout=10,
             )
@@ -1056,7 +1076,7 @@ def obtener_informacion_del_usuario(usuario_id):
         try:
             token = get_session().get("token")
             response = requests.get(
-                f"http://localhost:8000/usuarios/{usuario_id}",
+                f"{Global.BACKEND_URL}/usuarios/{usuario_id}",
                 headers={ "Content-Type": "application/json","Authorization": f"Bearer {token}"},
                 timeout=10,
             )

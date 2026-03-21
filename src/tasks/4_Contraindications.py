@@ -15,6 +15,7 @@ Este script automatiza el análisis de procesos de "ínfima cuantía" mediante:
 import os
 import re
 import json
+import tempfile
 import time
 import unicodedata  # Para normalizar texto y quitar acentos
 import pandas as pd
@@ -29,6 +30,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from Config import Global
 
 # =========================
 # 1. CONFIGURACIÓN
@@ -36,20 +38,42 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Configuración de conexión a base de datos MySQL
 MYSQL_CONFIG = {
-    "host": "35.225.240.246",
-    "user": "root",
-    "password": "Admin123%",
-    "database": "gestorex",
+    "host": Global.DB_HOST,
+    "user": Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
 }
 
 # Rutas de archivos y buckets de Google Cloud
-GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
-BUCKET_NAME = "nexusbucket1"
+GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
+BUCKET_NAME = Global.BUCKET_NAME
 CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
 # =========================
 # 2. INICIALIZACIÓN
 # =========================
+
+def obtener_ruta_credenciales():
+    """
+    Retorna una ruta válida al archivo de credenciales.
+    Compatible con:
+    - Render (JSON en variable)
+    - Local (archivo físico)
+    """
+
+    # PRODUCCIÓN (Render)
+    credentials_json = os.getenv("GEMINI_CREDENTIALS_JSON")
+
+    if credentials_json:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+            temp.write(credentials_json)
+            return temp.name
+
+    # LOCAL
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI
+
+    raise Exception("No se encontraron credenciales de Gemini")
 
 def inicializar_servicios():
     """
@@ -65,16 +89,22 @@ def inicializar_servicios():
     """
     global BUCKET_NAME
     
+    ruta_credencial = obtener_ruta_credenciales()
+
     # Cargar credenciales desde archivo JSON
     credentials = service_account.Credentials.from_service_account_file(
-        GEMINI_CREDENTIALS_PATH
+        ruta_credencial
     )
     
     # Extraer project_id del archivo de credenciales
-    with open(GEMINI_CREDENTIALS_PATH, 'r') as f:
+    with open(ruta_credencial, 'r') as f:
         creds_data = json.load(f)
         project_id = creds_data.get('project_id')
     
+    if not project_id:
+        raise Exception("No se encontró project_id en credenciales")
+
+
     # Inicializar VertexAI en región us-east4 (mejor disponibilidad)
     vertexai.init(
         project=project_id,
@@ -152,10 +182,10 @@ def obtener_codigos_preseleccionados():
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     cursor.execute("""
-       SELECT codigo_necesidad 
-       FROM infimas 
-       WHERE etapa = 'seleccionada' 
-       AND (PACweb IS NULL AND PACdoc IS NULL)
+        SELECT codigo_necesidad 
+        FROM infimas 
+        WHERE etapa = 'seleccionada' 
+        AND (PACweb IS NULL AND PACdoc IS NULL)
     """)
     filas = cursor.fetchall()
     cursor.close()
@@ -177,7 +207,7 @@ def obtener_infimas_con_pac():
     
     Nota:
         Solo obtiene registros con PACdoc >= 0 (No se encontró PAC en los documentos y en los que sí,
-                                                 se comparará el PAC de documentos con el PAC web)
+                                                se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)

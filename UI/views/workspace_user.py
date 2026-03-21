@@ -1,6 +1,7 @@
 import os
 # jason
 from PyQt5.QtWidgets import QMessageBox
+from Config import Global
 # naye
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
@@ -16,12 +17,12 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 import requests  # jason
-from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from config import set_session, _session, get_session
+from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from UI.config import set_session, _session, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
-from components.base_window import BaseWindow
-from components.table_validations import setup_row_logic
-from components.btns_windows import WindowButtons  # ← IMPORTADO
+from UI.components.base_window import BaseWindow
+from UI.components.table_validations import setup_row_logic
+from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -362,16 +363,12 @@ class WorkspaceUserUI(BaseWindow):
 
     def Cargar_infimas(self):
         sesion = get_session()
-        print("Sesion completa: ", sesion)
-        print("Token guardado: ", sesion.get("token"))
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/recomendaciones-usuario/mis-infimas",
-                headers={"Authorization": f"Bearer {get_session().get('token')}"},
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/mis-infimas",
+                headers={"Authorization": f"Bearer {sesion.get('token')}"},
                 timeout=10,
             )
-
-            print("STATUS:", response.status_code)
 
             if response.status_code != 200:
                 QMessageBox.critical(
@@ -770,12 +767,10 @@ class WorkspaceUserUI(BaseWindow):
             
             try:
                 resp = requests.delete(
-                    f"http://127.0.0.1:8000/infimas/eliminar-infimas/{payload}",
+                    f"{Global.BACKEND_URL}/infimas/eliminar-infimas/{payload}",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=10,
                 )
-                
-                print(f" DELETE /eliminar-infimas/{payload} → Status: {resp.status_code}")
                 
                 if resp.status_code == 200 and resp.json().get("success"):
                     exitosas += 1
@@ -809,7 +804,7 @@ class WorkspaceUserUI(BaseWindow):
             
             try:
                 resp = requests.patch(
-                    f"http://127.0.0.1:8000/infimas/analizar-infimas/{id_infima}",
+                    f"{Global.BACKEND_URL}/infimas/analizar-infimas/{id_infima}",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=10,
                 )
@@ -853,7 +848,7 @@ class WorkspaceUserUI(BaseWindow):
     def open_workspace_userRE(self):
         print("Abriendo Workspace User RE...")
         try:
-            from ..views.workspace_userRE import WorkspaceUserREUI
+            from UI.views.workspace_userRE import WorkspaceUserREUI
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
             #self.hide()

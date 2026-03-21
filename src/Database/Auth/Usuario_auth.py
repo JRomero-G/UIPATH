@@ -2,12 +2,12 @@ from fastapi import Depends, HTTPException, status
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..Models.usuarios_model import Usuario
+from src.Database.database import get_db
+from src.Database.Models.usuarios_model import Usuario
 
 
-from ..Auth.Hashing import oauth2_scheme
-from ..Auth.Hashing import SECRET_KEY, ALGORITHM
+from src.Database.Auth.Hashing import oauth2_scheme
+from src.Database.Auth.Hashing import SECRET_KEY, ALGORITHM
 
 
 def usuario_actual(

@@ -1,7 +1,7 @@
 from mysql.connector import IntegrityError
 from sqlalchemy.orm import Session
-from ..Models.usuarios_model import Usuario
-from ..Auth.Hashing import hash_password, verify_password
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.Auth.Hashing import hash_password, verify_password
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 

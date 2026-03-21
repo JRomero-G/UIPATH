@@ -4,25 +4,23 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QLineEdit, QMessageBox
 
-from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from config import set_session, _session, get_session
-from components.base_window import BaseWindow
-from components.animated_background import AnimatedCurvedLine
-from components.animated_input import AnimatedInput
-from components.neon_button import NeonButton
-from components.btns_windows import WindowButtons  # ← IMPORTADO
-from components.classic_msgbox import ClassicMsgBox #Importado para los mensajes de error
+from UI.config import  ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from UI.config import set_session
+from UI.components.base_window import BaseWindow
+from UI.components.animated_background import AnimatedCurvedLine
+from UI.components.animated_input import AnimatedInput
+from UI.components.neon_button import NeonButton
+from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
+from UI.components.classic_msgbox import ClassicMsgBox #Importado para los mensajes de error
 
-
-from ..views.workspace_manager import WorkspaceManagerUI
-from ..views.workspace_user import WorkspaceUserUI
-from ..views.loading import LoadingUI
+from UI.views.loading import LoadingUI
+from Config import Global
 
 
 class LoginUI(BaseWindow):
     def __init__(self, rol=None, duration_ms=3000):
         super().__init__()
-         
+        
         self.rol = rol
         self.duration_ms = duration_ms
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -64,7 +62,7 @@ class LoginUI(BaseWindow):
         self.btn_login = NeonButton("INGRESAR", 0, 0, self)
         self.btn_login.clicked.connect(self.open_loading)
 
-        # ✅ AGREGADO: permitir Enter para ingresar
+        #  AGREGADO: permitir Enter para ingresar
         self.user.returnPressed.connect(self.open_loading)
         self.pwd.returnPressed.connect(self.open_loading)
 
@@ -210,7 +208,7 @@ class LoginUI(BaseWindow):
 
         try:
             response = requests.post(
-                "http://127.0.0.1:8000/auth/login",
+                f"{Global.BACKEND_URL}/auth/login",
                 json={"username": USUARIO, "password": PASSWORD},
                 headers={
                     "Accept": "application/json",
@@ -225,9 +223,9 @@ class LoginUI(BaseWindow):
                 token = data["access_token"]
                 user_info = data["usuario"]
                 rol = user_info.get("es_admin")
-                user = user_info.get("nombre")
+                #user = user_info.get("nombre")
 
-                print("-Usuario: ", user, " -Es Administrador?:", rol)
+                #print("-Usuario: ", user, " -Es Administrador?:", rol)
 
                 set_session({"token": token, "usuario": user_info})
                 #abrir loading y worksapaces segun rol

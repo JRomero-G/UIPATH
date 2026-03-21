@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from ..Controllers.contraindicaciones_controller import (
+from src.Database.Controllers.contraindicaciones_controller import (
     registrar_contraindicacion,
     listar_contraindicaciones
 )
-from ..database import get_db
+from src.Database.database import get_db
 
 router = APIRouter(
     prefix="/contraindicaciones",

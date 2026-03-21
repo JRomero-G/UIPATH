@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from ..Models.palabra_clave_model import PalabraClave
+from src.Database.Models.palabra_clave_model import PalabraClave
 
 
 def registrar_palabra_clave(db: Session, palabra: str):

@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QCursor
-from config import BG_COLOR
+from UI.config import BG_COLOR
 
 
 class WindowButtons(QWidget):

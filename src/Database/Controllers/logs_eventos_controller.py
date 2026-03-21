@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from ..Models.logs_eventos_model import LogEvento
+from src.Database.Models.logs_eventos_model import LogEvento
 
 
 def registrar_log(db: Session, evento: str, creado_por: str = None):
