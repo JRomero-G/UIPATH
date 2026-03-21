@@ -107,6 +107,13 @@ a = Analysis(
         'src.tasks',
         'src.utils',
         'UI',
+
+        # ← NUEVOS: para el sistema de actualizaciones
+        'src.Config.version',
+        'src.Config.version_route',
+        'src.utils.updater',
+        'packaging.version',
+        'webbrowser',
     ],
     hookspath=[],
     hooksconfig={},
@@ -141,7 +148,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,               # <-- True mientras pruebas errores
+    console=False,               # <-- True mientras pruebas errores
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

@@ -1,11 +1,13 @@
+# src/Config/version_route.py
 from fastapi import APIRouter
+from src.Config.version import CURRENT_VERSION
 
-router = APIRouter(prefix="/auth", tags=["Autenticación"])
+router = APIRouter(prefix="/config", tags=["Configuración"])
 
-# aqui es de donde descargaremos las versiones de la aplicacion
 @router.get("/version")
 def get_version():
     return {
-        "version": "1.1.0",
-        "url": "https://tu-servidor.com/download/run.exe"
+        "version": CURRENT_VERSION,
+        "url": "https://gestorex-desarrollo.onrender.com/download/Installer_Gestorex.exe"
+        # Esta URL la actualizaremos cuando implementes la descarga
     }
