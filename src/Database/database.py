@@ -17,8 +17,6 @@ DATABASE = Global.DATABASE
 # Usando mysql-connector-python como driver
 DATABASE_URL = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
 
-print(DATABASE_URL)
-
 # ================= BASE DE DATOS =================
 class Base(DeclarativeBase):
     pass
