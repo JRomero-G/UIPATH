@@ -6,8 +6,14 @@ import requests
 from packaging import version as pkg_version
 
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                            QLabel, QPushButton, QProgressBar)
+from PyQt5.QtWidgets import (
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QProgressBar,
+)
 
 from src.Config.version import CURRENT_VERSION
 from Config import Global
@@ -17,9 +23,9 @@ from Config import Global
 # HILO DE DESCARGA — descarga el instalador en segundo plano
 # ============================================================
 class DescargaThread(QThread):
-    progreso = pyqtSignal(int)       # 0-100
-    completado = pyqtSignal(str)     # ruta del archivo descargado
-    error = pyqtSignal(str)          # mensaje de error
+    progreso = pyqtSignal(int)  # 0-100
+    completado = pyqtSignal(str)  # ruta del archivo descargado
+    error = pyqtSignal(str)  # mensaje de error
 
     def __init__(self, url):
         super().__init__()
@@ -48,7 +54,6 @@ class DescargaThread(QThread):
                             self.progreso.emit(porcentaje)
 
             self.completado.emit(installer_path)
-
         except requests.exceptions.Timeout:
             self.error.emit("La descarga tardó demasiado. Intenta de nuevo.")
         except requests.exceptions.ConnectionError:
@@ -60,6 +65,8 @@ class DescargaThread(QThread):
 # ============================================================
 # DIÁLOGO DE ACTUALIZACIÓN — con barra de progreso
 # ============================================================
+
+
 class DialogoActualizacion(QDialog):
     def __init__(self, version_nueva, url_descarga, parent=None):
         super().__init__(parent)
@@ -68,6 +75,52 @@ class DialogoActualizacion(QDialog):
         self.setWindowTitle("Actualización disponible")
         self.setFixedWidth(440)
         self.setModal(True)
+
+        # ── Estilo del diálogo ──
+        self.setStyleSheet(
+            """
+            QDialog {
+                background-color: #f5f5f5;
+                border: 1px solid #ddd;
+            }
+            QLabel {
+                color: #2c2c2c;
+                font-size: 13px;
+                background-color: transparent;
+            }
+            QPushButton {
+                background-color: #ffffff;
+                color: #2c2c2c;
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #aaa;
+            }
+            QPushButton#btn_descargar {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+            }
+            QPushButton#btn_descargar:hover {
+                background-color: #1976D2;
+            }
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                background-color: #e0e0e0;
+                text-align: center;
+                color: #2c2c2c;
+            }
+            QProgressBar::chunk {
+                background-color: #2196F3;
+                border-radius: 4px;
+            }
+        """
+        )
 
         self.layout_principal = QVBoxLayout()
         self.layout_principal.setSpacing(15)
@@ -101,6 +154,7 @@ class DialogoActualizacion(QDialog):
         self.botones_layout = QHBoxLayout()
 
         self.btn_descargar = QPushButton("⬇ Descargar e instalar")
+        self.btn_descargar.setObjectName("btn_descargar")
         self.btn_descargar.setFixedHeight(38)
         self.btn_descargar.clicked.connect(self.iniciar_descarga)
 
@@ -168,8 +222,8 @@ class DialogoActualizacion(QDialog):
             # /SILENT hace la instalación sin mostrar el wizard completo
             # /CLOSEAPPLICATIONS cierra la app si está abierta
             subprocess.Popen(
-                [ruta, "/SILENT", "/CLOSEAPPLICATIONS"],
-                creationflags=subprocess.DETACHED_PROCESS
+                [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
+                creationflags=subprocess.DETACHED_PROCESS,
             )
         except Exception as e:
             self.label.setText(f"❌ No se pudo abrir el instalador: {str(e)}")
@@ -187,25 +241,29 @@ class VerificadorThread(QThread):
 
     def run(self):
         try:
+
             api_url = Global.BACKEND_URL
+            #print(f"[UPDATER] URL: {api_url}")
             if not api_url:
+                print("[UPDATER] ERROR: api_url está vacío")
                 return
 
-            response = requests.get(
-                f"{api_url}/config/version",
-                timeout=10
-            )
+            response = requests.get(f"{api_url}/config/version", timeout=10)
+
+            # print(f"[UPDATER] Status: {response.status_code}")
             response.raise_for_status()
             data = response.json()
 
             version_servidor = data.get("version", "0.0.0")
             url_descarga = data.get("url", "")
+            # print(f"[UPDATER] Respuesta: {data}")
+            # print(f"VERSION DEL SERVIDOR: {version_servidor} - VERSION LOCAL: {CURRENT_VERSION}" )
 
             if pkg_version.parse(version_servidor) > pkg_version.parse(CURRENT_VERSION):
                 self.hay_actualizacion.emit(version_servidor, url_descarga)
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[UPDATER] ERROR: {str(e)}")
 
 
 # ============================================================
@@ -216,9 +274,7 @@ def verificar_actualizacion_async(parent_widget):
 
     def mostrar_dialogo(version_nueva, url_descarga):
         dialogo = DialogoActualizacion(
-            version_nueva=version_nueva,
-            url_descarga=url_descarga,
-            parent=parent_widget
+            version_nueva=version_nueva, url_descarga=url_descarga, parent=parent_widget
         )
         dialogo.exec_()
 
