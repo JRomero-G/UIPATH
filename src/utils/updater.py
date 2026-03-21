@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                             QLabel, QPushButton, QProgressBar)
 
 from src.Config.version import CURRENT_VERSION
+from Config import Global
 
 
 # ============================================================
@@ -186,7 +187,7 @@ class VerificadorThread(QThread):
 
     def run(self):
         try:
-            api_url = os.getenv("API_URL", "").rstrip("/")
+            api_url = Global.BACKEND_URL
             if not api_url:
                 return
 

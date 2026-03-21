@@ -1,6 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-block_cipher = None
+#leer la versión automáticamente desde version.py
+import sys, os
+sys.path.insert(0, os.path.abspath('.'))
+from src.Config.version import CURRENT_VERSION
+
 
 a = Analysis(
     ['run.py'],
