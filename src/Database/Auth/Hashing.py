@@ -9,7 +9,7 @@ from Config import Global
 # -------- CONFIGURACIÓN JWT --------
 SECRET_KEY = Global.SECRET_KEY_JWT
 ALGORITHM = Global.ALGORITHM
-ACCESS_TOKEN_EXPIRE_MINUTES = Global.ACCESS_TOKEN_EXPIRE_MINUTES
+ACCESS_TOKEN_EXPIRE_MINUTES = int(Global.ACCESS_TOKEN_EXPIRE_MINUTES)
 
 # -------- HASHING Y BCRYPT --------
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
