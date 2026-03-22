@@ -1,1212 +1,853 @@
-"""
-=============================================================================
-  GENERADOR AUTOMÁTICO DE FICHAS TÉCNICAS - GestorEx
-  Versión: 2.0
-  Descripción:
-    Script de automatización para generación de fichas técnicas a partir
-    de documentos de contratación almacenados en Google Cloud Storage,
-    con análisis de IA (Vertex AI / Gemini), búsqueda de proveedores y
-    generación de documentos Word (.docx) con formato institucional.
 
-  Dependencias requeridas (instalar con pip):
-    pip install mysql-connector-python
-    pip install google-cloud-storage
-    pip install google-auth
-    pip install vertexai
-    pip install PyPDF2
-    pip install python-docx
-    pip install requests
-    pip install beautifulsoup4
-    pip install lxml
-    pip install Pillow
-    pip install tqdm
-    pip install python-docx
-    pip install openpyxl
-=============================================================================
+"""
+NexusGenerator - Automatización de documentos de contratación.
+Conecta a BD MySQL → analiza documentos en GCS con Gemini →
+busca mejores precios en proveedores → genera fichas técnicas (.docx)
+y proformas (.xlsx) → sube todo al bucket de GCS.
 """
 
-# ─── IMPORTS ESTÁNDAR ────────────────────────────────────────────────────────
-import os
-import io
-import re
-import sys
-import json
-import time
-import shutil
-import logging
-import zipfile
-import tempfile
-import platform
-import traceback
+import os, sys, json, shutil, tempfile, datetime, re, copy, io, time, hashlib, mimetypes, traceback
 from pathlib import Path
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ─── IMPORTS DE TERCEROS ─────────────────────────────────────────────────────
-try:
-    import mysql.connector
-    from mysql.connector import Error as MySQLError
-except ImportError:
-    sys.exit("❌ Instala: pip install mysql-connector-python")
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CONFIGURACIÓN GLOBAL
+# ═══════════════════════════════════════════════════════════════════════════════
 
-try:
-    from google.cloud import storage
-    from google.oauth2 import service_account
-except ImportError:
-    sys.exit("❌ Instala: pip install google-cloud-storage google-auth")
-
-try:
-    import vertexai
-    from vertexai.generative_models import GenerativeModel, Part
-except ImportError:
-    sys.exit("❌ Instala: pip install vertexai")
-
-try:
-    import requests
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.retry import Retry
-except ImportError:
-    sys.exit("❌ Instala: pip install requests")
-
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    sys.exit("❌ Instala: pip install beautifulsoup4 lxml")
-
-try:
-    from docx import Document
-    from docx.shared import Pt, Cm, RGBColor, Inches
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    import copy
-except ImportError:
-    sys.exit("❌ Instala: pip install python-docx")
-
-try:
-    import PyPDF2
-except ImportError:
-    sys.exit("❌ Instala: pip install PyPDF2")
-
-try:
-    from tqdm import tqdm
-except ImportError:
-    # Si no está tqdm, usar una versión mínima
-    def tqdm(iterable=None, *args, **kwargs):
-        return iterable if iterable is not None else iter([])
-
-# ─── CONFIGURACIÓN GLOBAL ────────────────────────────────────────────────────
-
-# Base de datos MySQL
 MYSQL_CONFIG = {
-    "host": "35.225.240.246",
-    "user": "root",
+    "host":     "35.225.240.246",
+    "user":     "root",
     "password": "Admin123%",
     "database": "gestorex",
-    "connection_timeout": 30,
-    "autocommit": True,
 }
 
-# Google Cloud Storage
 GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
-BUCKET_NAME = "nexusbucket1"
-BUCKET_FOLDER = "Documentos de Contratación"
+BUCKET_NAME             = "nexusbucket1"
+BUCKET_FOLDER           = "Documentos de Contratación"
+AI_MODEL                = "gemini-2.5-pro-preview-03-25"   # mejor razonamiento multimodal
 
-# Modelo de IA (Gemini 2.0 Flash es el más eficiente para documentos largos)
-# Alternativa: "gemini-1.5-pro-002" para mayor precisión en documentos complejos
-AI_MODEL = "gemini-2.0-flash-001"
+# Plantillas (misma carpeta que el script o path relativo)
+SCRIPT_DIR     = Path(__file__).parent
+TEMPLATE_DOCX  = SCRIPT_DIR / "FICHA_TECNICA_MICROFONO_Y_MEMORIA.docx"
+TEMPLATE_XLSX  = SCRIPT_DIR / "FORMATO_DE_PROFORMA_RECREADO_VACÍO.xlsx"
 
-# Archivo de plantilla DOCX (debe estar en la misma carpeta que este script)
-TEMPLATE_DOCX = "FICHA_TECNICA_MICROFONO_Y_MEMORIA.docx"
-
-# Archivo XLSX de proforma (se copia en cada carpeta NIC)
-PROFORMA_XLSX = "FORMATO_DE_PROFORMA_RECREADO_VACÍO.xlsx"
-
-# Reintentos para peticiones web
-MAX_RETRIES = 3
-REQUEST_TIMEOUT = 20
-
-# Número de hilos para búsqueda paralela en proveedores
-MAX_WORKERS_SEARCH = 5
-
-# ─── PROVEEDORES ─────────────────────────────────────────────────────────────
-
-PROVEEDORES_NACIONALES = {
-    "Mi Bodega":              "https://mibodega.ec",
-    "Bodeguita del Ahorro":   "https://bodeguitadelahorro.com",
-    "Kissu":                  "https://kissu.com.ec",
-    "Almacén Altaten":        "https://altatenalmacen.com.ec",
-    "TVentas":                "https://www.tventas.com",
-    "La Victoria":            "https://lavictoria.ec",
-    "Marcimex":               "https://www.marcimex.com",
-    "Almacenes España":       "https://almacenesespana.ec",
-    "Novicompu":              "https://www.novicompu.com",
-    "Techno Prime":           "https://technoprimec.com",
-    "Point":                  "https://point.com.ec",
-    "Computron":              "https://www.computron.com.ec",
-    "Nomadaware":             "https://nomadaware.com.ec",
-    "IDC Mayoristas":         "https://www.idcmayoristas.com",
-    "Tecnit":                 "https://tecnit.com.ec",
-    "TecnoMega":              "https://tecnomegastore.ec",
-    "Artefacta":              "https://www.artefacta.com",
-    "Mundo Tek":              "https://mundotek.com.ec",
-    "Almacenes Juan Eljuri":  "https://eljuri.store",
-    "Kywi":                   "https://www.kywi.com.ec",
-    "Tecnocosto":             "https://tecnocostoec.com",
-    "Almacenes Japón":        "https://www.almacenesjapon.com",
-    "Electromega":            "https://electromegaecuador.com",
-    "Compra Ecuador":         "https://www.compraecuador.com",
-    "Gran Hogar":             "https://granhogar.com.ec",
-    "Miami Home EC":          "https://miamihome-ec.com",
-}
-
-PROVEEDORES_EXTRANJEROS = {
-    "Amazon":        "https://www.amazon.com",
-    "Mercado Libre": "https://www.mercadolibre.com",
-    "eBay":          "https://www.ebay.com",
-}
-
-# Buscadores de productos por proveedor (URLs de búsqueda)
-SEARCH_URLS = {
-    "Amazon":        "https://www.amazon.com/s?k={query}",
-    "Mercado Libre": "https://listado.mercadolibre.com.ec/{query}",
-    "eBay":          "https://www.ebay.com/sch/i.html?_nkw={query}",
-    "Novicompu":     "https://www.novicompu.com/search?q={query}",
-    "Computron":     "https://www.computron.com.ec/search?q={query}",
-    "Marcimex":      "https://www.marcimex.com/search?q={query}",
-    "TecnoMega":     "https://tecnomegastore.ec/?s={query}",
-    "Kywi":          "https://www.kywi.com.ec/search?q={query}",
-    "Artefacta":     "https://www.artefacta.com/?s={query}",
-    "Almacenes Japón": "https://www.almacenesjapon.com/search?q={query}",
-    "TVentas":       "https://www.tventas.com/search?term={query}",
-}
-
-# ─── LOGGING ─────────────────────────────────────────────────────────────────
-
-def configurar_logging():
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"fichas_tecnicas_{timestamp}.log"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
-    )
-    return logging.getLogger(__name__)
-
-logger = configurar_logging()
-
-
-# ─── SESIÓN HTTP ROBUSTA ─────────────────────────────────────────────────────
-
-def crear_sesion_http() -> requests.Session:
-    """Crea una sesión HTTP con reintentos automáticos y headers de navegador."""
-    session = requests.Session()
-    retry = Retry(
-        total=MAX_RETRIES,
-        backoff_factor=1.5,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET", "HEAD"],
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "es-EC,es;q=0.9,en;q=0.8",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    })
-    return session
-
-HTTP_SESSION = crear_sesion_http()
+PROVEEDORES_NACIONALES = [
+    "https://mibodega.ec/",
+    "https://bodeguitadelahorro.com/",
+    "https://comercialvaca.ec/",
+    "https://www.instagram.com/comercialvaca.ec/",
+    "https://kissu.com.ec/",
+    "https://altatenalmacen.com.ec/",
+    "https://www.tventas.com/",
+    "https://store.intcomex.com/es-XPE/Home",
+    "https://lavictoria.ec/",
+    "https://www.marcimex.com/",
+    "https://almacenesespana.ec/",
+    "https://www.novicompu.com/",
+    "https://technoprimec.com/",
+    "https://point.com.ec/",
+    "https://www.computron.com.ec/",
+    "https://nomadaware.com.ec/",
+    "https://www.idcmayoristas.com/",
+    "https://tecnit.com.ec/",
+    "https://tecnomegastore.ec/",
+    "https://www.artefacta.com/",
+    "https://mundotek.com.ec/",
+    "https://eljuri.store/",
+    "https://www.kywi.com.ec/",
+    "https://tecnocostoec.com/",
+    "https://www.almacenesjapon.com/",
+    "https://electromegaecuador.com/",
+    "https://www.compraecuador.com/",
+    "https://granhogar.com.ec/",
+    "https://miamihome-ec.com/",
+]
+PROVEEDORES_EXTRANJEROS = [
+    "https://www.amazon.com/",
+    "https://www.mercadolibre.com.hn/",
+    "https://www.ebay.com/",
+]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 1 — BASE DE DATOS MySQL
+#  UTILIDADES DE TERMINAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def conectar_mysql() -> mysql.connector.MySQLConnection:
-    """Establece conexión con la base de datos MySQL con reintentos."""
-    for intento in range(1, MAX_RETRIES + 1):
+def log(msg, nivel="INFO"):
+    iconos = {"INFO": "ℹ️ ", "OK": "✅", "WARN": "⚠️ ", "ERR": "❌", "STEP": "🔷"}
+    print(f"{iconos.get(nivel,'  ')} [{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+def paso(n, total, desc):
+    print(f"\n{'─'*60}\n  PASO {n}/{total}: {desc}\n{'─'*60}", flush=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 0 – DEPENDENCIAS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def instalar_dependencias():
+    import subprocess
+    pkgs = [
+        ("mysql-connector-python", "mysql.connector"),
+        ("google-cloud-storage",   "google.cloud.storage"),
+        ("vertexai",               "vertexai"),
+        ("google-auth",            "google.auth"),
+        ("python-docx",            "docx"),
+        ("openpyxl",               "openpyxl"),
+        ("requests",               "requests"),
+        ("beautifulsoup4",         "bs4"),
+        ("Pillow",                 "PIL"),
+        ("lxml",                   "lxml"),
+    ]
+    for pkg, mod in pkgs:
         try:
-            conn = mysql.connector.connect(**MYSQL_CONFIG)
-            if conn.is_connected():
-                logger.info("✅ Conexión a MySQL establecida correctamente.")
-                return conn
-        except MySQLError as e:
-            logger.warning(f"⚠️  Intento {intento}/{MAX_RETRIES} — Error MySQL: {e}")
-            if intento < MAX_RETRIES:
-                time.sleep(2 ** intento)
-    raise ConnectionError("❌ No se pudo conectar a MySQL después de varios intentos.")
+            __import__(mod.split(".")[0])
+        except ImportError:
+            log(f"Instalando {pkg}…", "WARN")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", pkg, "-q"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+    log("Dependencias listas.", "OK")
 
 
-def obtener_data_table_1(conn: mysql.connector.MySQLConnection) -> list[dict]:
-    """
-    Obtiene de la tabla 'ínfimas' los registros con etapa='en generacion'
-    y retorna las columnas requeridas como lista de diccionarios.
-    """
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 1 – BASE DE DATOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def obtener_data_table_1():
+    import mysql.connector
+    log("Conectando a MySQL…")
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor(dictionary=True)
     query = """
         SELECT
             codigo_necesidad,
             entidad_contratante,
             entidad_contratante_url,
-            direccion_entrega,
+            `direccion_entrega`,
             contacto
         FROM infimas
-        WHERE etapa = 'en generacion'
+        WHERE LOWER(etapa) = 'en generacion'
     """
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query)
-        data_table_1 = cursor.fetchall()
-        cursor.close()
-        logger.info(f"📋 Registros encontrados en 'ínfimas' (en generacion): {len(data_table_1)}")
-        for row in data_table_1:
-            logger.debug(f"   → NIC: {row.get('codigo_necesidad')}")
-        return data_table_1
-    except MySQLError as e:
-        logger.error(f"❌ Error al ejecutar la consulta MySQL: {e}")
-        raise
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    log(f"Registros encontrados en BD: {len(rows)}", "OK")
+    for r in rows:
+        log(f"  → {r['codigo_necesidad']} | {r['entidad_contratante']}")
+    return rows   # lista de dicts
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 2 — GOOGLE CLOUD STORAGE
+#  PASO 2 – GOOGLE CLOUD STORAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def crear_cliente_gcs() -> storage.Client:
-    """Crea el cliente de Google Cloud Storage con las credenciales de servicio."""
-    if not Path(GEMINI_CREDENTIALS_PATH).exists():
-        raise FileNotFoundError(
-            f"❌ No se encontró el archivo de credenciales: {GEMINI_CREDENTIALS_PATH}"
-        )
-    credentials = service_account.Credentials.from_service_account_file(
+def obtener_cliente_gcs():
+    from google.oauth2 import service_account
+    from google.cloud import storage
+    creds = service_account.Credentials.from_service_account_file(
         GEMINI_CREDENTIALS_PATH,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
-    client = storage.Client(credentials=credentials, project=credentials.project_id)
-    logger.info(f"✅ Cliente GCS creado. Proyecto: {credentials.project_id}")
-    return client
+    return storage.Client(credentials=creds, project=creds.project_id)
 
 
-def listar_archivos_nic(gcs_client: storage.Client, codigo_necesidad: str) -> list[storage.Blob]:
-    """
-    Lista los archivos (doc, docx, pdf) en la carpeta del bucket
-    que corresponde al código de necesidad dado.
-    """
-    bucket = gcs_client.bucket(BUCKET_NAME)
-    prefijo = f"{BUCKET_FOLDER}/{codigo_necesidad}/"
-    blobs = list(bucket.list_blobs(prefix=prefijo))
-
-    archivos_validos = [
-        b for b in blobs
-        if b.name.lower().endswith((".pdf", ".docx", ".doc"))
-        and not b.name.endswith("/")
-    ]
-    logger.info(
-        f"   📂 NIC {codigo_necesidad}: {len(archivos_validos)} archivos encontrados."
-    )
-    return archivos_validos
+def listar_docs_necesidad(gcs_client, codigo_necesidad):
+    """Devuelve lista de blobs (.doc, .docx, .pdf) para un código de necesidad."""
+    bucket   = gcs_client.bucket(BUCKET_NAME)
+    prefijo  = f"{BUCKET_FOLDER}/{codigo_necesidad}/"
+    blobs    = list(gcs_client.list_blobs(bucket, prefix=prefijo))
+    docs     = [b for b in blobs if b.name.lower().endswith((".doc", ".docx", ".pdf"))]
+    log(f"  Docs encontrados para {codigo_necesidad}: {len(docs)}")
+    return docs
 
 
-def descargar_blob_a_bytes(blob: storage.Blob) -> bytes:
-    """Descarga un blob de GCS y retorna su contenido en bytes."""
-    return blob.download_as_bytes()
+def descargar_blob_a_tmp(blob):
+    """Descarga blob a archivo temporal y devuelve su path."""
+    suffix = Path(blob.name).suffix
+    tmp    = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    blob.download_to_filename(tmp.name)
+    return tmp.name
 
 
-def extraer_texto_pdf(pdf_bytes: bytes) -> str:
-    """Extrae el texto de un PDF dado como bytes."""
-    texto = []
-    try:
-        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                texto.append(t)
-    except Exception as e:
-        logger.warning(f"   ⚠️  No se pudo extraer texto del PDF: {e}")
-    return "\n".join(texto)
-
-
-def extraer_texto_docx(docx_bytes: bytes) -> str:
-    """Extrae el texto de un DOCX dado como bytes."""
-    texto = []
-    try:
-        doc = Document(io.BytesIO(docx_bytes))
-        for para in doc.paragraphs:
-            if para.text.strip():
-                texto.append(para.text.strip())
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text.strip():
-                        texto.append(cell.text.strip())
-    except Exception as e:
-        logger.warning(f"   ⚠️  No se pudo extraer texto del DOCX: {e}")
-    return "\n".join(texto)
+def subir_archivo_a_bucket(gcs_client, local_path, carpeta_destino):
+    """Sube un archivo local al bucket en la carpeta indicada."""
+    bucket    = gcs_client.bucket(BUCKET_NAME)
+    nombre    = Path(local_path).name
+    blob_name = f"{BUCKET_FOLDER}/{carpeta_destino}/{nombre}"
+    blob      = bucket.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    log(f"  Subido: {blob_name}", "OK")
+    return blob_name
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 3 — VERTEX AI / GEMINI
+#  PASO 3 – VERTEX AI / GEMINI
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def inicializar_vertex_ai() -> GenerativeModel:
-    """
-    Inicializa Vertex AI con las credenciales de servicio y retorna
-    el modelo Gemini configurado para análisis de documentos.
+def inicializar_vertex_ai():
+    import vertexai
+    from vertexai.generative_models import GenerativeModel
+    from google.oauth2 import service_account
 
-    Se usa gemini-2.0-flash-001 por su excelente balance entre:
-    - Velocidad de respuesta
-    - Capacidad de análisis multimodal (texto + imágenes)
-    - Ventana de contexto de 1M tokens (ideal para documentos largos)
-    - Menor costo por token vs Gemini 1.5 Pro
-
-    Alternativa de mayor precisión: "gemini-1.5-pro-002"
-    """
-    if not Path(GEMINI_CREDENTIALS_PATH).exists():
-        raise FileNotFoundError(
-            f"❌ Credenciales no encontradas: {GEMINI_CREDENTIALS_PATH}"
-        )
-
-    credentials = service_account.Credentials.from_service_account_file(
-        GEMINI_CREDENTIALS_PATH,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    creds = service_account.Credentials.from_service_account_file(
+        GEMINI_CREDENTIALS_PATH
     )
-
-    with open(GEMINI_CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+    with open(GEMINI_CREDENTIALS_PATH) as f:
         creds_data = json.load(f)
-        project_id = creds_data.get("project_id")
 
     vertexai.init(
-        project=project_id,
-        credentials=credentials,
-        location="us-central1",
+        project    = creds_data["project_id"],
+        credentials= creds,
+        location   = "us-central1",
     )
-
-    model = GenerativeModel(
-        model_name=AI_MODEL,
-        generation_config={
-            "temperature": 0.2,       # Baja temperatura = respuestas más deterministas
-            "top_p": 0.8,
-            "max_output_tokens": 8192,
-        },
-        system_instruction=(
-            "Eres un asistente experto en análisis de documentos de contratación "
-            "pública del Ecuador. Extraes información técnica precisa de los "
-            "documentos y respondes siempre en español, con formato JSON estructurado."
-        ),
-    )
-
-    logger.info(f"✅ Vertex AI inicializado. Modelo: {AI_MODEL}")
-    return model
+    modelo = GenerativeModel(AI_MODEL)
+    log(f"VertexAI inicializado con modelo: {AI_MODEL}", "OK")
+    return modelo
 
 
-PROMPT_ANALISIS_DOCUMENTOS = """
-Analiza el siguiente contenido extraído de documentos de contratación pública
-y extrae la información del artículo o producto de compra solicitado.
+def blob_a_part(blob_path_local):
+    """Convierte archivo local a Part de Gemini."""
+    from vertexai.generative_models import Part
+    suffix = Path(blob_path_local).suffix.lower()
+    mapa   = {".pdf": "application/pdf",
+               ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+               ".doc":  "application/msword"}
+    mime   = mapa.get(suffix, "application/octet-stream")
+    with open(blob_path_local, "rb") as f:
+        data = f.read()
+    return Part.from_data(data=data, mime_type=mime)
 
-TEXTO DE LOS DOCUMENTOS:
----
-{texto_documentos}
----
 
-Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura
-(sin markdown, sin texto adicional antes o después del JSON):
+def analizar_documentos_con_gemini(modelo, archivos_locales, codigo_necesidad):
+    """
+    Pide a Gemini que analice los documentos y devuelva JSON con:
+    nombre, marca, modelo, características, especificaciones_tecnicas,
+    especificaciones_electricas, incluye, resumen.
+    """
+    from vertexai.generative_models import Part
+
+    partes = []
+    for path in archivos_locales:
+        try:
+            partes.append(blob_a_part(path))
+            log(f"    Documento cargado: {Path(path).name}")
+        except Exception as e:
+            log(f"    No se pudo cargar {path}: {e}", "WARN")
+
+    if not partes:
+        log("No hay documentos válidos para analizar.", "ERR")
+        return None
+
+    prompt = f"""
+Eres un analista de contratación pública especializado en fichas técnicas.
+Analiza TODOS los documentos adjuntos que corresponden al código de necesidad: {codigo_necesidad}.
+
+Tu tarea es extraer la información del ARTÍCULO DE COMPRA solicitado y devolver ÚNICAMENTE un objeto JSON válido (sin bloques de código markdown, sin texto adicional) con la siguiente estructura:
 
 {{
-  "nombre_articulo": "Nombre completo del artículo solicitado",
-  "marca": "Marca del artículo (si se especifica, si no: null)",
-  "modelo": "Modelo del artículo (si se especifica, si no: null)",
-  "caracteristicas_generales": [
+  "nombre_articulo": "Nombre completo del artículo",
+  "marca": "Marca exacta",
+  "modelo": "Modelo exacto",
+  "caracteristicas": [
     "Característica 1",
     "Característica 2",
-    "... (al menos 7, máximo 10)"
+    "... (al menos 7, preferiblemente generales y relevantes)"
   ],
   "especificaciones_tecnicas": [
     "Especificación técnica 1: valor",
-    "Especificación técnica 2: valor",
-    "... (al menos 10)"
+    "... (al menos 10, incluir conectividad, dimensiones, peso, capacidades, etc.)"
   ],
   "especificaciones_electricas": [
     "Especificación eléctrica 1: valor",
-    "... (lista vacía [] si no aplica)"
+    "... (voltaje, amperaje, potencia, frecuencia, etc. — lista vacía [] si no aplica)"
   ],
   "incluye": [
     "Accesorio o ítem incluido 1",
-    "... (lista vacía [] si no se menciona)"
+    "... (todo lo que viene incluido con el producto)"
   ],
-  "otra_informacion": "Cualquier información relevante adicional del producto",
-  "cantidad_solicitada": "Cantidad de unidades solicitadas (número o null)",
-  "descripcion_busqueda": "Términos de búsqueda cortos y precisos para encontrar el producto en tiendas en línea"
+  "resumen": "Descripción del producto de 50 a 80 palabras tomada o inspirada en la documentación oficial del fabricante o proveedor."
+}}
+
+IMPORTANTE:
+- El nombre, marca y modelo deben ser EXACTAMENTE los que se solicitan en los documentos.
+- Las características deben ser generales y descriptivas.
+- Las especificaciones técnicas deben ser precisas con sus valores.
+- Si hay varios artículos, incluye una entrada por artículo en un array 'articulos': [...] con la misma estructura.
+- Si es un solo artículo, devuelve directamente el objeto sin array.
+"""
+
+    log(f"  Enviando {len(partes)} doc(s) a Gemini para análisis…")
+    response = modelo.generate_content([*partes, prompt])
+    raw      = response.text.strip()
+
+    # Limpiar posibles bloques markdown
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$",          "", raw)
+    raw = raw.strip()
+
+    try:
+        data = json.loads(raw)
+        log("  Análisis Gemini completado.", "OK")
+        return data
+    except json.JSONDecodeError as e:
+        log(f"  Error al parsear JSON de Gemini: {e}", "ERR")
+        log(f"  Respuesta raw: {raw[:500]}", "WARN")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 4 – BÚSQUEDA DE PRODUCTOS EN PROVEEDORES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def buscar_producto_en_proveedores(modelo, info_articulo):
+    """
+    Usa Gemini + Google Search Grounding para encontrar el producto
+    en la lista de proveedores nacionales y extranjeros.
+    Devuelve dict con: mejor_opcion, alternativas, url_imagen
+    """
+    from vertexai.generative_models import GenerativeModel, Tool
+    from vertexai.preview.generative_models import grounding
+
+    nombre  = info_articulo.get("nombre_articulo", "")
+    marca   = info_articulo.get("marca", "")
+    modelo_prod = info_articulo.get("modelo", "")
+
+    provs_nac_str  = "\n".join(f"- {p}" for p in PROVEEDORES_NACIONALES)
+    provs_ext_str  = "\n".join(f"- {p}" for p in PROVEEDORES_EXTRANJEROS)
+
+    prompt = f"""
+Eres un agente de compras especializado. Busca en internet el siguiente producto NUEVO:
+
+PRODUCTO: {nombre}
+MARCA: {marca}
+MODELO: {modelo_prod}
+
+INSTRUCCIONES DE BÚSQUEDA:
+1. Busca el producto EXACTO (mismo nombre, marca y modelo) en los siguientes proveedores NACIONALES (Ecuador):
+{provs_nac_str}
+
+2. Si no hay stock en nacionales o el precio no es competitivo, busca en EXTRANJEROS:
+{provs_ext_str}
+
+3. Para cada opción encontrada obtén: URL exacta del producto, precio unitario en USD, disponibilidad, nombre exacto en la tienda.
+
+4. Para proveedores EXTRANJEROS, calcula el costo total estimado sumando: precio + envío estimado a Ecuador + arancel aduanero (aproximadamente 20-30% del valor CIF) + otros costos logísticos.
+
+5. Selecciona LA MEJOR OPCIÓN considerando:
+   - El artículo sea EXACTAMENTE el solicitado (mismo modelo y marca)
+   - El precio final total sea el MENOR posible
+   - Si extranjero resulta más económico incluso con aduanas, ese es el mejor.
+
+6. Encuentra también la URL de una imagen de alta calidad del producto (desde el proveedor o el fabricante oficial).
+
+Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown) con esta estructura:
+{{
+  "mejor_opcion": {{
+    "proveedor": "Nombre del proveedor",
+    "url_producto": "URL exacta y completa del producto",
+    "precio_unitario_usd": 0.00,
+    "precio_total_usd": 0.00,
+    "es_extranjero": false,
+    "costos_adicionales_usd": 0.00,
+    "detalle_costos": "descripción de costos adicionales si aplica",
+    "nombre_en_tienda": "Nombre exacto del producto en la tienda",
+    "disponible": true
+  }},
+  "alternativas": [
+    {{
+      "proveedor": "Nombre proveedor 2",
+      "url_producto": "URL exacta",
+      "precio_total_usd": 0.00,
+      "nombre_en_tienda": "Nombre en tienda"
+    }},
+    {{
+      "proveedor": "Nombre proveedor 3",
+      "url_producto": "URL exacta",
+      "precio_total_usd": 0.00,
+      "nombre_en_tienda": "Nombre en tienda"
+    }},
+    {{
+      "proveedor": "Nombre proveedor 4",
+      "url_producto": "URL exacta",
+      "precio_total_usd": 0.00,
+      "nombre_en_tienda": "Nombre en tienda"
+    }}
+  ],
+  "url_imagen_producto": "URL directa a imagen de alta calidad del producto"
 }}
 """
 
+    log(f"  Buscando '{nombre} {marca} {modelo_prod}' en proveedores con Gemini…")
 
-def analizar_documentos_con_ia(
-    modelo: GenerativeModel,
-    blobs: list[storage.Blob],
-    gcs_client: storage.Client,
-) -> dict:
-    """
-    Descarga los documentos del bucket, extrae su texto y los envía
-    a Gemini para análisis estructurado.
-
-    Estrategia de envío:
-    - PDFs pequeños (<10MB): se envían como Part.from_data (multimodal nativo)
-    - DOCX y PDFs grandes: se extrae el texto y se envía como texto plano
-    """
-    partes = []
-    textos_extraidos = []
-
-    for blob in blobs:
-        nombre = blob.name
-        extension = Path(nombre).suffix.lower()
-        logger.info(f"   📄 Procesando: {nombre}")
-
-        try:
-            contenido_bytes = descargar_blob_a_bytes(blob)
-            tamaño_mb = len(contenido_bytes) / (1024 * 1024)
-
-            if extension == ".pdf" and tamaño_mb < 10:
-                # Enviar PDF directamente como dato binario (mejor análisis)
-                partes.append(
-                    Part.from_data(
-                        data=contenido_bytes,
-                        mime_type="application/pdf",
-                    )
-                )
-                logger.debug(f"      ✅ PDF enviado como dato multimodal ({tamaño_mb:.1f} MB)")
-
-            elif extension in (".docx", ".doc"):
-                # Extraer texto del DOCX
-                texto = extraer_texto_docx(contenido_bytes)
-                if texto.strip():
-                    textos_extraidos.append(
-                        f"=== DOCUMENTO: {Path(nombre).name} ===\n{texto}"
-                    )
-                    logger.debug(f"      ✅ DOCX procesado ({len(texto)} caracteres)")
-
-            else:
-                # PDF grande: extraer texto
-                texto = extraer_texto_pdf(contenido_bytes)
-                if texto.strip():
-                    textos_extraidos.append(
-                        f"=== DOCUMENTO: {Path(nombre).name} ===\n{texto}"
-                    )
-                    logger.debug(f"      ✅ PDF grande → texto extraído ({len(texto)} chars)")
-
-        except Exception as e:
-            logger.warning(f"   ⚠️  Error al procesar {nombre}: {e}")
-            continue
-
-    # Construir el prompt con el texto extraído
-    texto_combinado = "\n\n".join(textos_extraidos) if textos_extraidos else "(sin texto adicional)"
-    prompt_final = PROMPT_ANALISIS_DOCUMENTOS.format(texto_documentos=texto_combinado)
-
-    # Construir lista de partes para Gemini
-    prompt_part = Part.from_text(prompt_final)
-    contenido_envio = partes + [prompt_part]
-
-    # Enviar a Gemini con reintentos
-    for intento in range(1, MAX_RETRIES + 1):
-        try:
-            respuesta = modelo.generate_content(contenido_envio)
-            texto_respuesta = respuesta.text.strip()
-
-            # Limpiar posibles bloques de código markdown
-            texto_respuesta = re.sub(r"^```(?:json)?\s*", "", texto_respuesta)
-            texto_respuesta = re.sub(r"\s*```$", "", texto_respuesta)
-
-            datos = json.loads(texto_respuesta)
-            logger.info("   🤖 Análisis IA completado exitosamente.")
-            return datos
-
-        except json.JSONDecodeError as e:
-            logger.warning(
-                f"   ⚠️  Intento {intento}: Respuesta IA no es JSON válido. "
-                f"Error: {e}\nRespuesta: {texto_respuesta[:300]}..."
-            )
-            if intento == MAX_RETRIES:
-                # Retornar estructura vacía como fallback
-                return {
-                    "nombre_articulo": "Artículo no identificado",
-                    "marca": None, "modelo": None,
-                    "caracteristicas_generales": [],
-                    "especificaciones_tecnicas": [],
-                    "especificaciones_electricas": [],
-                    "incluye": [], "otra_informacion": "",
-                    "cantidad_solicitada": None,
-                    "descripcion_busqueda": "",
-                    "_error": str(e),
-                }
-            time.sleep(2 ** intento)
-
-        except Exception as e:
-            logger.warning(f"   ⚠️  Intento {intento}: Error en Gemini: {e}")
-            if intento == MAX_RETRIES:
-                raise
-            time.sleep(2 ** intento)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 4 — BÚSQUEDA EN PROVEEDORES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def construir_query_busqueda(datos_ia: dict) -> str:
-    """Construye un término de búsqueda efectivo a partir de los datos de IA."""
-    partes = []
-    if datos_ia.get("marca"):
-        partes.append(datos_ia["marca"])
-    if datos_ia.get("modelo"):
-        partes.append(datos_ia["modelo"])
-    if datos_ia.get("descripcion_busqueda"):
-        partes.append(datos_ia["descripcion_busqueda"])
-    elif datos_ia.get("nombre_articulo"):
-        partes.append(datos_ia["nombre_articulo"])
-    return " ".join(partes)[:100]
-
-
-def buscar_en_proveedor(nombre_proveedor: str, url_base: str, query: str) -> dict | None:
-    """
-    Realiza una búsqueda en un proveedor específico y retorna
-    el primer resultado relevante con nombre, precio y URL.
-    """
-    # Construir URL de búsqueda
-    url_busqueda = None
-
-    if nombre_proveedor in SEARCH_URLS:
-        url_busqueda = SEARCH_URLS[nombre_proveedor].format(
-            query=requests.utils.quote(query)
+    # Intentar con grounding de Google Search
+    try:
+        tool_grounding = Tool.from_google_search_retrieval(
+            grounding.GoogleSearchRetrieval()
         )
-    else:
-        # Fallback: Google site search
-        url_busqueda = (
-            f"https://www.google.com/search?q=site:{url_base.replace('https://', '').replace('http://', '')} "
-            f"{requests.utils.quote(query)}"
+        model_search = GenerativeModel(
+            AI_MODEL,
+            tools=[tool_grounding]
         )
+        response = model_search.generate_content(prompt)
+    except Exception as e:
+        log(f"  Grounding no disponible ({e}), usando Gemini sin grounding…", "WARN")
+        response = modelo.generate_content(prompt)
+
+    raw = response.text.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$",          "", raw)
+    raw = raw.strip()
 
     try:
-        resp = HTTP_SESSION.get(url_busqueda, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "lxml")
+        data = json.loads(raw)
+        mejor = data.get("mejor_opcion", {})
+        log(f"  Mejor opción: {mejor.get('proveedor','?')} → ${mejor.get('precio_total_usd','?')}", "OK")
+        return data
+    except json.JSONDecodeError as e:
+        log(f"  Error al parsear respuesta de búsqueda: {e}", "ERR")
+        log(f"  Raw: {raw[:400]}", "WARN")
+        return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": ""}
 
-        # Estrategias de extracción de precio (comunes en e-commerce Ecuador)
-        precio = None
-        nombre_producto = None
-        url_producto = url_busqueda
 
-        # Buscar precios con selectores comunes
-        selectores_precio = [
-            "[class*='price']", "[class*='precio']", "[class*='Price']",
-            "[id*='price']", "[id*='precio']", ".amount", ".woocommerce-Price-amount",
-            "[data-price]", ".product-price", ".entry-price", "span.price",
-        ]
-        for selector in selectores_precio:
-            elementos = soup.select(selector)
-            for elem in elementos:
-                texto = elem.get_text(strip=True)
-                # Buscar patrón de precio en USD ($XX.XX o XX.XX)
-                match = re.search(r"\$?\s*(\d{1,6}[.,]\d{2})", texto)
-                if match:
-                    precio_str = match.group(1).replace(",", ".")
-                    try:
-                        precio = float(precio_str)
-                        break
-                    except ValueError:
-                        continue
-            if precio:
-                break
-
-        # Buscar nombre del producto
-        selectores_nombre = [
-            "h1.product-title", "h1.product_title", ".product-name h1",
-            "h2.product-title", ".entry-title", "h1", "h2",
-        ]
-        for selector in selectores_nombre:
-            elem = soup.select_one(selector)
-            if elem:
-                nombre_producto = elem.get_text(strip=True)[:200]
-                break
-
-        # Buscar URL del producto
-        enlaces = soup.select("a[href*='product'], a[href*='producto'], a[href*='item']")
-        if enlaces:
-            href = enlaces[0].get("href", "")
-            if href.startswith("http"):
-                url_producto = href
-            elif href.startswith("/"):
-                url_producto = url_base.rstrip("/") + href
-
-        if precio and precio > 0:
-            return {
-                "proveedor": nombre_proveedor,
-                "nombre_producto": nombre_producto or query,
-                "precio": precio,
-                "url": url_producto,
-                "url_busqueda": url_busqueda,
-            }
-
-    except requests.exceptions.Timeout:
-        logger.debug(f"   ⏱️  Timeout en {nombre_proveedor}")
-    except requests.exceptions.ConnectionError:
-        logger.debug(f"   🔌 Sin conexión a {nombre_proveedor}")
+def descargar_imagen_producto(url_imagen):
+    """Descarga imagen del producto desde URL y devuelve path temporal."""
+    import requests
+    if not url_imagen:
+        return None
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url_imagen, headers=headers, timeout=15)
+        r.raise_for_status()
+        content_type = r.headers.get("content-type", "image/jpeg")
+        ext = ".jpg" if "jpeg" in content_type else ".png"
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(r.content)
+        tmp.close()
+        log(f"  Imagen descargada: {len(r.content)//1024} KB", "OK")
+        return tmp.name
     except Exception as e:
-        logger.debug(f"   ⚠️  Error en {nombre_proveedor}: {type(e).__name__}: {e}")
-
-    return None
-
-
-def buscar_en_todos_proveedores(datos_ia: dict) -> dict | None:
-    """
-    Busca el producto en todos los proveedores (nacionales y extranjeros)
-    en paralelo y retorna la mejor opción (precio más bajo).
-    """
-    query = construir_query_busqueda(datos_ia)
-    if not query:
-        logger.warning("   ⚠️  No hay términos de búsqueda para el producto.")
+        log(f"  No se pudo descargar imagen: {e}", "WARN")
         return None
 
-    logger.info(f"   🔍 Buscando: '{query}' en {len(PROVEEDORES_NACIONALES) + len(PROVEEDORES_EXTRANJEROS)} proveedores...")
 
-    todos_proveedores = {**PROVEEDORES_NACIONALES, **PROVEEDORES_EXTRANJEROS}
-    resultados = []
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 5 – GENERACIÓN DE FICHA TÉCNICA (.docx)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    # Búsqueda paralela con límite de hilos
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS_SEARCH) as executor:
-        futuros = {
-            executor.submit(buscar_en_proveedor, nombre, url, query): nombre
-            for nombre, url in todos_proveedores.items()
-        }
-        for futuro in as_completed(futuros):
-            try:
-                resultado = futuro.result(timeout=REQUEST_TIMEOUT + 5)
-                if resultado:
-                    resultados.append(resultado)
-                    logger.debug(
-                        f"   💰 {resultado['proveedor']}: ${resultado['precio']:.2f} — {resultado['nombre_producto'][:50]}"
-                    )
-            except Exception:
-                pass
-
-    if not resultados:
-        logger.warning("   ⚠️  No se encontraron precios en ningún proveedor.")
-        return None
-
-    # Ordenar por precio (menor primero) y retornar el mejor
-    resultados.sort(key=lambda x: x["precio"])
-    mejor = resultados[0]
-    logger.info(
-        f"   🏆 Mejor opción: {mejor['proveedor']} — ${mejor['precio']:.2f} — {mejor['nombre_producto'][:60]}"
-    )
-    return mejor
-
-
-def obtener_descripcion_fabricante(datos_ia: dict, mejor_proveedor: dict | None) -> str:
+def generar_ficha_tecnica(info_articulo, resultado_busqueda, codigo_necesidad, directorio_salida):
     """
-    Intenta obtener una descripción del producto desde la página del proveedor
-    o la genera a partir de los datos de IA.
+    Copia la plantilla docx y reemplaza contenido manteniendo estilos,
+    encabezado y pie de página.
+    Devuelve path del archivo generado.
     """
-    if mejor_proveedor and mejor_proveedor.get("url"):
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    import lxml.etree as etree
+    from copy import deepcopy
+
+    nombre    = info_articulo.get("nombre_articulo", "Artículo")
+    marca     = info_articulo.get("marca", "")
+    mod_prod  = info_articulo.get("modelo", "")
+    caract    = info_articulo.get("caracteristicas", [])
+    specs_tec = info_articulo.get("especificaciones_tecnicas", [])
+    specs_ele = info_articulo.get("especificaciones_electricas", [])
+    incluye   = info_articulo.get("incluye", [])
+    resumen   = info_articulo.get("resumen", "")
+
+    url_imagen = resultado_busqueda.get("url_imagen_producto", "")
+    path_img   = descargar_imagen_producto(url_imagen)
+
+    # Nombre seguro para archivo
+    nombre_archivo = re.sub(r'[^a-zA-Z0-9_\-]', '_', f"{codigo_necesidad}_ficha_tecnica")
+    out_path       = Path(directorio_salida) / f"{nombre_archivo}.docx"
+
+    # ── Abrir plantilla y limpiar cuerpo manteniendo estilos/encabezado/pie ──
+    doc = Document(str(TEMPLATE_DOCX))
+
+    # Limpiar todos los párrafos del cuerpo (mantiene sección con header/footer)
+    cuerpo = doc.element.body
+    # Guardar elemento de propiedades de sección (último elemento)
+    secPr = None
+    for child in list(cuerpo):
+        if child.tag.endswith("}sectPr"):
+            secPr = child
+            break
+
+    # Eliminar todo el contenido del cuerpo excepto sectPr
+    for child in list(cuerpo):
+        if not child.tag.endswith("}sectPr"):
+            cuerpo.remove(child)
+
+    # ── Función auxiliar para agregar párrafo con estilo Century Gothic ──
+    def agregar_parrafo(text, bold=False, size_pt=11, align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+                        espacio_antes=0, espacio_despues=0, sangria_izq=0, color=None):
+        p = doc.add_paragraph()
+        p.alignment = align
+        pPr = p._p.get_or_add_pPr()
+        # Espaciado
+        spacing = OxmlElement("w:spacing")
+        spacing.set(qn("w:before"), str(int(espacio_antes * 20)))
+        spacing.set(qn("w:after"),  str(int(espacio_despues * 20)))
+        pPr.append(spacing)
+        if sangria_izq:
+            ind = OxmlElement("w:ind")
+            ind.set(qn("w:left"), str(int(sangria_izq * 567)))  # 567 twips = 1cm
+            pPr.append(ind)
+
+        run = p.add_run(text)
+        run.bold = bold
+        run.font.name = "Century Gothic"
+        run.font.size = Pt(size_pt)
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+        # Forzar fuente en XML
+        rPr = run._r.get_or_add_rPr()
+        rFonts = OxmlElement("w:rFonts")
+        rFonts.set(qn("w:ascii"), "Century Gothic")
+        rFonts.set(qn("w:hAnsi"), "Century Gothic")
+        rPr.insert(0, rFonts)
+        return p
+
+    def agregar_item_lista(texto, size_pt=10):
+        """Agrega ítem con viñeta tipográfica en Century Gothic."""
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        pPr = p._p.get_or_add_pPr()
+        ind = OxmlElement("w:ind")
+        ind.set(qn("w:left"),    "360")
+        ind.set(qn("w:hanging"), "360")
+        pPr.append(ind)
+        spacing = OxmlElement("w:spacing")
+        spacing.set(qn("w:before"), "0")
+        spacing.set(qn("w:after"),  "60")
+        pPr.append(spacing)
+
+        # Símbolo de viñeta
+        run_bul = p.add_run("•  ")
+        run_bul.font.name = "Century Gothic"
+        run_bul.font.size = Pt(size_pt)
+        rPr_b = run_bul._r.get_or_add_rPr()
+        rF = OxmlElement("w:rFonts")
+        rF.set(qn("w:ascii"), "Century Gothic")
+        rF.set(qn("w:hAnsi"), "Century Gothic")
+        rPr_b.insert(0, rF)
+
+        run_txt = p.add_run(texto)
+        run_txt.font.name = "Century Gothic"
+        run_txt.font.size = Pt(size_pt)
+        rPr_t = run_txt._r.get_or_add_rPr()
+        rF2 = OxmlElement("w:rFonts")
+        rF2.set(qn("w:ascii"), "Century Gothic")
+        rF2.set(qn("w:hAnsi"), "Century Gothic")
+        rPr_t.insert(0, rF2)
+        return p
+
+    # ── TÍTULO ──
+    titulo_completo = f"{nombre} {marca} {mod_prod}".strip()
+    agregar_parrafo(titulo_completo, bold=True, size_pt=12,
+                    align=WD_ALIGN_PARAGRAPH.CENTER, espacio_despues=6)
+
+    # ── IMAGEN ──
+    if path_img and Path(path_img).exists():
         try:
-            resp = HTTP_SESSION.get(mejor_proveedor["url"], timeout=REQUEST_TIMEOUT)
-            soup = BeautifulSoup(resp.text, "lxml")
-
-            # Selectores comunes de descripción en tiendas
-            selectores = [
-                ".product-description", ".woocommerce-product-details__short-description",
-                "#product-description", ".description", ".product-details",
-                "[class*='description']", "div.tab-content p",
-            ]
-            for selector in selectores:
-                elem = soup.select_one(selector)
-                if elem:
-                    texto = elem.get_text(separator=" ", strip=True)
-                    if len(texto) > 50:
-                        # Limitar a ~80 palabras
-                        palabras = texto.split()[:80]
-                        return " ".join(palabras)
+            p_img = doc.add_paragraph()
+            p_img.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_img = p_img.add_run()
+            run_img.add_picture(path_img, width=Inches(4.5))
+            log("  Imagen insertada en ficha técnica.", "OK")
         except Exception as e:
-            logger.debug(f"   No se pudo obtener descripción web: {e}")
-
-    # Generar descripción desde los datos de IA
-    nombre = datos_ia.get("nombre_articulo", "el producto")
-    marca = datos_ia.get("marca", "")
-    caracteristicas = datos_ia.get("caracteristicas_generales", [])
-    desc_base = f"{nombre}"
-    if marca:
-        desc_base += f" de la marca {marca}"
-    if caracteristicas:
-        desc_base += f". {caracteristicas[0]}"
-    if len(caracteristicas) > 1:
-        desc_base += f" {caracteristicas[1]}."
-    return desc_base
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 5 — GENERACIÓN DE FICHA TÉCNICA (.docx)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def copiar_formato_parrafo(parrafo_origen, parrafo_destino):
-    """Copia el formato XML de un párrafo origen a uno destino."""
-    if parrafo_origen.paragraph_format:
-        pf_orig = parrafo_origen._p.get_or_add_pPr()
-        pf_dest = parrafo_destino._p.get_or_add_pPr()
-        # Copiar los elementos de formato
-        for child in list(pf_orig):
-            tag = child.tag
-            # Eliminar el elemento equivalente en destino si existe
-            existing = pf_dest.find(tag)
-            if existing is not None:
-                pf_dest.remove(existing)
-            pf_dest.append(copy.deepcopy(child))
-
-
-def agregar_parrafo_con_estilo(
-    doc: Document,
-    texto: str,
-    negrita: bool = False,
-    tamaño_pt: float = 12,
-    centrado: bool = False,
-    fuente: str = "Century Gothic",
-    color: RGBColor | None = None,
-    espaciado_anterior: int = 0,
-    espaciado_posterior: int = 0,
-) -> None:
-    """Agrega un párrafo formateado al documento con el estilo de la plantilla."""
-    para = doc.add_paragraph()
-    run = para.add_run(texto)
-    run.font.name = fuente
-    run.font.size = Pt(tamaño_pt)
-    run.font.bold = negrita
-    if color:
-        run.font.color.rgb = color
-
-    if centrado:
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            log(f"  No se pudo insertar imagen: {e}", "WARN")
+            agregar_parrafo("[Imagen del producto]", align=WD_ALIGN_PARAGRAPH.CENTER, size_pt=9)
     else:
-        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        agregar_parrafo("[Imagen del producto no disponible]",
+                        align=WD_ALIGN_PARAGRAPH.CENTER, size_pt=9, color=(128, 128, 128))
 
-    # Espaciado
-    para.paragraph_format.space_before = Pt(espaciado_anterior)
-    para.paragraph_format.space_after = Pt(espaciado_posterior)
+    # ── PÁRRAFO VACÍO separador ──
+    agregar_parrafo("", size_pt=6)
 
-    # Asegurar fuente en XML para compatibilidad
-    rPr = run._r.get_or_add_rPr()
-    rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:ascii"), fuente)
-    rFonts.set(qn("w:hAnsi"), fuente)
-    existing = rPr.find(qn("w:rFonts"))
-    if existing is not None:
-        rPr.remove(existing)
-    rPr.insert(0, rFonts)
+    # ── RESUMEN ──
+    if resumen:
+        agregar_parrafo(resumen, size_pt=10, espacio_despues=8)
+        agregar_parrafo("", size_pt=6)
 
-    return para
+    # ── CARACTERÍSTICAS ──
+    if caract:
+        agregar_parrafo("Características:", bold=True, size_pt=11, espacio_antes=4, espacio_despues=4)
+        for c in caract:
+            agregar_item_lista(c, size_pt=10)
+        agregar_parrafo("", size_pt=6)
 
-
-def generar_ficha_tecnica_docx(
-    datos_ia: dict,
-    mejor_proveedor: dict | None,
-    descripcion: str,
-    ruta_destino: Path,
-    plantilla_path: str,
-) -> Path:
-    """
-    Genera la ficha técnica en formato .docx usando la plantilla institucional.
-    Preserva encabezado, pie de página, fuente y estilos originales.
-    """
-    # ── Cargar la plantilla original (preserva header/footer/estilos) ──────
-    if Path(plantilla_path).exists():
-        doc = Document(plantilla_path)
-        # Limpiar el cuerpo del documento manteniendo header/footer
-        for para in doc.paragraphs:
-            p = para._element
-            p.getparent().remove(p)
-        for table in doc.tables:
-            t = table._element
-            t.getparent().remove(t)
-    else:
-        logger.warning(f"   ⚠️  Plantilla no encontrada: {plantilla_path}. Usando documento vacío.")
-        doc = Document()
-        # Configurar márgenes
-        section = doc.sections[0]
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
-        section.top_margin = Cm(2.5)
-        section.bottom_margin = Cm(2.5)
-
-    nombre_articulo = datos_ia.get("nombre_articulo", "Artículo sin nombre")
-    marca = datos_ia.get("marca", "")
-    modelo_art = datos_ia.get("modelo", "")
-
-    # Título completo del artículo
-    titulo_completo = nombre_articulo
-    if marca and marca not in titulo_completo:
-        titulo_completo += f" {marca}"
-    if modelo_art and modelo_art not in titulo_completo:
-        titulo_completo += f" {modelo_art}"
-
-    # ── TÍTULO (negrita, centrado, 12pt Century Gothic) ─────────────────────
-    agregar_parrafo_con_estilo(
-        doc, titulo_completo,
-        negrita=True, tamaño_pt=12, centrado=True,
-        espaciado_anterior=0, espaciado_posterior=6,
-    )
-
-    # ── DESCRIPCIÓN (50-80 palabras, justificado) ────────────────────────────
-    agregar_parrafo_con_estilo(
-        doc, descripcion,
-        negrita=False, tamaño_pt=12, centrado=False,
-        espaciado_anterior=6, espaciado_posterior=6,
-    )
-
-    # ── CARACTERÍSTICAS GENERALES ────────────────────────────────────────────
-    caracteristicas = datos_ia.get("caracteristicas_generales", [])
-    if caracteristicas:
-        agregar_parrafo_con_estilo(
-            doc, "Características:",
-            negrita=True, tamaño_pt=12,
-            espaciado_anterior=6, espaciado_posterior=2,
-        )
-        for item in caracteristicas:
-            agregar_parrafo_con_estilo(
-                doc, item,
-                negrita=False, tamaño_pt=12,
-                espaciado_anterior=0, espaciado_posterior=0,
-            )
-
-    # ── ESPECIFICACIONES TÉCNICAS ────────────────────────────────────────────
-    specs_tec = datos_ia.get("especificaciones_tecnicas", [])
+    # ── ESPECIFICACIONES TÉCNICAS ──
     if specs_tec:
-        agregar_parrafo_con_estilo(
-            doc, "Especificaciones técnicas:",
-            negrita=True, tamaño_pt=12,
-            espaciado_anterior=6, espaciado_posterior=2,
-        )
-        for spec in specs_tec:
-            agregar_parrafo_con_estilo(
-                doc, spec,
-                negrita=False, tamaño_pt=12,
-                espaciado_anterior=0, espaciado_posterior=0,
-            )
+        agregar_parrafo("Especificaciones técnicas:", bold=True, size_pt=11,
+                        espacio_antes=4, espacio_despues=4)
+        for s in specs_tec:
+            agregar_item_lista(s, size_pt=10)
+        agregar_parrafo("", size_pt=6)
 
-    # ── ESPECIFICACIONES ELÉCTRICAS ──────────────────────────────────────────
-    specs_elec = datos_ia.get("especificaciones_electricas", [])
-    if specs_elec:
-        agregar_parrafo_con_estilo(
-            doc, "Especificaciones eléctricas:",
-            negrita=True, tamaño_pt=12,
-            espaciado_anterior=6, espaciado_posterior=2,
-        )
-        for spec in specs_elec:
-            agregar_parrafo_con_estilo(
-                doc, spec,
-                negrita=False, tamaño_pt=12,
-                espaciado_anterior=0, espaciado_posterior=0,
-            )
+    # ── ESPECIFICACIONES ELÉCTRICAS ──
+    if specs_ele:
+        agregar_parrafo("Especificaciones eléctricas:", bold=True, size_pt=11,
+                        espacio_antes=4, espacio_despues=4)
+        for s in specs_ele:
+            agregar_item_lista(s, size_pt=10)
+        agregar_parrafo("", size_pt=6)
 
-    # ── OTRA INFORMACIÓN ─────────────────────────────────────────────────────
-    otra_info = datos_ia.get("otra_informacion", "")
-    if otra_info and otra_info.strip():
-        agregar_parrafo_con_estilo(
-            doc, "Información adicional:",
-            negrita=True, tamaño_pt=12,
-            espaciado_anterior=6, espaciado_posterior=2,
-        )
-        agregar_parrafo_con_estilo(
-            doc, otra_info,
-            negrita=False, tamaño_pt=12,
-            espaciado_anterior=0, espaciado_posterior=4,
-        )
-
-    # ── INCLUYE ──────────────────────────────────────────────────────────────
-    incluye = datos_ia.get("incluye", [])
+    # ── INCLUYE ──
     if incluye:
-        agregar_parrafo_con_estilo(
-            doc, "Incluye:",
-            negrita=True, tamaño_pt=12,
-            espaciado_anterior=6, espaciado_posterior=2,
-        )
+        agregar_parrafo("Incluye:", bold=True, size_pt=11, espacio_antes=4, espacio_despues=4)
         for item in incluye:
-            agregar_parrafo_con_estilo(
-                doc, item,
-                negrita=False, tamaño_pt=12,
-                espaciado_anterior=0, espaciado_posterior=0,
-            )
+            agregar_item_lista(item, size_pt=10)
 
-    # ── INFORMACIÓN DEL PROVEEDOR ─────────────────────────────────────────────
-    if mejor_proveedor:
-        agregar_parrafo_con_estilo(
-            doc, "",  # Línea en blanco
-            negrita=False, tamaño_pt=6,
-            espaciado_anterior=4, espaciado_posterior=0,
-        )
-        info_precio = (
-            f"Precio referencial: ${mejor_proveedor['precio']:.2f} USD  |  "
-            f"Proveedor: {mejor_proveedor['proveedor']}  |  "
-            f"URL: {mejor_proveedor['url']}"
-        )
-        agregar_parrafo_con_estilo(
-            doc, info_precio,
-            negrita=False, tamaño_pt=9, centrado=False,
-            color=RGBColor(0x70, 0x70, 0x70),
-            espaciado_anterior=0, espaciado_posterior=0,
-        )
-
-    # ── GUARDAR ──────────────────────────────────────────────────────────────
-    nombre_archivo = re.sub(r'[\\/*?:"<>|]', "_", titulo_completo[:80])
-    nombre_archivo = f"Ficha_Tecnica_{nombre_archivo}.docx"
-    ruta_archivo = ruta_destino / nombre_archivo
-
-    doc.save(str(ruta_archivo))
-    logger.info(f"   💾 Ficha técnica guardada: {ruta_archivo}")
-    return ruta_archivo
+    doc.save(str(out_path))
+    log(f"  Ficha técnica guardada: {out_path.name}", "OK")
+    return str(out_path), path_img
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 6 — GUARDAR ARCHIVOS LOCALMENTE
+#  PASO 7 – GENERACIÓN DE PROFORMA (.xlsx)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def obtener_carpeta_documentos_usuario() -> Path:
+def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_salida, img_path=None):
     """
-    Obtiene la ruta de Documentos del usuario actual en Windows.
-    Compatible con rutas personalizadas (OneDrive, etc.).
+    Copia la plantilla xlsx y completa las celdas indicadas.
+    Devuelve path del archivo generado.
     """
-    if platform.system() == "Windows":
+    import openpyxl
+    from openpyxl.drawing.image import Image as XlImage
+    from openpyxl.styles import Alignment
+    from copy import copy as obj_copy
+
+    codigo      = registro_bd["codigo_necesidad"]
+    entidad     = str(registro_bd.get("entidad_contratante", "")).upper()
+    entidad_url = str(registro_bd.get("entidad_contratante_url", ""))
+    direccion   = str(registro_bd.get("dirección_entrega", ""))
+    contacto    = str(registro_bd.get("contacto", ""))
+    ruc_ish     = codigo[4:17] if len(codigo) >= 17 else codigo  # chars 5-17 (índice 4 a 16)
+
+    nombre_prod = info_articulo.get("nombre_articulo", "")
+    marca_prod  = info_articulo.get("marca", "")
+    model_prod  = info_articulo.get("modelo", "")
+
+    mejor        = resultado_busqueda.get("mejor_opcion", {})
+    alternativas = resultado_busqueda.get("alternativas", [])
+
+    url_mejor   = mejor.get("url_producto", "")
+    urls_alt    = [a.get("url_producto", "") for a in alternativas[:3]]
+
+    fecha_hoy   = datetime.date.today().strftime("%d/%m/%Y")
+    nombre_arch = re.sub(r'[^a-zA-Z0-9_\-]', '_', codigo)
+    out_path    = Path(directorio_salida) / f"{nombre_arch}.xlsx"
+
+    # Copiar plantilla
+    shutil.copy2(str(TEMPLATE_XLSX), str(out_path))
+
+    wb = openpyxl.load_workbook(str(out_path))
+
+    # ── Hoja "Cotización " ──
+    # Buscar hoja por nombre (puede tener espacios)
+    hoja_cot = None
+    for sn in wb.sheetnames:
+        if "cotizaci" in sn.lower():
+            hoja_cot = wb[sn]
+            break
+    if hoja_cot is None:
+        hoja_cot = wb.worksheets[0]
+
+    def escribir_celda(ws, ref, valor):
+        """Escribe valor preservando el estilo actual de la celda."""
+        celda = ws[ref]
+        celda.value = valor
+
+    escribir_celda(hoja_cot, "B8",  entidad)
+    escribir_celda(hoja_cot, "B9",  ruc_ish)
+    escribir_celda(hoja_cot, "B10", direccion)
+    escribir_celda(hoja_cot, "B11", contacto)
+    escribir_celda(hoja_cot, "B12", codigo)
+    escribir_celda(hoja_cot, "I8",  fecha_hoy)
+
+    # Celda C16/C17 – nombre, marca y modelo del producto
+    texto_prod_linea1 = f"{nombre_prod}"
+    texto_prod_linea2 = f"Marca: {marca_prod} | Modelo: {model_prod}"
+    escribir_celda(hoja_cot, "C16", texto_prod_linea1)
+    escribir_celda(hoja_cot, "C17", texto_prod_linea2)
+
+    # Insertar imagen del producto en celda C16 si está disponible
+    if img_path and Path(img_path).exists():
         try:
-            import winreg
-            with winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER,
-                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
-            ) as key:
-                docs_path = winreg.QueryValueEx(key, "Personal")[0]
-                return Path(docs_path)
-        except Exception:
-            pass
-        # Fallback
-        return Path(os.environ.get("USERPROFILE", "C:/Users/Default")) / "Documents"
-    else:
-        # En Linux/Mac (para desarrollo y pruebas)
-        return Path.home() / "Documents"
-
-
-def crear_carpeta_nic(nic: str) -> Path:
-    """
-    Crea la carpeta local para el NIC dado:
-    C:\\Users\\{user}\\Documents\\Documentos de Contratación\\{NIC}
-    """
-    base_docs = obtener_carpeta_documentos_usuario()
-    carpeta_nic = base_docs / "Documentos de Contratación" / nic
-    carpeta_nic.mkdir(parents=True, exist_ok=True)
-    logger.info(f"   📁 Carpeta creada: {carpeta_nic}")
-    return carpeta_nic
-
-
-def guardar_archivos_bucket_localmente(
-    blobs: list[storage.Blob],
-    carpeta_destino: Path,
-) -> None:
-    """Descarga y guarda localmente todos los archivos del bucket del NIC."""
-    for blob in blobs:
-        nombre_archivo = Path(blob.name).name
-        ruta_local = carpeta_destino / nombre_archivo
-        try:
-            contenido = descargar_blob_a_bytes(blob)
-            ruta_local.write_bytes(contenido)
-            logger.info(f"   💾 Documento descargado: {nombre_archivo}")
+            img_xl = XlImage(img_path)
+            img_xl.width  = 120
+            img_xl.height = 90
+            # Anclar cerca de C16
+            img_xl.anchor = "G16"
+            hoja_cot.add_image(img_xl)
+            log("  Imagen insertada en Excel.", "OK")
         except Exception as e:
-            logger.warning(f"   ⚠️  Error al descargar {nombre_archivo}: {e}")
+            log(f"  No se pudo insertar imagen en Excel: {e}", "WARN")
 
+    # ── Hoja "Costos" ──
+    hoja_cos = None
+    for sn in wb.sheetnames:
+        if "costo" in sn.lower():
+            hoja_cos = wb[sn]
+            break
+    if hoja_cos is None and len(wb.worksheets) > 1:
+        hoja_cos = wb.worksheets[1]
 
-def copiar_proforma_xlsx(carpeta_destino: Path) -> None:
-    """Copia el archivo XLSX de proforma a la carpeta del NIC."""
-    ruta_origen = Path(PROFORMA_XLSX)
-    if not ruta_origen.exists():
-        # Buscar en el directorio del script
-        ruta_origen = Path(__file__).parent / PROFORMA_XLSX
+    if hoja_cos is not None:
+        escribir_celda(hoja_cos, "C7",  entidad_url)
+        escribir_celda(hoja_cos, "K14", url_mejor)
+        # Alternativas en orden decreciente de calidad
+        refs_alt = ["J16", "J17", "J18"]
+        for i, url_a in enumerate(urls_alt[:3]):
+            escribir_celda(hoja_cos, refs_alt[i], url_a)
 
-    if ruta_origen.exists():
-        ruta_destino_xlsx = carpeta_destino / ruta_origen.name
-        shutil.copy2(str(ruta_origen), str(ruta_destino_xlsx))
-        logger.info(f"   📊 Proforma copiada: {ruta_destino_xlsx.name}")
-    else:
-        logger.warning(f"   ⚠️  Archivo de proforma no encontrado: {PROFORMA_XLSX}")
+    wb.save(str(out_path))
+    log(f"  Proforma guardada: {out_path.name}", "OK")
+    return str(out_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ORQUESTADOR PRINCIPAL
+#  FUNCIÓN PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
-
-def procesar_nic(
-    fila: dict,
-    gcs_client: storage.Client,
-    modelo_ia: GenerativeModel,
-    plantilla_path: str,
-) -> dict:
-    """
-    Procesa un NIC completo:
-    1. Lista archivos en el bucket
-    2. Analiza con IA
-    3. Busca en proveedores
-    4. Genera ficha técnica
-    5. Guarda archivos localmente
-    """
-    nic = str(fila.get("codigo_necesidad", "SIN_NIC")).strip()
-    resultado = {
-        "nic": nic,
-        "estado": "pendiente",
-        "ficha_generada": None,
-        "proveedor_seleccionado": None,
-        "error": None,
-    }
-
-    logger.info(f"\n{'='*60}")
-    logger.info(f"  🔄 Procesando NIC: {nic}")
-    logger.info(f"  🏛️  Entidad: {fila.get('entidad_contratante', 'N/A')}")
-    logger.info(f"{'='*60}")
-
-    try:
-        # ── 1. Listar archivos en el bucket ──────────────────────────────────
-        blobs = listar_archivos_nic(gcs_client, nic)
-        if not blobs:
-            logger.warning(f"   ⚠️  No se encontraron archivos en el bucket para NIC: {nic}")
-            resultado["estado"] = "sin_archivos"
-            return resultado
-
-        # ── 2. Analizar con IA ───────────────────────────────────────────────
-        datos_ia = analizar_documentos_con_ia(modelo_ia, blobs, gcs_client)
-        logger.info(f"   📦 Artículo identificado: {datos_ia.get('nombre_articulo')}")
-
-        # ── 3. Buscar en proveedores ─────────────────────────────────────────
-        mejor_proveedor = buscar_en_todos_proveedores(datos_ia)
-        resultado["proveedor_seleccionado"] = mejor_proveedor
-
-        # ── 4. Obtener descripción ───────────────────────────────────────────
-        descripcion = obtener_descripcion_fabricante(datos_ia, mejor_proveedor)
-
-        # ── 5. Crear carpeta local para el NIC ───────────────────────────────
-        carpeta_nic = crear_carpeta_nic(nic)
-
-        # ── 6. Generar ficha técnica .docx ───────────────────────────────────
-        ruta_ficha = generar_ficha_tecnica_docx(
-            datos_ia, mejor_proveedor, descripcion, carpeta_nic, plantilla_path
-        )
-        resultado["ficha_generada"] = str(ruta_ficha)
-
-        # ── 7. Guardar documentos del bucket ─────────────────────────────────
-        guardar_archivos_bucket_localmente(blobs, carpeta_nic)
-
-        # ── 8. Copiar proforma XLSX ───────────────────────────────────────────
-        copiar_proforma_xlsx(carpeta_nic)
-
-        resultado["estado"] = "completado"
-        logger.info(f"   ✅ NIC {nic} procesado exitosamente.")
-
-    except Exception as e:
-        resultado["estado"] = "error"
-        resultado["error"] = str(e)
-        logger.error(f"   ❌ Error procesando NIC {nic}: {e}")
-        logger.debug(traceback.format_exc())
-
-    return resultado
-
 
 def main():
-    """Función principal que orquesta todo el proceso."""
-    print("\n" + "═" * 70)
-    print("   GENERADOR AUTOMÁTICO DE FICHAS TÉCNICAS — GestorEx")
-    print("   " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    print("═" * 70 + "\n")
+    print("\n" + "═"*60)
+    print("  Preform_generator — Automatización de Documentos")
+    print("═"*60 + "\n")
 
-    # Verificar plantilla y proforma
-    plantilla_path = TEMPLATE_DOCX
-    if not Path(plantilla_path).exists():
-        plantilla_path = str(Path(__file__).parent / TEMPLATE_DOCX)
-        if not Path(plantilla_path).exists():
-            logger.warning(f"⚠️  Plantilla '{TEMPLATE_DOCX}' no encontrada. Se usará formato básico.")
-            plantilla_path = None
+    # ── 0. Dependencias ──────────────────────────────────────────
+    paso(0, 8, "Verificando dependencias")
+    instalar_dependencias()
 
-    # ── PASO 1: Conectar a MySQL y obtener data_table_1 ─────────────────────
-    logger.info("📡 Conectando a base de datos MySQL...")
-    conn = conectar_mysql()
-    data_table_1 = obtener_data_table_1(conn)
-    conn.close()
-
+    # ── 1. Base de datos ─────────────────────────────────────────
+    paso(1, 8, "Obteniendo registros de la BD MySQL")
+    data_table_1 = obtener_data_table_1()
     if not data_table_1:
-        logger.warning("⚠️  No hay registros con etapa='en generacion'. Proceso terminado.")
+        log("No hay registros 'en generacion'. Fin.", "WARN")
         return
 
-    logger.info(f"📊 Total de NICs a procesar: {len(data_table_1)}")
+    # ── 2. Clientes GCS y VertexAI ───────────────────────────────
+    paso(2, 8, "Inicializando clientes GCS y VertexAI")
+    gcs_client = obtener_cliente_gcs()
+    modelo_ai  = inicializar_vertex_ai()
 
-    # ── PASO 2: Crear cliente GCS ────────────────────────────────────────────
-    logger.info("\n☁️  Conectando a Google Cloud Storage...")
-    gcs_client = crear_cliente_gcs()
+    # ── Directorio de salida temporal ────────────────────────────
+    dir_salida = Path(tempfile.mkdtemp(prefix="nexus_out_"))
+    log(f"Directorio de trabajo temporal: {dir_salida}")
 
-    # ── PASO 3: Inicializar Vertex AI ────────────────────────────────────────
-    logger.info("\n🤖 Inicializando Vertex AI (Gemini)...")
-    modelo_ia = inicializar_vertex_ai()
+    errores = []
 
-    # ── PROCESAR CADA NIC ────────────────────────────────────────────────────
-    resultados = []
-    total = len(data_table_1)
+    # ── Procesar cada código de necesidad ────────────────────────
+    for idx, registro in enumerate(data_table_1, 1):
+        codigo = registro["codigo_necesidad"]
+        print(f"\n{'━'*60}")
+        print(f"  [{idx}/{len(data_table_1)}] Procesando: {codigo}")
+        print(f"{'━'*60}")
 
-    for i, fila in enumerate(data_table_1, 1):
-        logger.info(f"\n⏳ Procesando {i}/{total}...")
-        resultado = procesar_nic(fila, gcs_client, modelo_ia, plantilla_path)
-        resultados.append(resultado)
-        # Pequeña pausa entre NICs para no sobrecargar la API
-        if i < total:
-            time.sleep(1)
+        dir_necesidad = dir_salida / codigo
+        dir_necesidad.mkdir(exist_ok=True)
 
-    # ── RESUMEN FINAL ────────────────────────────────────────────────────────
-    print("\n" + "═" * 70)
-    print("   RESUMEN DE PROCESAMIENTO")
-    print("═" * 70)
+        try:
+            # ── 3. Obtener y analizar documentos del bucket ───────
+            paso(3, 8, f"Descargando y analizando documentos — {codigo}")
+            blobs = listar_docs_necesidad(gcs_client, codigo)
+            if not blobs:
+                log(f"Sin documentos en bucket para {codigo}. Saltando.", "WARN")
+                errores.append(f"{codigo}: sin documentos en bucket.")
+                continue
 
-    completados = [r for r in resultados if r["estado"] == "completado"]
-    errores = [r for r in resultados if r["estado"] == "error"]
-    sin_archivos = [r for r in resultados if r["estado"] == "sin_archivos"]
+            archivos_locales = []
+            for blob in blobs:
+                local_path = descargar_blob_a_tmp(blob)
+                archivos_locales.append(local_path)
+                log(f"  Descargado: {blob.name.split('/')[-1]}")
 
-    print(f"   ✅ Completados:    {len(completados)}/{total}")
-    print(f"   📂 Sin archivos:   {len(sin_archivos)}/{total}")
-    print(f"   ❌ Con errores:    {len(errores)}/{total}")
+            info_articulo = analizar_documentos_con_gemini(
+                modelo_ai, archivos_locales, codigo
+            )
+            if not info_articulo:
+                log(f"Análisis fallido para {codigo}.", "ERR")
+                errores.append(f"{codigo}: análisis Gemini fallido.")
+                continue
 
-    if completados:
-        carpeta_base = obtener_carpeta_documentos_usuario() / "Documentos de Contratación"
-        print(f"\n   📁 Archivos guardados en:")
-        print(f"      {carpeta_base}")
+            # Si devolvió array de artículos, tomar el primero para la ficha
+            if "articulos" in info_articulo:
+                log(f"  Múltiples artículos detectados: {len(info_articulo['articulos'])}")
+                info_principal = info_articulo["articulos"][0]
+            else:
+                info_principal = info_articulo
 
+            log(f"  Artículo: {info_principal.get('nombre_articulo','')} "
+                f"| Marca: {info_principal.get('marca','')} "
+                f"| Modelo: {info_principal.get('modelo','')}", "OK")
+
+            # ── 4. Buscar producto en proveedores ─────────────────
+            paso(4, 8, f"Buscando producto en proveedores — {codigo}")
+            resultado_busqueda = buscar_producto_en_proveedores(modelo_ai, info_principal)
+
+            # ── 5. Generar ficha técnica .docx ────────────────────
+            paso(5, 8, f"Generando ficha técnica .docx — {codigo}")
+            path_docx, path_img = generar_ficha_tecnica(
+                info_principal, resultado_busqueda, codigo, str(dir_necesidad)
+            )
+
+            # ── 6. Subir ficha técnica al bucket ──────────────────
+            paso(6, 8, f"Subiendo ficha técnica al bucket — {codigo}")
+            subir_archivo_a_bucket(gcs_client, path_docx, codigo)
+
+            # ── 7. Generar proforma .xlsx ─────────────────────────
+            paso(7, 8, f"Generando proforma .xlsx — {codigo}")
+            path_xlsx = generar_proforma(
+                registro, info_principal, resultado_busqueda,
+                str(dir_necesidad), img_path=path_img
+            )
+
+            # ── 8. Subir proforma al bucket ───────────────────────
+            paso(8, 8, f"Subiendo proforma al bucket — {codigo}")
+            subir_archivo_a_bucket(gcs_client, path_xlsx, codigo)
+
+            # Limpiar temporales de documentos
+            for f in archivos_locales:
+                try: os.unlink(f)
+                except: pass
+            if path_img:
+                try: os.unlink(path_img)
+                except: pass
+
+            log(f"✔ {codigo} procesado exitosamente.", "OK")
+
+        except Exception as e:
+            log(f"Error procesando {codigo}: {e}", "ERR")
+            traceback.print_exc()
+            errores.append(f"{codigo}: {e}")
+
+    # ── Resumen final ─────────────────────────────────────────────
+    print(f"\n{'═'*60}")
+    print(f"  RESUMEN FINAL")
+    print(f"{'═'*60}")
+    exitosos = len(data_table_1) - len(errores)
+    log(f"Procesados exitosamente: {exitosos}/{len(data_table_1)}", "OK")
     if errores:
-        print("\n   NICs con error:")
-        for r in errores:
-            print(f"      ⚠️  {r['nic']}: {r['error']}")
+        log("Errores encontrados:", "WARN")
+        for e in errores:
+            print(f"    ✗ {e}")
 
-    # Guardar resumen en JSON
-    resumen_path = Path("logs") / f"resumen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(resumen_path, "w", encoding="utf-8") as f:
-        json.dump(resultados, f, ensure_ascii=False, indent=2, default=str)
-    logger.info(f"\n📝 Resumen guardado en: {resumen_path}")
-
-    print("\n" + "═" * 70)
-    print("   ✅ Proceso completado.")
-    print("═" * 70 + "\n")
-
-
-# ─── PUNTO DE ENTRADA ────────────────────────────────────────────────────────
-if __name__ == "__main__":
+    # Limpiar directorio temporal
     try:
-        main()
-    except KeyboardInterrupt:
-        logger.info("\n⚠️  Proceso interrumpido por el usuario.")
-        sys.exit(0)
-    except Exception as e:
-        logger.critical(f"❌ Error crítico no manejado: {e}")
-        logger.debug(traceback.format_exc())
-        sys.exit(1)
+        shutil.rmtree(str(dir_salida))
+    except Exception:
+        pass
+
+    print(f"\n{'═'*60}")
+    print("  Preform_generator finalizado.")
+    print(f"{'═'*60}\n")
+
+
+if __name__ == "__main__":
+    main()
