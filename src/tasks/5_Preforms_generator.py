@@ -1,4 +1,3 @@
-
 """
 NexusGenerator - Automatización de documentos de contratación.
 Conecta a BD MySQL → analiza documentos en GCS con Gemini →
@@ -81,36 +80,6 @@ def paso(n, total, desc):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  PASO 0 – DEPENDENCIAS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def instalar_dependencias():
-    import subprocess
-    pkgs = [
-        ("mysql-connector-python", "mysql.connector"),
-        ("google-cloud-storage",   "google.cloud.storage"),
-        ("vertexai",               "vertexai"),
-        ("google-auth",            "google.auth"),
-        ("python-docx",            "docx"),
-        ("openpyxl",               "openpyxl"),
-        ("requests",               "requests"),
-        ("beautifulsoup4",         "bs4"),
-        ("Pillow",                 "PIL"),
-        ("lxml",                   "lxml"),
-    ]
-    for pkg, mod in pkgs:
-        try:
-            __import__(mod.split(".")[0])
-        except ImportError:
-            log(f"Instalando {pkg}…", "WARN")
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pkg, "-q"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-    log("Dependencias listas.", "OK")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 #  PASO 1 – BASE DE DATOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -175,7 +144,7 @@ def subir_archivo_a_bucket(gcs_client, local_path, carpeta_destino):
     """Sube un archivo local al bucket en la carpeta indicada."""
     bucket    = gcs_client.bucket(BUCKET_NAME)
     nombre    = Path(local_path).name
-    blob_name = f"{BUCKET_FOLDER}/{carpeta_destino}/{nombre}"
+    blob_name = f"{carpeta_destino}/{nombre}"
     blob      = bucket.blob(blob_name)
     blob.upload_from_filename(local_path)
     log(f"  Subido: {blob_name}", "OK")
@@ -721,10 +690,6 @@ def main():
     print("  Preform_generator — Automatización de Documentos")
     print("═"*60 + "\n")
 
-    # ── 0. Dependencias ──────────────────────────────────────────
-    paso(0, 8, "Verificando dependencias")
-    instalar_dependencias()
-
     # ── 1. Base de datos ─────────────────────────────────────────
     paso(1, 8, "Obteniendo registros de la BD MySQL")
     data_table_1 = obtener_data_table_1()
@@ -799,7 +764,11 @@ def main():
 
             # ── 6. Subir ficha técnica al bucket ──────────────────
             paso(6, 8, f"Subiendo ficha técnica al bucket — {codigo}")
-            subir_archivo_a_bucket(gcs_client, path_docx, codigo)
+            subir_archivo_a_bucket(gcs_client, path_docx, "Fichas Técnicas")
+
+            # ── Pausa de 60 segundos antes de generar la proforma ─
+            log("  Esperando 60 segundos antes de generar la proforma…", "INFO")
+            time.sleep(60)
 
             # ── 7. Generar proforma .xlsx ─────────────────────────
             paso(7, 8, f"Generando proforma .xlsx — {codigo}")
@@ -810,7 +779,7 @@ def main():
 
             # ── 8. Subir proforma al bucket ───────────────────────
             paso(8, 8, f"Subiendo proforma al bucket — {codigo}")
-            subir_archivo_a_bucket(gcs_client, path_xlsx, codigo)
+            subir_archivo_a_bucket(gcs_client, path_xlsx, "Proformas")
 
             # Limpiar temporales de documentos
             for f in archivos_locales:
