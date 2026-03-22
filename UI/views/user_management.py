@@ -12,6 +12,7 @@ from UI.config import *
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
 from src.Config.version import CURRENT_VERSION
+from UI.components.classic_msgbox import ClassicMsgBox
 
 from Config import Global
 
@@ -462,7 +463,8 @@ class UserManagementUI(BaseWindow):
             self.manager.show()
             QTimer.singleShot(200, self.hide)  #cierra esta ventana
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo volver al Manager: {e}")
+            ClassicMsgBox.warning("No se pudo volver al Manager")
+            #QMessageBox.critical(self, "Error", f"No se pudo volver al Manager: {e}")
 
     def show_tab(self, index):
         self.stack.setCurrentIndex(index)
@@ -573,30 +575,36 @@ class UserManagementUI(BaseWindow):
         
         # Valida telefono
         if not nombre:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
             return
         
         if not usuario:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
             return
         
         if not correo:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
             return
         
                 
         if not correo:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
             return
         
         # Valida contraseñas 
         if not password:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
             return
         
         # Valida telefono 
         if not telefono:
-            QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
+            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
             return
         
         # Determina es_admin según el combobox
@@ -606,7 +614,8 @@ class UserManagementUI(BaseWindow):
         elif rol == "Empleado":
             es_admin = False
         else:
-            QMessageBox.warning(self, "Error", "Debe seleccionar un rol.")
+            ClassicMsgBox.warning("Error", "Debe seleccionar un rol.")
+            #QMessageBox.warning(self, "Error", "Debe seleccionar un rol.")
             return
         
 
@@ -614,9 +623,11 @@ class UserManagementUI(BaseWindow):
         resultado = registrar_usuario(nombre, usuario,correo, password, es_admin,telefono)
 
         if "error" in resultado:
-            QMessageBox.critical(self, "Error", resultado["error"])
+            ClassicMsgBox.warning("Error", resultado["error"])
+            #QMessageBox.critical(self, "Error", resultado["error"])
         else:
-            QMessageBox.information(self, "Éxito", resultado["success"])
+            ClassicMsgBox.warning("Éxito", resultado["success"])
+            #QMessageBox.information(self, "Éxito", resultado["success"])
             # limpiamos los campos
             print("Se registro un nuevo usuario con exito")
             self.input_nombre.clear()
@@ -691,13 +702,15 @@ class UserManagementUI(BaseWindow):
         user_id = self.search_bar.combo.currentData()
 
         if not user_id:
-            QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
+            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Seleccione un usuario")
+            #QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
             return
 
         data = obtener_informacion_del_usuario(user_id)
 
         if not data:
-            QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
+            ClassicMsgBox.warning("Error", "No se pudo cargar el usuario")
+            #QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
             return
 
         self.usuario_actual_id = user_id
@@ -720,7 +733,8 @@ class UserManagementUI(BaseWindow):
     def guardar_cambios_usuario(self):
 
         if not self.usuario_actual_id:
-            QMessageBox.warning(self, "Error", "Primero busque un usuario")
+            ClassicMsgBox.warning("Accion Obligatoria", "Primero busque un usuario")
+            #QMessageBox.warning(self, "Error", "Primero busque un usuario")
             return
 
         nombre = self.edit_nombre.text().strip()
@@ -732,7 +746,8 @@ class UserManagementUI(BaseWindow):
         es_admin = self.edit_rol.currentText() == "Administrador"
 
         if not nombre or not usuario or not email or not telefono:
-            QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
+            ClassicMsgBox.warning("Advertencia Accion Requerida", "Campos obligatorios vacíos")
+            #QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
             return
 
         payload = {
@@ -759,8 +774,8 @@ class UserManagementUI(BaseWindow):
             )
 
             if response.status_code == 200:
-
-                QMessageBox.information(self, "Éxito", "Usuario actualizado")
+                ClassicMsgBox.warning("Éxito", "Usuario actualizado")
+                #QMessageBox.information(self, "Éxito", "Usuario actualizado")
                 print("Usuario Actualizado con exito")
 
                 self.edit_current_password.clear()
@@ -774,15 +789,14 @@ class UserManagementUI(BaseWindow):
                 self.recargar_usuarios()
 
             else:
-                QMessageBox.warning(
-                    self,
-                    "Error",
-                    f"Error: {response.text}"
-                )
-                print(f"Error al guardar los cambios del usuario {response.text}")
+                ClassicMsgBox.warning("Error",f"Error: {response.text}")
+                #QMessageBox.warning(self,"Error",f"Error: {response.text}")
+                #print(f"Error al guardar los cambios del usuario {response.text}")
 
         except requests.RequestException as e:
-            QMessageBox.critical(self, "Error", str(e))
+            ClassicMsgBox.warning("Error", str(e))
+            print("Error", str(e))
+            #QMessageBox.critical(self, "Error", str(e))
     
 
     # ================== cargar empleados ==================
@@ -856,13 +870,15 @@ class UserManagementUI(BaseWindow):
         user_id = self.search_bar_del.combo.currentData()
 
         if not user_id:
-            QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
+            ClassicMsgBox.warning("Advertencia, Accion Requerida", "Seleccione un usuario")
+            #QMessageBox.warning(self, "Aviso", "Seleccione un usuario")
             return
 
         data = obtener_informacion_del_usuario(user_id)
 
         if not data:
-            QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
+            ClassicMsgBox.warning("Error", "No se pudo cargar el usuario")
+            #QMessageBox.critical(self, "Error", "No se pudo cargar el usuario")
             return
 
         self.usuario_actual_id = user_id
@@ -875,7 +891,8 @@ class UserManagementUI(BaseWindow):
     def inhabilitar_usuario(self):
 
         if not self.usuario_actual_id:
-            QMessageBox.warning(self, "Error", "Primero busque un usuario")
+            ClassicMsgBox.warning("Adverencia", "Primero busque un usuario")
+            #QMessageBox.warning(self, "Error", "Primero busque un usuario")
             return
 
 
@@ -890,9 +907,9 @@ class UserManagementUI(BaseWindow):
             )
 
             if response.status_code == 200:
-
-                QMessageBox.information(self, "Éxito", "Usuario Desactivado")
-                print("Usuario Desactivado con exito")
+                ClassicMsgBox.warning("Éxito", "Usuario Desactivado")
+                #QMessageBox.information(self, "Éxito", "Usuario Desactivado")
+                #print("Usuario Desactivado con exito")
 
                 # Recargar lista
                 self.user_info.clear()
@@ -901,15 +918,14 @@ class UserManagementUI(BaseWindow):
                 self.recargar_usuarios()
 
             else:
-                QMessageBox.warning(
-                    self,
-                    "Error",
-                    f"Error: {response.text}"
-                )
+                ClassicMsgBox.warning("Error",f"Error al Eliminar el usuario")
+                #QMessageBox.warning(self,"Error",f"Error: {response.text}")
                 print(f"Error al Desactivar usuario: {response.text}")
 
         except requests.RequestException as e:
-            QMessageBox.critical(self, "Error", str(e))
+            #ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
+            #QMessageBox.critical(self, "Error", str(e))
+            print(f"error", str(e))
     
     #================== Recargar usuarios despues de crear,actualizar o inhabilitar ====================
     def recargar_usuarios(self):
