@@ -1,18 +1,15 @@
 # src/utils/updater.py
 import os
 import sys
+import re
 import subprocess
 import requests
 from packaging import version as pkg_version
 
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QProgressBar,
+    QDialog, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QProgressBar,
 )
 
 from src.Config.version import CURRENT_VERSION
@@ -20,12 +17,12 @@ from Config import Global
 
 
 # ============================================================
-# HILO DE DESCARGA — descarga el instalador en segundo plano
+# HILO DE DESCARGA
 # ============================================================
 class DescargaThread(QThread):
-    progreso = pyqtSignal(int)  # 0-100
-    completado = pyqtSignal(str)  # ruta del archivo descargado
-    error = pyqtSignal(str)  # mensaje de error
+    progreso = pyqtSignal(int)
+    completado = pyqtSignal(str)
+    error = pyqtSignal(str)
 
     def __init__(self, url):
         super().__init__()
@@ -33,14 +30,28 @@ class DescargaThread(QThread):
 
     def run(self):
         try:
-            # Guardar el instalador en la carpeta temporal del sistema
             temp_dir = os.environ.get("TEMP", os.path.expanduser("~"))
             installer_path = os.path.join(temp_dir, "Installer_Gestorex.exe")
 
-            response = requests.get(self.url, stream=True, timeout=60)
+            session = requests.Session()
+            response = session.get(self.url, stream=True, timeout=60)
             response.raise_for_status()
 
-            # Obtener tamaño total para la barra de progreso
+            # Detectar si Drive devolvió página HTML de confirmación
+            content_type = response.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                html = response.text
+                match = re.search(
+                    r'href="(/uc\?export=download[^"]+confirm=[^"]+)"', html
+                )
+                if match:
+                    confirm_url = "https://drive.google.com" + match.group(1).replace("&amp;", "&")
+                    response = session.get(confirm_url, stream=True, timeout=60)
+                    response.raise_for_status()
+                else:
+                    self.error.emit("No se pudo obtener el link de descarga de Google Drive.")
+                    return
+
             total = int(response.headers.get("content-length", 0))
             descargado = 0
 
@@ -53,7 +64,18 @@ class DescargaThread(QThread):
                             porcentaje = int((descargado / total) * 100)
                             self.progreso.emit(porcentaje)
 
+            # Verificar que es un .exe válido
+            with open(installer_path, "rb") as f:
+                header = f.read(2)
+                if header != b"MZ":
+                    self.error.emit(
+                        "El archivo descargado no es válido.\n"
+                        "Intenta descargar manualmente desde Google Drive."
+                    )
+                    return
+
             self.completado.emit(installer_path)
+
         except requests.exceptions.Timeout:
             self.error.emit("La descarga tardó demasiado. Intenta de nuevo.")
         except requests.exceptions.ConnectionError:
@@ -63,10 +85,8 @@ class DescargaThread(QThread):
 
 
 # ============================================================
-# DIÁLOGO DE ACTUALIZACIÓN — con barra de progreso
+# DIÁLOGO DE ACTUALIZACIÓN
 # ============================================================
-
-
 class DialogoActualizacion(QDialog):
     def __init__(self, version_nueva, url_descarga, parent=None):
         super().__init__(parent)
@@ -76,9 +96,7 @@ class DialogoActualizacion(QDialog):
         self.setFixedWidth(440)
         self.setModal(True)
 
-        # ── Estilo del diálogo ──
-        self.setStyleSheet(
-            """
+        self.setStyleSheet("""
             QDialog {
                 background-color: #f5f5f5;
                 border: 1px solid #ddd;
@@ -119,14 +137,12 @@ class DialogoActualizacion(QDialog):
                 background-color: #2196F3;
                 border-radius: 4px;
             }
-        """
-        )
+        """)
 
         self.layout_principal = QVBoxLayout()
         self.layout_principal.setSpacing(15)
         self.layout_principal.setContentsMargins(25, 25, 25, 20)
 
-        # ── Mensaje inicial ──
         self.label = QLabel(
             f"🎉 Nueva versión disponible: <b>v{version_nueva}</b><br><br>"
             f"Versión instalada: v{CURRENT_VERSION}<br><br>"
@@ -136,7 +152,6 @@ class DialogoActualizacion(QDialog):
         self.label.setAlignment(Qt.AlignLeft)
         self.layout_principal.addWidget(self.label)
 
-        # ── Barra de progreso (oculta al inicio) ──
         self.barra = QProgressBar()
         self.barra.setRange(0, 100)
         self.barra.setValue(0)
@@ -144,13 +159,11 @@ class DialogoActualizacion(QDialog):
         self.barra.hide()
         self.layout_principal.addWidget(self.barra)
 
-        # ── Label de estado (oculto al inicio) ──
         self.label_estado = QLabel("")
         self.label_estado.setAlignment(Qt.AlignCenter)
         self.label_estado.hide()
         self.layout_principal.addWidget(self.label_estado)
 
-        # ── Botones ──
         self.botones_layout = QHBoxLayout()
 
         self.btn_descargar = QPushButton("⬇ Descargar e instalar")
@@ -169,12 +182,9 @@ class DialogoActualizacion(QDialog):
         self.setLayout(self.layout_principal)
 
     def iniciar_descarga(self):
-        # Deshabilitar botones durante la descarga
         self.btn_descargar.setEnabled(False)
         self.btn_despues.setEnabled(False)
         self.btn_descargar.setText("Descargando...")
-
-        # Mostrar barra y estado
         self.barra.show()
         self.label_estado.show()
         self.label_estado.setText("Iniciando descarga...")
@@ -183,7 +193,6 @@ class DialogoActualizacion(QDialog):
             f"Por favor no cierres la aplicación."
         )
 
-        # Iniciar hilo de descarga
         self.hilo_descarga = DescargaThread(self.url_descarga)
         self.hilo_descarga.progreso.connect(self.actualizar_progreso)
         self.hilo_descarga.completado.connect(self.descarga_completa)
@@ -204,8 +213,6 @@ class DialogoActualizacion(QDialog):
         self.label_estado.setText("¡Listo!")
         self.btn_despues.setText("Cerrar")
         self.btn_despues.setEnabled(True)
-
-        # Ejecutar el instalador y cerrar la app
         self._ejecutar_instalador(ruta_installer)
 
     def descarga_error(self, mensaje):
@@ -218,15 +225,11 @@ class DialogoActualizacion(QDialog):
 
     def _ejecutar_instalador(self, ruta):
         try:
-            # Eliminar la marca de "descargado de internet" que activa SmartScreen
-            import subprocess
+            # Eliminar marca de "descargado de internet"
             subprocess.run(
-                ["powershell", "-Command",
-                f"Unblock-File -Path '{ruta}'"],
+                ["powershell", "-Command", f"Unblock-File -Path '{ruta}'"],
                 capture_output=True
             )
-
-            # Ejecutar el instalador
             subprocess.Popen(
                 [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
                 creationflags=subprocess.DETACHED_PROCESS
@@ -244,63 +247,27 @@ class DialogoActualizacion(QDialog):
 class VerificadorThread(QThread):
     hay_actualizacion = pyqtSignal(str, str)
 
-def run(self):
-    try:
-        temp_dir = os.environ.get("TEMP", os.path.expanduser("~"))
-        installer_path = os.path.join(temp_dir, "Installer_Gestorex.exe")
-
-        session = requests.Session()
-
-        # Primera petición
-        response = session.get(self.url, stream=True, timeout=60)
-        response.raise_for_status()
-
-        # ── Detectar si Drive devolvió página de confirmación ──
-        content_type = response.headers.get("Content-Type", "")
-        if "text/html" in content_type:
-            # Extraer el link de confirmación real de la página
-            html = response.text
-            import re
-            match = re.search(r'href="(/uc\?export=download[^"]+confirm=[^"]+)"', html)
-            if match:
-                confirm_url = "https://drive.google.com" + match.group(1).replace("&amp;", "&")
-                response = session.get(confirm_url, stream=True, timeout=60)
-                response.raise_for_status()
-            else:
-                self.error.emit("No se pudo obtener el link de descarga de Google Drive.")
+    def run(self):                          # ← dentro de la clase ✅
+        try:
+            api_url = Global.BACKEND_URL
+            if not api_url:
                 return
 
-        # Obtener tamaño total
-        total = int(response.headers.get("content-length", 0))
-        descargado = 0
+            response = requests.get(
+                f"{api_url}/config/version",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        with open(installer_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    descargado += len(chunk)
-                    if total > 0:
-                        porcentaje = int((descargado / total) * 100)
-                        self.progreso.emit(porcentaje)
+            version_servidor = data.get("version", "0.0.0")
+            url_descarga = data.get("url", "")
 
-        # ── Verificar que el archivo descargado es un .exe válido ──
-        with open(installer_path, "rb") as f:
-            header = f.read(2)
-            if header != b"MZ":  # Todo .exe válido empieza con "MZ"
-                self.error.emit(
-                    "El archivo descargado no es válido.\n"
-                    "Intenta descargar manualmente desde Google Drive."
-                )
-                return
+            if pkg_version.parse(version_servidor) > pkg_version.parse(CURRENT_VERSION):
+                self.hay_actualizacion.emit(version_servidor, url_descarga)
 
-        self.completado.emit(installer_path)
-
-    except requests.exceptions.Timeout:
-        self.error.emit("La descarga tardó demasiado. Intenta de nuevo.")
-    except requests.exceptions.ConnectionError:
-        self.error.emit("Sin conexión a internet.")
-    except Exception as e:
-        self.error.emit(f"Error al descargar: {str(e)}")
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -311,7 +278,9 @@ def verificar_actualizacion_async(parent_widget):
 
     def mostrar_dialogo(version_nueva, url_descarga):
         dialogo = DialogoActualizacion(
-            version_nueva=version_nueva, url_descarga=url_descarga, parent=parent_widget
+            version_nueva=version_nueva,
+            url_descarga=url_descarga,
+            parent=parent_widget
         )
         dialogo.exec_()
 
