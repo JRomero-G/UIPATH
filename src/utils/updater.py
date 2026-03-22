@@ -219,12 +219,22 @@ class DialogoActualizacion(QDialog):
     def _ejecutar_instalador(self, ruta):
         """Lanza el instalador y cierra la app actual"""
         try:
+            import ctypes
+            # Solicita permisos de administrador — abre el diálogo de UAC
             # /SILENT hace la instalación sin mostrar el wizard completo
             # /CLOSEAPPLICATIONS cierra la app si está abierta
-            subprocess.Popen(
-                [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
-                creationflags=subprocess.DETACHED_PROCESS,
+            # /RESTARTAPPLICATIONS reinicia la aplicacion
+            result = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",        # ← ejecutar como administrador
+                ruta,
+                "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+                None,
+                1
             )
+            if result <= 32:  # ShellExecute retorna >32 si tuvo éxito
+                self.label.setText("❌ No se pudo ejecutar el instalador.")
+                return
         except Exception as e:
             self.label.setText(f"❌ No se pudo abrir el instalador: {str(e)}")
             return
