@@ -8,5 +8,5 @@ router = APIRouter(prefix="/config", tags=["Configuración"])
 def get_version():
     return {
         "version": CURRENT_VERSION,
-        "url": "https://drive.google.com/uc?export=download&id=1oW-a486Cd2E2jnvge10LLwYGIV7pde87&confirm=t"
+        "url": "https://github.com/TU_USUARIO/TU_REPO/releases/download/v1.0.7/Installer_Gestorex_v1.0.7.exe"
     }

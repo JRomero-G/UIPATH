@@ -33,24 +33,20 @@ class DescargaThread(QThread):
             temp_dir = os.environ.get("TEMP", os.path.expanduser("~"))
             installer_path = os.path.join(temp_dir, "Installer_Gestorex.exe")
 
-            session = requests.Session()
-            response = session.get(self.url, stream=True, timeout=60)
-            response.raise_for_status()
+            github_token = Global.GITHUB_KEY
+            headers = {}
+            if github_token:
+                headers["Authorization"] = f"token {github_token}"
+                headers["Accept"] = "application/octet-stream"
 
-            # Detectar si Drive devolvió página HTML de confirmación
-            content_type = response.headers.get("Content-Type", "")
-            if "text/html" in content_type:
-                html = response.text
-                match = re.search(
-                    r'href="(/uc\?export=download[^"]+confirm=[^"]+)"', html
-                )
-                if match:
-                    confirm_url = "https://drive.google.com" + match.group(1).replace("&amp;", "&")
-                    response = session.get(confirm_url, stream=True, timeout=60)
-                    response.raise_for_status()
-                else:
-                    self.error.emit("No se pudo obtener el link de descarga de Google Drive.")
-                    return
+            response = requests.get(
+                self.url,
+                headers=headers,
+                stream=True,
+                timeout=60,
+                allow_redirects=True
+            )
+            response.raise_for_status()
 
             total = int(response.headers.get("content-length", 0))
             descargado = 0
@@ -64,14 +60,10 @@ class DescargaThread(QThread):
                             porcentaje = int((descargado / total) * 100)
                             self.progreso.emit(porcentaje)
 
-            # Verificar que es un .exe válido
+            # Verificar que es .exe válido
             with open(installer_path, "rb") as f:
-                header = f.read(2)
-                if header != b"MZ":
-                    self.error.emit(
-                        "El archivo descargado no es válido.\n"
-                        "Intenta descargar manualmente desde Google Drive."
-                    )
+                if f.read(2) != b"MZ":
+                    self.error.emit("El archivo descargado no es válido.")
                     return
 
             self.completado.emit(installer_path)
@@ -225,16 +217,32 @@ class DialogoActualizacion(QDialog):
 
     def _ejecutar_instalador(self, ruta):
         try:
-            # Eliminar marca de "descargado de internet"
-            subprocess.run(
+            # ← AGREGAR ESTOS PRINTS TEMPORALES
+            print(f"[INSTALADOR] Ruta: {ruta}")
+            print(f"[INSTALADOR] Existe: {os.path.exists(ruta)}")
+            print(f"[INSTALADOR] Tamaño: {os.path.getsize(ruta)} bytes")
+
+            # Verificar header MZ
+            with open(ruta, "rb") as f:
+                header = f.read(2)
+            print(f"[INSTALADOR] Header: {header}")
+            print(f"[INSTALADOR] Es .exe válido: {header == b'MZ'}")
+
+            # Unblock
+            resultado_unblock = subprocess.run(
                 ["powershell", "-Command", f"Unblock-File -Path '{ruta}'"],
-                capture_output=True
+                capture_output=True,
+                text=True
             )
+            print(f"[INSTALADOR] Unblock stdout: {resultado_unblock.stdout}")
+            print(f"[INSTALADOR] Unblock stderr: {resultado_unblock.stderr}")
+
             subprocess.Popen(
                 [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
                 creationflags=subprocess.DETACHED_PROCESS
             )
         except Exception as e:
+            print(f"[INSTALADOR] ERROR: {str(e)}")
             self.label.setText(f"❌ No se pudo abrir el instalador: {str(e)}")
             return
 

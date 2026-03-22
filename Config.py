@@ -17,6 +17,7 @@ class Global:
     ALGORITHM = os.getenv("ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
     MAX_PASSWORD_BYTES = os.getenv("MAX_PASSWORD_BYTES")
+    GITHUB_KEY = os.getenv("GITHUB_KEY")
     
 # NECESARIO INSTALAR: pip install pyinstaller
 
