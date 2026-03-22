@@ -13,9 +13,10 @@ from UI.components.table_scroll_style import apply_table_scrollbar_style
 from UI.components.base_window import BaseWindow
 from UI.components.btns_windows import WindowButtons
 from Config import Global
+import requests
+from UI.config import get_session
 from src.Config.version import CURRENT_VERSION
-
-
+from UI.components.classic_msgbox import ClassicMsgBox
 class WorkspaceUserREUI(BaseWindow):
     def __init__(self):
         super().__init__()
@@ -76,12 +77,10 @@ class WorkspaceUserREUI(BaseWindow):
 
         # ================== TABLA ==================
         # ✅ MOD: columna de check agregada antes de NIC
-        self.table = QTableWidget(0, 4)
+        # Por esta:
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels([
-            "",  # Check
-            "NIC",
-            "Resumen",
-            "Documento de contratación"
+            "", "NIC", "Resumen", "Fecha límite", "Documento de contratación"
         ])
 
         self.table.setWordWrap(True)
@@ -92,10 +91,10 @@ class WorkspaceUserREUI(BaseWindow):
         # ✅ MOD: configuración de ancho fijo para la columna check
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 32)
-
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -121,7 +120,7 @@ class WorkspaceUserREUI(BaseWindow):
             }
         """)
 
-        self.load_demo_data()
+        self.Cargar_Datos()
         main_layout.addWidget(self.table)
         apply_table_scrollbar_style(self.table) 
 
@@ -231,7 +230,7 @@ class WorkspaceUserREUI(BaseWindow):
         return btn
 
     # ================== DOCUMENTOS ==================
-    def document_links(self, bg_color, row_index):
+    def document_links(self, bg_color, row_index, nic=""):
         # ✅ MOD: reemplazo de 2 links por 1 solo botón "Revisión de Documentos"
         container = QWidget()
         container.setStyleSheet(f"background-color: {bg_color};")
@@ -241,7 +240,7 @@ class WorkspaceUserREUI(BaseWindow):
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignCenter)
 
-        btn = QPushButton("📁  Revisión de Documentos")
+        btn = QPushButton("📁  Revisar los Documentos")
         btn.setCursor(Qt.PointingHandCursor)
         btn.setStyleSheet("""
             QPushButton {
@@ -257,56 +256,113 @@ class WorkspaceUserREUI(BaseWindow):
                 text-decoration: underline;
             }
         """)
-
         # ✅ MOD: al click, marca el check SOLO de esa fila
-        btn.clicked.connect(lambda: self.mark_row_checked(row_index))
-
+        btn.clicked.connect(lambda checked, n=nic: self.abrir_carpeta(n))
         layout.addWidget(btn)
         return container
 
+    def abrir_carpeta(self, nic):
+        """Abre o crea una carpeta con el nombre del NIC"""
+        import subprocess
+        from pathlib import Path
+
+        # Carpeta base donde se guardan los documentos
+        # Puedes cambiar esta ruta según tu necesidad
+        # Ruta donde la IA guarda los documentos
+        carpeta_nic = Path.home() / "Documents" / "Documentos de Contratación" / nic
+        
+        # Crear la carpeta si no existe
+        #carpeta_nic.mkdir(parents=True, exist_ok=True)
+
+        # Abrir la carpeta en el explorador de Windows
+        # ejemplo: Documentos/Gestorex/Proformas/NIC:05601970001-2026-00001/
+
+        if carpeta_nic.exists():
+            subprocess.Popen(f'explorer "{carpeta_nic}"')
+        else:
+            ClassicMsgBox.warning(
+                "Carpeta no encontrada",
+                f"No se encontró la carpeta de documentos para:\n{nic}\n\n"
+                "Es posible que la IA aún no haya procesado esta ínfima."
+            )
+
     # ================== DATOS ==================
-    def load_demo_data(self):
-        data = [
-            ("NIC:05601970001-2026-00001", "Equipo tecnológico especializado"),
-            ("NIC:05601970001-2026-00002", "Materiales de construcción"),
-            ("NIC:1160020493001-2026-00001", "Material educativo"),
-        ]
+    def Cargar_Datos(self):
+        try:
+            session_data = get_session()
+            token = session_data.get("token") if session_data else None
 
-        # ✅ MOD: evitar que itemChanged se dispare mientras llenamos la tabla
+            response = requests.get(
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-finalizada-de-empleados",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=15
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.exceptions.ConnectionError:
+            ClassicMsgBox.critical("Error", "No se pudo conectar al servidor.")
+            return
+        except requests.exceptions.Timeout:
+            ClassicMsgBox.critical("Error", "El servidor tardó demasiado en responder.")
+            return
+        except Exception as e:
+            ClassicMsgBox.critical("Error", f"Error al cargar datos: {str(e)}")
+            return
+
         self.table.blockSignals(True)
-
         self.table.setRowCount(len(data))
 
         for row, item in enumerate(data):
             row_color = QColor(150, 215, 175)
 
-            # ✅ MOD: Col 0: Check (agregado)
+            # Col 0 — Check
             check_item = QTableWidgetItem()
             check_item.setCheckState(Qt.Unchecked)
             check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             check_item.setBackground(row_color)
-            check_item.setForeground(QColor(0, 0, 0))
             self.table.setItem(row, 0, check_item)
 
-            # Col 1: NIC
-            nic_item = QTableWidgetItem(item[0])
+            # Col 1 — NIC
+            nic = item.get("codigo_necesidad", "")
+            nic_item = QTableWidgetItem(nic)
             nic_item.setFlags(Qt.ItemIsEnabled)
             nic_item.setBackground(row_color)
             nic_item.setForeground(QColor(0, 0, 0))
             self.table.setItem(row, 1, nic_item)
 
-            # Col 2: Resumen
-            resumen_item = QTableWidgetItem(item[1])
-            resumen_item.setFlags(Qt.ItemIsEnabled)
-            resumen_item.setBackground(row_color)
-            resumen_item.setForeground(QColor(0, 0, 0))
-            self.table.setItem(row, 2, resumen_item)
+            # Col 2 — Descripción
+            desc_item = QTableWidgetItem(item.get("descripcion_objeto_compra", ""))
+            desc_item.setFlags(Qt.ItemIsEnabled)
+            desc_item.setBackground(row_color)
+            desc_item.setForeground(QColor(0, 0, 0))
+            self.table.setItem(row, 2, desc_item)
 
-            # Col 3: Documento (1 botón)
-            self.table.setCellWidget(row, 3, self.document_links(row_color.name(), row))
+            # Col 3 — Fecha límite
+            fecha = item.get("fecha_limite_proformas", "")
+            if fecha:
+                # Formatear fecha: 2026-03-21 → 21/03/2026
+                try:
+                    from datetime import datetime
+                    fecha = datetime.strptime(fecha[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                except:
+                    pass
+            fecha_item = QTableWidgetItem(fecha)
+            fecha_item.setFlags(Qt.ItemIsEnabled)
+            fecha_item.setTextAlignment(Qt.AlignCenter)
+            fecha_item.setBackground(row_color)
+            fecha_item.setForeground(QColor(0, 0, 0))
+            self.table.setItem(row, 3, fecha_item)
 
-        self.table.blockSignals(False)  # ✅ MOD
+            # Col 4 — Botón documentos (abre carpeta con nombre del NIC)
+            self.table.setCellWidget(row, 4, self.document_links(row_color.name(), row, nic))
 
+        self.table.blockSignals(False)
+        self.update_send_button_state()
+        
     # ================== ✅ MOD: CHECK LOGIC (OPCIÓN B) ==================
     def mark_row_checked(self, row_index):
         """✅ MOD: Marca el check de una fila cuando se presiona 'Revisión de Documentos'."""
