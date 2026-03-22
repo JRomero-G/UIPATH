@@ -239,31 +239,63 @@ class DialogoActualizacion(QDialog):
 class VerificadorThread(QThread):
     hay_actualizacion = pyqtSignal(str, str)
 
-    def run(self):
-        try:
+def run(self):
+    try:
+        temp_dir = os.environ.get("TEMP", os.path.expanduser("~"))
+        installer_path = os.path.join(temp_dir, "Installer_Gestorex.exe")
 
-            api_url = Global.BACKEND_URL
-            #print(f"[UPDATER] URL: {api_url}")
-            if not api_url:
-                print("[UPDATER] ERROR: api_url está vacío")
+        session = requests.Session()
+
+        # Primera petición
+        response = session.get(self.url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        # ── Detectar si Drive devolvió página de confirmación ──
+        content_type = response.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            # Extraer el link de confirmación real de la página
+            html = response.text
+            import re
+            match = re.search(r'href="(/uc\?export=download[^"]+confirm=[^"]+)"', html)
+            if match:
+                confirm_url = "https://drive.google.com" + match.group(1).replace("&amp;", "&")
+                response = session.get(confirm_url, stream=True, timeout=60)
+                response.raise_for_status()
+            else:
+                self.error.emit("No se pudo obtener el link de descarga de Google Drive.")
                 return
 
-            response = requests.get(f"{api_url}/config/version", timeout=10)
+        # Obtener tamaño total
+        total = int(response.headers.get("content-length", 0))
+        descargado = 0
 
-            # print(f"[UPDATER] Status: {response.status_code}")
-            response.raise_for_status()
-            data = response.json()
+        with open(installer_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    descargado += len(chunk)
+                    if total > 0:
+                        porcentaje = int((descargado / total) * 100)
+                        self.progreso.emit(porcentaje)
 
-            version_servidor = data.get("version", "0.0.0")
-            url_descarga = data.get("url", "")
-            # print(f"[UPDATER] Respuesta: {data}")
-            # print(f"VERSION DEL SERVIDOR: {version_servidor} - VERSION LOCAL: {CURRENT_VERSION}" )
+        # ── Verificar que el archivo descargado es un .exe válido ──
+        with open(installer_path, "rb") as f:
+            header = f.read(2)
+            if header != b"MZ":  # Todo .exe válido empieza con "MZ"
+                self.error.emit(
+                    "El archivo descargado no es válido.\n"
+                    "Intenta descargar manualmente desde Google Drive."
+                )
+                return
 
-            if pkg_version.parse(version_servidor) > pkg_version.parse(CURRENT_VERSION):
-                self.hay_actualizacion.emit(version_servidor, url_descarga)
+        self.completado.emit(installer_path)
 
-        except Exception as e:
-            print(f"[UPDATER] ERROR: {str(e)}")
+    except requests.exceptions.Timeout:
+        self.error.emit("La descarga tardó demasiado. Intenta de nuevo.")
+    except requests.exceptions.ConnectionError:
+        self.error.emit("Sin conexión a internet.")
+    except Exception as e:
+        self.error.emit(f"Error al descargar: {str(e)}")
 
 
 # ============================================================
