@@ -11,6 +11,5 @@ def get_version():
         # Esta url se actualiza dependiendo de la release publicada
         # v1.0.7 → Release v1.0.7 → URL .../v1.0.7/Installer_Gestorex_v1.0.7.exe
         # v1.0.8 → Release v1.0.8 → URL .../v1.0.8/Installer_Gestorex_v1.0.8.exe -> para futura version
-        "url": "https://github.com/mmedinafv/UIPATH/releases/download/v1.0.7/Installer_Gestorex_v1.0.7.exe"
-        
+        "url": "https://github.com/mmedinafv/UIPATH/releases/download/v1.0.8/Installer_Gestorex_v1.0.8.exe"   
     }
