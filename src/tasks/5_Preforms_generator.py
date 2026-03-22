@@ -22,7 +22,7 @@ MYSQL_CONFIG = {
 GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
 BUCKET_NAME             = "nexusbucket1"
 BUCKET_FOLDER           = "Documentos de Contratación"
-AI_MODEL                = "gemini-2.5-pro-preview-03-25"   # mejor razonamiento multimodal
+AI_MODEL                = "gemini-2.5-pro"   # mejor razonamiento multimodal
 
 # Plantillas (misma carpeta que el script o path relativo)
 SCRIPT_DIR     = Path(__file__).parent
@@ -590,6 +590,7 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
     import openpyxl
     from openpyxl.drawing.image import Image as XlImage
     from openpyxl.styles import Alignment
+    from openpyxl.utils import get_column_letter
     from copy import copy as obj_copy
 
     codigo      = registro_bd["codigo_necesidad"]
@@ -629,9 +630,24 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
         hoja_cot = wb.worksheets[0]
 
     def escribir_celda(ws, ref, valor):
-        """Escribe valor preservando el estilo actual de la celda."""
-        celda = ws[ref]
-        celda.value = valor
+        """
+        Escribe valor en la celda indicada.
+        Si la celda pertenece a un rango fusionado, redirige la escritura
+        a la celda superior-izquierda de dicho rango (que sí admite .value).
+        """
+        from openpyxl.utils import get_column_letter, column_index_from_string
+        import re as _re
+
+        # Comprobar si ref cae dentro de algún rango fusionado
+        for merged_range in ws.merged_cells.ranges:
+            if ref in merged_range:
+                # Escribir en la celda ancla del rango fusionado
+                anchor = f"{get_column_letter(merged_range.min_col)}{merged_range.min_row}"
+                ws[anchor].value = valor
+                return
+
+        # Celda normal: escritura directa
+        ws[ref].value = valor
 
     escribir_celda(hoja_cot, "B8",  entidad)
     escribir_celda(hoja_cot, "B9",  ruc_ish)
@@ -682,6 +698,61 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 9 – VERIFICACIÓN EN BUCKET Y ACTUALIZACIÓN DE BD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def verificar_blobs_en_bucket(gcs_client, blob_docx, blob_xlsx):
+    """
+    Comprueba que los dos blobs (rutas dentro del bucket) existan y tengan
+    tamaño mayor a cero.  Devuelve (ok_docx, ok_xlsx).
+    """
+    bucket = gcs_client.bucket(BUCKET_NAME)
+
+    def existe_y_valido(blob_name):
+        blob = bucket.blob(blob_name)
+        blob.reload()          # Refresca metadatos desde GCS
+        return blob.exists() and (blob.size or 0) > 0
+
+    ok_docx = ok_xlsx = False
+    try:
+        ok_docx = existe_y_valido(blob_docx)
+    except Exception as e:
+        log(f"  No se pudo verificar ficha técnica en bucket: {e}", "WARN")
+    try:
+        ok_xlsx = existe_y_valido(blob_xlsx)
+    except Exception as e:
+        log(f"  No se pudo verificar proforma en bucket: {e}", "WARN")
+
+    return ok_docx, ok_xlsx
+
+
+def actualizar_etapa_bd(codigo_necesidad):
+    """
+    Actualiza la etapa del registro correspondiente de 'en generacion'
+    a 'finalizada' en la tabla infimas.
+    """
+    import mysql.connector
+    conn   = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    query  = """
+        UPDATE infimas
+        SET etapa = 'finalizada'
+        WHERE codigo_necesidad = %s
+          AND LOWER(etapa) = 'en generacion'
+    """
+    cursor.execute(query, (codigo_necesidad,))
+    filas  = cursor.rowcount
+    conn.commit()
+    cursor.close()
+    conn.close()
+    if filas:
+        log(f"  BD actualizada: {codigo_necesidad} → 'finalizada'", "OK")
+    else:
+        log(f"  No se actualizó ningún registro para {codigo_necesidad} "
+            f"(¿ya estaba en otro estado?).", "WARN")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  FUNCIÓN PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -691,14 +762,14 @@ def main():
     print("═"*60 + "\n")
 
     # ── 1. Base de datos ─────────────────────────────────────────
-    paso(1, 8, "Obteniendo registros de la BD MySQL")
+    paso(1, 9, "Obteniendo registros de la BD MySQL")
     data_table_1 = obtener_data_table_1()
     if not data_table_1:
         log("No hay registros 'en generacion'. Fin.", "WARN")
         return
 
     # ── 2. Clientes GCS y VertexAI ───────────────────────────────
-    paso(2, 8, "Inicializando clientes GCS y VertexAI")
+    paso(2, 9, "Inicializando clientes GCS y VertexAI")
     gcs_client = obtener_cliente_gcs()
     modelo_ai  = inicializar_vertex_ai()
 
@@ -720,7 +791,7 @@ def main():
 
         try:
             # ── 3. Obtener y analizar documentos del bucket ───────
-            paso(3, 8, f"Descargando y analizando documentos — {codigo}")
+            paso(3, 9, f"Descargando y analizando documentos — {codigo}")
             blobs = listar_docs_necesidad(gcs_client, codigo)
             if not blobs:
                 log(f"Sin documentos en bucket para {codigo}. Saltando.", "WARN")
@@ -753,33 +824,53 @@ def main():
                 f"| Modelo: {info_principal.get('modelo','')}", "OK")
 
             # ── 4. Buscar producto en proveedores ─────────────────
-            paso(4, 8, f"Buscando producto en proveedores — {codigo}")
+            paso(4, 9, f"Buscando producto en proveedores — {codigo}")
             resultado_busqueda = buscar_producto_en_proveedores(modelo_ai, info_principal)
 
             # ── 5. Generar ficha técnica .docx ────────────────────
-            paso(5, 8, f"Generando ficha técnica .docx — {codigo}")
+            paso(5, 9, f"Generando ficha técnica .docx — {codigo}")
             path_docx, path_img = generar_ficha_tecnica(
                 info_principal, resultado_busqueda, codigo, str(dir_necesidad)
             )
 
             # ── 6. Subir ficha técnica al bucket ──────────────────
-            paso(6, 8, f"Subiendo ficha técnica al bucket — {codigo}")
-            subir_archivo_a_bucket(gcs_client, path_docx, "Fichas Técnicas")
+            paso(6, 9, f"Subiendo ficha técnica al bucket — {codigo}")
+            blob_docx = subir_archivo_a_bucket(gcs_client, path_docx, "Fichas Técnicas")
 
             # ── Pausa de 60 segundos antes de generar la proforma ─
             log("  Esperando 60 segundos antes de generar la proforma…", "INFO")
             time.sleep(60)
 
             # ── 7. Generar proforma .xlsx ─────────────────────────
-            paso(7, 8, f"Generando proforma .xlsx — {codigo}")
+            paso(7, 9, f"Generando proforma .xlsx — {codigo}")
             path_xlsx = generar_proforma(
                 registro, info_principal, resultado_busqueda,
                 str(dir_necesidad), img_path=path_img
             )
 
             # ── 8. Subir proforma al bucket ───────────────────────
-            paso(8, 8, f"Subiendo proforma al bucket — {codigo}")
-            subir_archivo_a_bucket(gcs_client, path_xlsx, "Proformas")
+            paso(8, 9, f"Subiendo proforma al bucket — {codigo}")
+            blob_xlsx = subir_archivo_a_bucket(gcs_client, path_xlsx, "Proformas")
+
+            # ── 9. Verificar subidas y actualizar BD ──────────────
+            paso(9, 9, f"Verificando archivos en bucket y actualizando BD — {codigo}")
+            ok_docx, ok_xlsx = verificar_blobs_en_bucket(gcs_client, blob_docx, blob_xlsx)
+
+            if ok_docx and ok_xlsx:
+                log(f"  Ficha técnica en bucket: ✔", "OK")
+                log(f"  Proforma en bucket:      ✔", "OK")
+                actualizar_etapa_bd(codigo)
+            else:
+                msg_partes = []
+                if not ok_docx:
+                    msg_partes.append("ficha técnica no verificada en bucket")
+                    log(f"  Ficha técnica en bucket: ✗", "ERR")
+                if not ok_xlsx:
+                    msg_partes.append("proforma no verificada en bucket")
+                    log(f"  Proforma en bucket:      ✗", "ERR")
+                motivo = "; ".join(msg_partes)
+                log(f"  BD NO actualizada para {codigo}: {motivo}", "WARN")
+                errores.append(f"{codigo}: {motivo}")
 
             # Limpiar temporales de documentos
             for f in archivos_locales:
