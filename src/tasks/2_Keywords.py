@@ -38,7 +38,7 @@ def obtener_ruta_credenciales():
     """
 
     # PRODUCCIÓN (Render)
-    credentials_json = os.getenv("GEMINI_CREDENTIALS_JSON")
+    credentials_json = Global.RENDER_CRENDENTIALS_JSON
 
     if credentials_json:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:

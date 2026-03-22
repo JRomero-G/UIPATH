@@ -573,41 +573,50 @@ class UserManagementUI(BaseWindow):
         password = self.input_password.input.text()
         confirm_password = self.input_confirm_password.input.text()  # ← nuevo campo
         
-        # Valida telefono
+        # ── Vacíos ──────────────────────────────────────────────
         if not nombre:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el nombre del empleado.")
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el nombre del empleado.")
             return
-        
         if not usuario:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el usuario por asignar al empleado.")
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el usuario del empleado.")
             return
-        
         if not correo:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el correo del empleado.")
             return
-        
-                
-        if not correo:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el correo del empleado.")
-            return
-        
-        # Valida contraseñas 
-        if not password:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese una Contraseña para el usuario.")
-            return
-        
-        # Valida telefono 
         if not telefono:
-            ClassicMsgBox.warning("Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
-            #QMessageBox.warning(self, "Campo Obligatorio Vacio", "Ingrese el numero telefonico del empleado.")
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el teléfono del empleado.")
             return
-        
-        # Determina es_admin según el combobox
+        if not password:
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese una contraseña.")
+            return
+            
+        # ── Formato (usa el validador Qt ya configurado) ─────────
+        if not self.campo_es_valido(self.input_nombre):
+            ClassicMsgBox.warning("Nombre Inválido", "El nombre solo puede contener letras y espacios.")
+            return
+        if not self.campo_es_valido(self.input_usuario):
+            ClassicMsgBox.warning("Usuario Inválido", "El usuario no puede contener espacios.")
+            return
+        if not self.campo_es_valido(self.input_email):
+            ClassicMsgBox.warning("Correo Inválido", "Formato inválido.\nEjemplo: usuario@dominio.com")
+            return
+        if not self.campo_es_valido(self.input_telefono):
+            ClassicMsgBox.warning("Teléfono Inválido", "Solo se permiten números, + y -")
+            return
+        if not self.campo_es_valido(self.input_password.input):
+            ClassicMsgBox.warning(
+                "Contraseña Inválida",
+                "La contraseña debe tener mínimo 8 caracteres e incluir:\n"
+                "• Una mayúscula\n• Una minúscula\n• Un número\n"
+            )
+            return
+
+        # ── Confirmación de contraseña ───────────────────────────
+        if password != confirm_password:
+            ClassicMsgBox.warning("Contraseñas no coinciden", "La contraseña y su confirmación no son iguales.")
+            return
+
+            # Determina es_admin según el combobox
         rol = self.combo_rol.currentText()
         if rol == "Administrador":
             es_admin = True
@@ -617,16 +626,16 @@ class UserManagementUI(BaseWindow):
             ClassicMsgBox.warning("Error", "Debe seleccionar un rol.")
             #QMessageBox.warning(self, "Error", "Debe seleccionar un rol.")
             return
-        
+            
 
         # Llama a la función externa
         resultado = registrar_usuario(nombre, usuario,correo, password, es_admin,telefono)
 
         if "error" in resultado:
-            ClassicMsgBox.warning("Error", resultado["error"])
+            ClassicMsgBox.warning("Error", "No se registro al usuario")
             #QMessageBox.critical(self, "Error", resultado["error"])
         else:
-            ClassicMsgBox.warning("Éxito", resultado["success"])
+            ClassicMsgBox.warning("Éxito", "Se registro un nuevo usuario con exito")
             #QMessageBox.information(self, "Éxito", resultado["success"])
             # limpiamos los campos
             print("Se registro un nuevo usuario con exito")
@@ -733,23 +742,55 @@ class UserManagementUI(BaseWindow):
     def guardar_cambios_usuario(self):
 
         if not self.usuario_actual_id:
-            ClassicMsgBox.warning("Accion Obligatoria", "Primero busque un usuario")
-            #QMessageBox.warning(self, "Error", "Primero busque un usuario")
+            ClassicMsgBox.warning("Acción Obligatoria", "Primero busque un usuario.")
             return
 
-        nombre = self.edit_nombre.text().strip()
-        usuario = self.edit_usuario.text().strip()
-        email = self.edit_email.text().strip()
+        nombre   = self.edit_nombre.text().strip()
+        usuario  = self.edit_usuario.text().strip()
+        email    = self.edit_email.text().strip()
         telefono = self.edit_telefono.text().strip()
         password = self.edit_new_password.input.text().strip()
 
         es_admin = self.edit_rol.currentText() == "Administrador"
 
-        if not nombre or not usuario or not email or not telefono:
-            ClassicMsgBox.warning("Advertencia Accion Requerida", "Campos obligatorios vacíos")
-            #QMessageBox.warning(self, "Error", "Campos obligatorios vacíos")
+        # ── Vacíos ──────────────────────────────────────────────
+        if not nombre:
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el nombre del empleado.")
+            return
+        if not usuario:
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el usuario del empleado.")
+            return
+        if not email:
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el correo del empleado.")
+            return
+        if not telefono:
+            ClassicMsgBox.warning("Campo Vacío", "Ingrese el teléfono del empleado.")
             return
 
+        # ── Formato ──────────────────────────────────────────────
+        if not self.campo_es_valido(self.edit_nombre):
+            ClassicMsgBox.warning("Nombre Inválido", "El nombre solo puede contener letras y espacios.")
+            return
+        if not self.campo_es_valido(self.edit_usuario):
+            ClassicMsgBox.warning("Usuario Inválido", "El usuario no puede contener espacios.")
+            return
+        if not self.campo_es_valido(self.edit_email):
+            ClassicMsgBox.warning("Correo Inválido", "Formato inválido.\nEjemplo: usuario@dominio.com")
+            return
+        if not self.campo_es_valido(self.edit_telefono):
+            ClassicMsgBox.warning("Teléfono Inválido", "Solo se permiten números, + y -")
+            return
+
+        # ── Contraseña: solo se valida si el usuario escribió algo ──
+        if password and not self.campo_es_valido(self.edit_new_password.input):
+            ClassicMsgBox.warning(
+                "Contraseña Inválida",
+                "La contraseña debe tener mínimo 8 caracteres e incluir:\n"
+                "• Una mayúscula\n• Una minúscula\n• Un número\n• Un carácter especial (@$!%*?&#._-)"
+            )
+            return
+
+        # ── Payload ──────────────────────────────────────────────
         payload = {
             "nombre": nombre,
             "usuario": usuario,
@@ -757,11 +798,18 @@ class UserManagementUI(BaseWindow):
             "telefono": telefono,
             "es_admin": es_admin,
         }
-
-        # Solo enviar password si existe
         if password:
             payload["password"] = password
 
+        Confirmacion = ClassicMsgBox.question(
+            "Actualizar Informacion del Usuario",
+            "Actualizar datos de este usuario?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if Confirmacion != QMessageBox.Yes:
+            return
+
+        # ── Enviar a la API ──────────────────────────────────────
         try:
             response = requests.put(
                 f"{Global.BACKEND_URL}/usuarios/actualizar/{self.usuario_actual_id}",
@@ -774,30 +822,25 @@ class UserManagementUI(BaseWindow):
             )
 
             if response.status_code == 200:
-                ClassicMsgBox.warning("Éxito", "Usuario actualizado")
-                #QMessageBox.information(self, "Éxito", "Usuario actualizado")
-                print("Usuario Actualizado con exito")
-
-                self.edit_current_password.clear()
-                self.edit_new_password.clear()
+                ClassicMsgBox.warning("Éxito", "Usuario actualizado correctamente.")
+                self.edit_current_password.input.clear()
+                self.edit_new_password.input.clear()
                 self.edit_nombre.clear()
                 self.edit_usuario.clear()
                 self.edit_email.clear()
                 self.edit_telefono.clear()
                 self.edit_rol.setCurrentIndex(0)
-                # Recargar lista
+                self.usuario_actual_id = None  # ← resetea el ID tras guardar
                 self.recargar_usuarios()
-
             else:
-                ClassicMsgBox.warning("Error",f"Error: {response.text}")
-                #QMessageBox.warning(self,"Error",f"Error: {response.text}")
-                #print(f"Error al guardar los cambios del usuario {response.text}")
+                ClassicMsgBox.warning("Error del servidor", f"Error {response.status_code}:\n{response.text}")
 
+        except requests.exceptions.ConnectionError:
+            ClassicMsgBox.warning("Sin conexión", "No se pudo conectar al servidor.")
+        except requests.exceptions.Timeout:
+            ClassicMsgBox.warning("Tiempo agotado", "El servidor tardó demasiado en responder.")
         except requests.RequestException as e:
             ClassicMsgBox.warning("Error", str(e))
-            print("Error", str(e))
-            #QMessageBox.critical(self, "Error", str(e))
-    
 
     # ================== cargar empleados ==================
     def cargar_usuarios(self):
@@ -895,6 +938,14 @@ class UserManagementUI(BaseWindow):
             #QMessageBox.warning(self, "Error", "Primero busque un usuario")
             return
 
+        Confirmacion = ClassicMsgBox.question(
+            "Eliminar Usuario",
+            "Esta accion es irreversible desde este entorno, \n" 
+            "Quieres Eliminarlo?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if Confirmacion != QMessageBox.Yes:
+            return
 
         try:
             response = requests.put(
@@ -975,7 +1026,7 @@ class UserManagementUI(BaseWindow):
         # ================= PASSWORD =================
         # Min 8 chars, letras y números
         password_regex = QRegularExpression(
-            r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#._\-])[A-Za-z\d@$!%*?&#._\-]{8,}$"
+            r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&#._\-]{8,}$"
         )
         password_validator = QRegularExpressionValidator(password_regex)
 
@@ -996,6 +1047,15 @@ class UserManagementUI(BaseWindow):
 
         self.input_nombre.setValidator(nombre_validator)
 
+    def campo_es_valido(self, input_widget) -> bool:
+        """Verifica si el contenido del campo pasa completamente el validador."""
+        validator = input_widget.validator()
+        if validator is None:
+            return True  # Sin validador, se acepta
+        texto = input_widget.text()
+        state, _, _ = validator.validate(texto, 0)
+        # QValidator.State: 0=Invalid, 1=Intermediate, 2=Acceptable
+        return state == 2  # Solo acepta si es completamente válido
 
     # validaciones para modificacion
     def aplicar_validaciones_modificar(self):
@@ -1063,10 +1123,22 @@ def registrar_usuario(nombre, usuario, email, password, es_Admin, telefono):
             if response.status_code == 200:
                 print("Usuario registrado exitosamente.")
                 return {"success": "Usuario registrado exitosamente."}
+            else:
+                # ← FALTABA ESTE CASO: cualquier otro código HTTP
+                print(f"Error del servidor: {response.status_code} - {response.text}")
+                return {"error": f"Error del servidor: {response.status_code}"}
+
+        except requests.exceptions.ConnectionError:
+            return {"error": "No se pudo conectar al servidor."}
+        except requests.exceptions.Timeout:
+            return {"error": "La solicitud tardó demasiado (timeout)."}
+        except Exception as e:
+            # ← TAMBIÉN FALTABA: antes devolvías `response` que podría no existir
+            return {"error": f"Error inesperado: {str(e)}"}
             
 
         except Exception as e:
-            return print(f"Error al registrar usuario: {e}")
+            return response
 
 # ================= Desactivar Empleado =======================
 def eliminar_usuario(usuario_id):

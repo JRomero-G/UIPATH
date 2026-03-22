@@ -1,6 +1,6 @@
 ; instalador.iss
 #define AppName "Gestorex"
-#define AppVersion "1.0.8"
+#define AppVersion "1.0.7"
 #define AppPublisher "Nexus"
 #define AppURL "https://gestorex-desarrollo.onrender.com/"
 #define AppExeName "run.exe"
@@ -16,7 +16,7 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=D:\WEB\UIPATH\instalador_output
-OutputBaseFilename=Installer_Gestorex_v1.0.8
+OutputBaseFilename=Installer_Gestorex_v1.0.7
 SetupIconFile=D:\WEB\UIPATH\UI\assets\Logo_app.ico
 Compression=lzma
 SolidCompression=yes
@@ -44,17 +44,20 @@ Source: "D:\WEB\UIPATH\UI\assets\Logo_app.ico"; DestDir: "{app}"; Flags: ignorev
 
 [Icons]
 ; Acceso directo en el menú inicio
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"; IconIndex: 0;
 
 ; Acceso directo en escritorio (opcional, el usuario elige)
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"; IconIndex: 0; Tasks: desktopicon
 
 ; Desinstalar desde el menú inicio
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
+; Ejecutar la app automáticamente al terminar (sin preguntar)
+Filename: "{app}\{#AppExeName}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+
 ; Ofrecer ejecutar la app al terminar la instalación
-Filename: "{app}\{#AppExeName}"; Description: "Ejecutar {#AppName} ahora"; Flags: nowait postinstall skipifsilent
+;Filename: "{app}\{#AppExeName}"; Description: "Ejecutar {#AppName} ahora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/f /im {#AppExeName}"; Flags: runhidden

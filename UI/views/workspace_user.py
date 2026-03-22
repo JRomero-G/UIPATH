@@ -693,7 +693,8 @@ class WorkspaceUserUI(BaseWindow):
         # ====== PASO 1: CONFIRMAR ELIMINACIÓN (si hay) ======
         if self.eliminacion_pendiente:
             
-            confirm_eliminar = ClassicMsgBox.question("⚠️ Confirmar Eliminación",
+            confirm_eliminar = ClassicMsgBox.question(
+                "⚠️ Confirmar Eliminación",
                 f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n"
                 "Esta acción las quitará de tus asignaciones.",
                 QMessageBox.Yes | QMessageBox.No)
@@ -714,7 +715,8 @@ class WorkspaceUserUI(BaseWindow):
             
             
 
-            confirm_analizar = ClassicMsgBox.question("✅ Confirmar Análisis",
+            confirm_analizar = ClassicMsgBox.question(
+                "✅ Confirmar Análisis",
                 f"¿Marcar {len(self.Pendientes_de_analisis)} ínfima(s) para análisis?",
                 QMessageBox.Yes | QMessageBox.No)
             
