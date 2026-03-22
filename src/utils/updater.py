@@ -1,7 +1,6 @@
 # src/utils/updater.py
 import os
 import sys
-import re
 import subprocess
 import requests
 from packaging import version as pkg_version
@@ -24,9 +23,11 @@ class DescargaThread(QThread):
     completado = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, url):
+    def __init__(self, repo, tag, filename):
         super().__init__()
-        self.url = url
+        self.repo = repo
+        self.tag = tag
+        self.filename = filename
 
     def run(self):
         try:
@@ -34,14 +35,50 @@ class DescargaThread(QThread):
             installer_path = os.path.join(temp_dir, "Installer_Gestorex.exe")
 
             github_token = Global.GITHUB_KEY
-            headers = {}
-            if github_token:
-                headers["Authorization"] = f"token {github_token}"
-                headers["Accept"] = "application/octet-stream"
+            if not github_token:
+                self.error.emit("No se encontró el token de GitHub en la configuración.")
+                return
 
+            headers_api = {
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28"
+            }
+
+            # ── Paso 1: Obtener el ID del asset desde la API ──
+            api_url = f"https://api.github.com/repos/{self.repo}/releases/tags/{self.tag}"
+            print(f"[DESCARGA] Consultando release: {api_url}")
+
+            resp_release = requests.get(api_url, headers=headers_api, timeout=15)
+            resp_release.raise_for_status()
+            release_data = resp_release.json()
+
+            # Buscar el asset por nombre
+            asset_id = None
+            for asset in release_data.get("assets", []):
+                if asset["name"] == self.filename:
+                    asset_id = asset["id"]
+                    break
+
+            if not asset_id:
+                self.error.emit(
+                    f"No se encontró el archivo {self.filename} en el release {self.tag}."
+                )
+                return
+
+            print(f"[DESCARGA] Asset ID: {asset_id}")
+
+            # ── Paso 2: Descargar el asset usando su ID ──
+            headers_download = {
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/octet-stream",
+                "X-GitHub-Api-Version": "2022-11-28"
+            }
+
+            asset_url = f"https://api.github.com/repos/{self.repo}/releases/assets/{asset_id}"
             response = requests.get(
-                self.url,
-                headers=headers,
+                asset_url,
+                headers=headers_download,
                 stream=True,
                 timeout=60,
                 allow_redirects=True
@@ -60,7 +97,7 @@ class DescargaThread(QThread):
                             porcentaje = int((descargado / total) * 100)
                             self.progreso.emit(porcentaje)
 
-            # Verificar que es .exe válido
+            # ── Paso 3: Verificar que es un .exe válido ──
             with open(installer_path, "rb") as f:
                 if f.read(2) != b"MZ":
                     self.error.emit("El archivo descargado no es válido.")
@@ -80,10 +117,12 @@ class DescargaThread(QThread):
 # DIÁLOGO DE ACTUALIZACIÓN
 # ============================================================
 class DialogoActualizacion(QDialog):
-    def __init__(self, version_nueva, url_descarga, parent=None):
+    def __init__(self, version_nueva, repo, tag, filename, parent=None):
         super().__init__(parent)
-        self.url_descarga = url_descarga
         self.version_nueva = version_nueva
+        self.repo = repo
+        self.tag = tag
+        self.filename = filename
         self.setWindowTitle("Actualización disponible")
         self.setFixedWidth(440)
         self.setModal(True)
@@ -185,7 +224,12 @@ class DialogoActualizacion(QDialog):
             f"Por favor no cierres la aplicación."
         )
 
-        self.hilo_descarga = DescargaThread(self.url_descarga)
+        # ← Ahora pasa repo, tag y filename en lugar de url
+        self.hilo_descarga = DescargaThread(
+            repo=self.repo,
+            tag=self.tag,
+            filename=self.filename
+        )
         self.hilo_descarga.progreso.connect(self.actualizar_progreso)
         self.hilo_descarga.completado.connect(self.descarga_completa)
         self.hilo_descarga.error.connect(self.descarga_error)
@@ -217,32 +261,15 @@ class DialogoActualizacion(QDialog):
 
     def _ejecutar_instalador(self, ruta):
         try:
-            # ← AGREGAR ESTOS PRINTS TEMPORALES
-            print(f"[INSTALADOR] Ruta: {ruta}")
-            print(f"[INSTALADOR] Existe: {os.path.exists(ruta)}")
-            print(f"[INSTALADOR] Tamaño: {os.path.getsize(ruta)} bytes")
-
-            # Verificar header MZ
-            with open(ruta, "rb") as f:
-                header = f.read(2)
-            print(f"[INSTALADOR] Header: {header}")
-            print(f"[INSTALADOR] Es .exe válido: {header == b'MZ'}")
-
-            # Unblock
-            resultado_unblock = subprocess.run(
+            subprocess.run(
                 ["powershell", "-Command", f"Unblock-File -Path '{ruta}'"],
-                capture_output=True,
-                text=True
+                capture_output=True
             )
-            print(f"[INSTALADOR] Unblock stdout: {resultado_unblock.stdout}")
-            print(f"[INSTALADOR] Unblock stderr: {resultado_unblock.stderr}")
-
             subprocess.Popen(
                 [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
                 creationflags=subprocess.DETACHED_PROCESS
             )
         except Exception as e:
-            print(f"[INSTALADOR] ERROR: {str(e)}")
             self.label.setText(f"❌ No se pudo abrir el instalador: {str(e)}")
             return
 
@@ -253,9 +280,9 @@ class DialogoActualizacion(QDialog):
 # HILO DE VERIFICACIÓN
 # ============================================================
 class VerificadorThread(QThread):
-    hay_actualizacion = pyqtSignal(str, str)
+    hay_actualizacion = pyqtSignal(str, str, str, str)  # version, repo, tag, filename
 
-    def run(self):                          # ← dentro de la clase ✅
+    def run(self):
         try:
             api_url = Global.BACKEND_URL
             if not api_url:
@@ -269,10 +296,12 @@ class VerificadorThread(QThread):
             data = response.json()
 
             version_servidor = data.get("version", "0.0.0")
-            url_descarga = data.get("url", "")
+            repo = data.get("repo", "")
+            tag = data.get("tag", "")
+            filename = data.get("filename", "")
 
             if pkg_version.parse(version_servidor) > pkg_version.parse(CURRENT_VERSION):
-                self.hay_actualizacion.emit(version_servidor, url_descarga)
+                self.hay_actualizacion.emit(version_servidor, repo, tag, filename)
 
         except Exception:
             pass
@@ -284,10 +313,12 @@ class VerificadorThread(QThread):
 def verificar_actualizacion_async(parent_widget):
     hilo = VerificadorThread()
 
-    def mostrar_dialogo(version_nueva, url_descarga):
+    def mostrar_dialogo(version_nueva, repo, tag, filename):
         dialogo = DialogoActualizacion(
             version_nueva=version_nueva,
-            url_descarga=url_descarga,
+            repo=repo,
+            tag=tag,
+            filename=filename,
             parent=parent_widget
         )
         dialogo.exec_()
