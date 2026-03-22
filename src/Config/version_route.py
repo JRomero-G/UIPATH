@@ -1,4 +1,3 @@
-# src/Config/version_route.py
 from fastapi import APIRouter
 from src.Config.version import CURRENT_VERSION
 

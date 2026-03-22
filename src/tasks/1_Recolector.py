@@ -11,6 +11,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import tempfile
 import os
+from Config import Global
 
 
 def main():
@@ -209,11 +210,11 @@ def extract_table_data(html_content, base_url):
 def save_to_db(data):
     try:
         conn = mysql.connector.connect(
-            host="35.225.240.246",
-            user="root",
-            password="Admin123%",
-            database="gestorex",
-            connect_timeout=10,
+            host=Global.DB_HOST,
+            user=Global.DB_USER,
+            password=Global.DB_PASSWORD,
+            database=Global.DATABASE,
+            connect_timeout=15,
         )
         cur = conn.cursor()
 

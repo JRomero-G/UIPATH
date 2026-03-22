@@ -618,7 +618,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         token = get_session().get("token")
 
-        confirm =  ClassicMsgBox.question(self,
+        confirm =  ClassicMsgBox.question(
             "Confirmar",
             f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",
             QMessageBox.Yes | QMessageBox.No)
@@ -659,6 +659,7 @@ class WorkspaceManagerUI(BaseWindow):
 
             except requests.RequestException:
                 errores += 1
+                #TypeError: setWindowTitle(self, title: Optional[str]): argument 1 has unexpected type 'WorkspaceManagerUI'
 
         self.asignaciones_pendientes.clear()
         self.cargar_datos_asignaciones()

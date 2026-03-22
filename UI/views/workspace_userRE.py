@@ -17,6 +17,7 @@ import requests
 from UI.config import get_session
 from src.Config.version import CURRENT_VERSION
 from UI.components.classic_msgbox import ClassicMsgBox
+
 class WorkspaceUserREUI(BaseWindow):
     def __init__(self):
         super().__init__()

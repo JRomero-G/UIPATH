@@ -64,11 +64,11 @@ def registrar_usuario(db: Session, data: UsuarioCreate):
         # Si ocurre un error de integridad (por ejemplo, nombre de usuario o correo duplicado),
         # hacemos rollback para evitar dejar la sesión en un estado inconsistente
         db.rollback()
-        return {"error": str(e)}  # cambiar luego por un mensaje genernico
+        return {"error": "No se pudo realizar el registro del usuario MS:1"}  # cambiar luego por un mensaje genernico
         # para no exponer detalles de la base de datos en la respuesta
     except Exception as e:
         db.rollback()
-        return {"error": str(e)}
+        return {"error": "No se pudo realizar el registro del usuario MS:1"}
 
 
 # Funcion Actualizar usuario
