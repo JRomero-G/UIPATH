@@ -22,6 +22,8 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+CloseApplications=yes
+RestartApplications=yes
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -53,3 +55,10 @@ Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 [Run]
 ; Ofrecer ejecutar la app al terminar la instalación
 Filename: "{app}\{#AppExeName}"; Description: "Ejecutar {#AppName} ahora"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "taskkill"; Parameters: "/f /im {#AppExeName}"; Flags: runhidden
+
+[Registry]
+; Registrar la app para que /RESTARTAPPLICATIONS sepa qué reiniciar
+Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#AppExeName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName}"; Flags: uninsdeletekey
