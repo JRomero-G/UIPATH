@@ -217,29 +217,24 @@ class DialogoActualizacion(QDialog):
         self.btn_despues.setEnabled(True)
 
     def _ejecutar_instalador(self, ruta):
-        """Lanza el instalador y cierra la app actual"""
         try:
-            import ctypes
-            # Solicita permisos de administrador — abre el diálogo de UAC
-            # /SILENT hace la instalación sin mostrar el wizard completo
-            # /CLOSEAPPLICATIONS cierra la app si está abierta
-            # /RESTARTAPPLICATIONS reinicia la aplicacion
-            result = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "runas",        # ← ejecutar como administrador
-                ruta,
-                "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
-                None,
-                1
+            # Eliminar la marca de "descargado de internet" que activa SmartScreen
+            import subprocess
+            subprocess.run(
+                ["powershell", "-Command",
+                f"Unblock-File -Path '{ruta}'"],
+                capture_output=True
             )
-            if result <= 32:  # ShellExecute retorna >32 si tuvo éxito
-                self.label.setText("❌ No se pudo ejecutar el instalador.")
-                return
+
+            # Ejecutar el instalador
+            subprocess.Popen(
+                [ruta, "/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
+                creationflags=subprocess.DETACHED_PROCESS
+            )
         except Exception as e:
             self.label.setText(f"❌ No se pudo abrir el instalador: {str(e)}")
             return
 
-        # Cerrar la aplicación actual para que el instalador pueda reemplazar el .exe
         sys.exit(0)
 
 
