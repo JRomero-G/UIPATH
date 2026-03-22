@@ -8,5 +8,9 @@ router = APIRouter(prefix="/config", tags=["Configuración"])
 def get_version():
     return {
         "version": CURRENT_VERSION,
-        "url": "https://drive.google.com/uc?export=download&id=1oW-a486Cd2E2jnvge10LLwYGIV7pde87&confirm=t"
+        # Esta url se actualiza dependiendo de la release publicada
+        # v1.0.7 → Release v1.0.7 → URL .../v1.0.7/Installer_Gestorex_v1.0.7.exe
+        # v1.0.8 → Release v1.0.8 → URL .../v1.0.8/Installer_Gestorex_v1.0.8.exe -> para futura version
+        "url": "https://github.com/mmedinafv/UIPATH/releases/download/v1.0.7/Installer_Gestorex_v1.0.7.exe"
+        
     }
