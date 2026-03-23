@@ -171,7 +171,7 @@ def obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db: Session,u
         db.query(Infima)
         .join(RecomendacionesUsuario)
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
-        ,Infima.etapa == "finalizadas")
+        ,Infima.etapa == "finalizada")
         .order_by(Infima.fecha_publicacion.desc())
         .all()
     )
