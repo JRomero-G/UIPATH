@@ -30,6 +30,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import sys
+from pathlib import Path
+
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from Config import Global
 
 # =========================

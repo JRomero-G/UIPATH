@@ -166,11 +166,21 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         .all()
     )
 
+def obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db: Session,usuario_id: int):
+    return (
+        db.query(Infima)
+        .join(RecomendacionesUsuario)
+        .filter(RecomendacionesUsuario.usuario_id == usuario_id
+        ,Infima.etapa == "finalizadas")
+        .order_by(Infima.fecha_publicacion.desc())
+        .all()
+    )
+
 # =============== INFIMAS ASIGNADAS Y A QUIEN SE ASIGNARON ============================
 
 # INFIMAS EN ETAPA EN GENERACION
 def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -187,9 +197,21 @@ def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session):
         .all()
     )
 
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
+
 # INFIMAS EN ETAPA FINALIZADA
 def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -205,10 +227,22 @@ def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session):
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+    
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
 
 # INFIMAS EN ETAPA ENVIADA
 def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str = "enviada"):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -224,6 +258,18 @@ def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str 
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
 
 # ETAPAS EN GENERACION Y FINALIZADAS
 def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):

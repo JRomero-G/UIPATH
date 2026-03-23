@@ -9,6 +9,7 @@ from src.Database.Controllers.infima_controller import (
     obtener_infimas_en_generacion_y_finalizadas,
     contador_de_infimas_en_generacion,
     actualizar_infimas_para_analisis,
+    actualizar_infimas_a_enviadas,
     eliminar_infima_permanentemente,
     obtener_infimas_rechazadas
 )
@@ -61,6 +62,12 @@ def mostrar_infimas_en_generacion_y_finalizadas(db: Session = Depends(get_db)):
 def analizar_infimas(db: Session = Depends(get_db),id_infima = int):
     resultado = actualizar_infimas_para_analisis(db,id_infima)
     return resultado
+
+@router.patch("/enviar-infimas/{id_infima}")
+def enviar_infimas(db: Session = Depends(get_db),id_infima = int):
+    resultado = actualizar_infimas_a_enviadas(db,id_infima)
+    return resultado
+
 
 @router.delete("/eliminar-infimas/{id_infima}")
 def eliminar_infimas(id_infima: int,db: Session = Depends(get_db)):

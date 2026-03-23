@@ -11,6 +11,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import tempfile
 import os
+import sys
+from pathlib import Path
+
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from Config import Global
 
 
