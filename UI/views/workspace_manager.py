@@ -802,42 +802,6 @@ class WorkspaceManagerUI(BaseWindow):
         self.cargar_datos_reportes(url)
 
 
-    def obtener_usuario_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el usuario que está trabajando la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_nic_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el NIC correspondiente a la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_descripcion_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la descripción correspondiente a la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_etapa_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver una de estas tres etapas:
-        - en generacion
-        - finalizada
-        - enviada
-
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
     # =========================================================
     # ================== ÍNFIMAS RECHAZADAS ===================
     # =========================================================
