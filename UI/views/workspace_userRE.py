@@ -273,7 +273,7 @@ class WorkspaceUserREUI(BaseWindow):
             token = session_data.get("token") if session_data else None
 
             response = requests.get(
-                f"{Global.BACKEND_URL}recomendaciones-usuario/mis-infimas-finalizadas",
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/mis-infimas-finalizadas",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
