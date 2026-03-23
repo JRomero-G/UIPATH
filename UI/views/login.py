@@ -237,5 +237,6 @@ class LoginUI(BaseWindow):
             else:
                 ClassicMsgBox.critical("Error", "Credenciales inválidas.")
 
-        except requests.RequestException:
-            ClassicMsgBox.critical( "Error", "No se pudo conectar al servidor.")
+        except requests.RequestException as e:
+            print(f"[LOGIN] Error de conexión: {type(e).__name__}: {str(e)}")
+            ClassicMsgBox.critical("Error", "No se pudo conectar al servidor.")
