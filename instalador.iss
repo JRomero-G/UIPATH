@@ -1,6 +1,6 @@
 ; instalador.iss
 #define AppName "Gestorex"
-#define AppVersion "1.0.7"
+#define AppVersion "1.0.9"
 #define AppPublisher "Nexus"
 #define AppURL "https://gestorex-desarrollo.onrender.com/"
 #define AppExeName "run.exe"
@@ -16,7 +16,7 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=D:\WEB\UIPATH\instalador_output
-OutputBaseFilename=Installer_Gestorex_v1.0.7
+OutputBaseFilename=Installer_Gestorex_v1.0.9
 SetupIconFile=D:\WEB\UIPATH\UI\assets\Logo_app.ico
 Compression=lzma
 SolidCompression=yes
@@ -60,7 +60,7 @@ Filename: "{app}\{#AppExeName}"; Flags: nowait postinstall skipifsilent runasori
 ;Filename: "{app}\{#AppExeName}"; Description: "Ejecutar {#AppName} ahora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "taskkill"; Parameters: "/f /im {#AppExeName}"; Flags: runhidden
+Filename: "taskkill"; Parameters: "/f /im {#AppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
 
 [Registry]
 ; Registrar la app para que /RESTARTAPPLICATIONS sepa qué reiniciar

@@ -8,6 +8,12 @@ from urllib.parse import urljoin, urlparse
 import time
 import shutil
 from google.cloud import storage
+import sys
+from pathlib import Path
+
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from Config import Global
 
 # =====================================================

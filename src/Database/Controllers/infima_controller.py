@@ -169,6 +169,31 @@ def actualizar_infimas_para_analisis(db: Session, id_infima = int):
         db.rollback()
         return {"error": str(e)}
     
+
+def actualizar_infimas_a_enviadas(db: Session, id_infima = int):
+    infima = (db.query(Infima).filter(Infima.id_infima == id_infima).first())
+
+    if not infima:
+        return {"error": "Infima no encontrada"}
+    
+    try:
+        
+        infima.etapa = "enviada"
+        db.commit()
+        db.refresh(infima)
+        return {
+        "id_infima": id_infima,
+        "etapa": "enviada",
+        "mensaje": "Ínfima actualizada a 'enviada'"
+        }
+
+    except IntegrityError as e:
+        db.rollback()
+        return {"error": str(e)}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
 #elimnamos infimas de manera permanente e irreversible
 def eliminar_infima_permanentemente(db: Session, id_infima: int):
 

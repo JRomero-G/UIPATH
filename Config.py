@@ -1,7 +1,10 @@
 from dotenv import load_dotenv
-import os
+import os 
+from pathlib import Path
 
-load_dotenv()
+
+# Siempre encuentra el .env desde la raíz, sin importar desde dónde se ejecute
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 class Global:
     DB_HOST = os.getenv("DB_HOST")
