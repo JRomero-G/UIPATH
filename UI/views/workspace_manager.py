@@ -897,31 +897,6 @@ class WorkspaceManagerUI(BaseWindow):
 
         print("Infimas cargadas correctamente")
 
-    def obtener_nic_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el NIC de la ínfima rechazada.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_descripcion_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la descripción de la ínfima rechazada.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_etapa_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la etapa de la ínfima rechazada.
-        Se espera una etapa relacionada al rechazo.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
     # =========================================================
     # VENTANA DE USUARIOS
     # =========================================================
