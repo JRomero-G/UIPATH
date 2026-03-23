@@ -180,6 +180,10 @@ class WorkspaceUserUI(BaseWindow):
         #===================== Boton Actualizar =================
         self.btn_actualizar.clicked.connect(self.Cargar_infimas)
 
+        #====================== Boton Revision =======================
+        self.btn_revision.clicked.connect(self.open_workspace_userRE)
+
+
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
 

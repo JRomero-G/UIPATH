@@ -23,7 +23,8 @@ class Infima(Base):
             "no seleccionada",
             "seleccionada",
             "en generacion",
-            "finalizada"
+            "finalizada",
+            "enviada"
         ),
         default="ingresada"
     )
