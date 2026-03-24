@@ -279,6 +279,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
             Usuario.nombre,
             Infima.codigo_necesidad,
             Infima.etapa,
+            Infima.entidad_contratante_url,
             Infima.descripcion_objeto_compra,
             Infima.fecha_limite_proformas,
         )
@@ -295,12 +296,16 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
-
+    
+    if resultado:
+        print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
     return [
         {
             "usuario": r.usuario,
             "nombre": r.nombre,
             "codigo_necesidad": r.codigo_necesidad,
+            "entidad_contratante_url": r.entidad_contratante_url,
             "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "etapa": r.etapa,
             "fecha_limite_proformas": r.fecha_limite_proformas,
@@ -316,6 +321,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
             Usuario.nombre,
             Infima.codigo_necesidad,
             Infima.etapa,
+            Infima.entidad_contratante_url,
             Infima.descripcion_objeto_compra,
             Infima.fecha_limite_proformas,
         )
@@ -333,16 +339,21 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
-
+    
+    if resultado:
+        print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
     return [
         {
             "usuario": r.usuario,
             "nombre": r.nombre,
             "codigo_necesidad": r.codigo_necesidad,
+            "entidad_contratante_url": r.entidad_contratante_url,
             "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "etapa": r.etapa,
             "fecha_limite_proformas": r.fecha_limite_proformas,
         }
+        
         for r in resultado
     ]
 
