@@ -32,6 +32,9 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import sys
 from pathlib import Path
+import platform
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -616,26 +619,33 @@ NO incluyas explicaciones, solo el array JSON.
 # 5. WEB SCRAPING
 # =========================
 
+
 def configurar_driver():
     """
-    Configura y retorna un driver de Selenium con Chrome en modo headless.
-    
-    Returns:
-        WebDriver: Driver de Chrome configurado
-    
-    Opciones:
-        - headless: Ejecuta sin interfaz gráfica
-        - no-sandbox: Necesario para algunos entornos
-        - disable-dev-shm-usage: Evita problemas de memoria compartida
-        - disable-gpu: Desactiva aceleración GPU (no necesaria en headless)
+    Configura Chrome adaptándose automáticamente al sistema operativo.
+    - Linux (Render): usa ChromeDriver del sistema en /usr/bin/chromedriver
+    - Windows (local): descarga ChromeDriver automáticamente
     """
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Sin interfaz gráfica
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    
-    driver = webdriver.Chrome(options=chrome_options)
+    chrome_options.add_argument("--window-size=1280,800")
+
+    if platform.system() == "Linux":
+        # Render / servidor Linux
+        driver = webdriver.Chrome(
+            service=Service("/usr/bin/chromedriver"),
+            options=chrome_options
+        )
+    else:
+        # Windows / Mac local
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
+
     return driver
 
 def buscar_vtotal_en_portal(df_infimas):
