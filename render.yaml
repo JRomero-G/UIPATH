@@ -188,7 +188,7 @@ services:
   # 9:00 AM - 6:00 PM Ecuador = 14:00 - 23:00 UTC
 
   - type: cron
-    name: clasificador-script5
+    name: Generar-Documentos-Infimas
     runtime: python
     schedule: "*/25 14-23 * * 1-5"  # cada 25 min en jornada laboral (UTC)
     buildCommand: pip install -r requirements.txt
