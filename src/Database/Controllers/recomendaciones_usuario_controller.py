@@ -163,6 +163,7 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
         ,Infima.etapa != "en generacion")
         .order_by(Infima.fecha_publicacion.desc())
+        .limit(20)
         .all()
     )
 
@@ -353,7 +354,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
             "etapa": r.etapa,
             "fecha_limite_proformas": r.fecha_limite_proformas,
         }
-        
+
         for r in resultado
     ]
 
