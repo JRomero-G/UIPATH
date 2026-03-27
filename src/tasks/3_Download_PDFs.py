@@ -10,6 +10,7 @@ import shutil
 from google.cloud import storage
 import sys
 from pathlib import Path
+import tempfile
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -54,15 +55,34 @@ session.headers.update(HEADERS)
 # =====================================================
 # 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-    BASE_DIR, "data", "Clave_bucket_AIgemini.json"
-)
+
+def obtener_ruta_credenciales_gcs():
+    """
+    Retorna ruta válida a credenciales de GCS.
+    - Render: crea archivo temporal desde variable de entorno
+    - Local:  usa archivo físico
+    """
+    # PRODUCCIÓN (Render) - variable de entorno con JSON completo
+    credentials_json = Global.RENDER_CRENDENTIALS_JSON
+    if credentials_json:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+            temp.write(credentials_json)
+            return temp.name
+
+    # LOCAL - archivo físico
+    ruta_local = os.path.join(BASE_DIR, "data", "Clave_bucket_AIgemini.json")
+    if os.path.exists(ruta_local):
+        return ruta_local
+
+    raise Exception("No se encontraron credenciales de GCS")
+
+
+
+#os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
+#    BASE_DIR, "data", "Clave_bucket_AIgemini.json"
+#)
 
 BUCKET_NAME = Global.BUCKET_NAME
-
-storage_client = storage.Client()
-bucket = storage_client.bucket(BUCKET_NAME)
-
 
 def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
     try:
@@ -480,7 +500,15 @@ def main():
     print(" "*15 + "SISTEMA DE GESTIÓN DE ÍNFIMAS")
     print(" "*12 + "Clasificación y Descarga de Documentos")
     print("="*70)
-    
+
+    # Inicializar GCS aquí, de forma controlada
+    print("[INIT] Conectando a Google Cloud Storage...")
+    ruta_creds = obtener_ruta_credenciales_gcs()
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = ruta_creds
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(BUCKET_NAME)
+    print("[INIT] ✓ GCS conectado")
+
     inicio_total = time.time()
     
     # ============================================================

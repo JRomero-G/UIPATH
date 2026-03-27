@@ -8,6 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import platform
 import time
 import tempfile
 import os
@@ -20,29 +21,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from Config import Global
 
 
-def main():
-    url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
-
+def get_driver():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless=new")  # descomenta si quieres invisible total
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=800,600")
-
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()), options=chrome_options
-    )
+    # Detecta si estás en servidor Linux o en tu Windows local
+    if platform.system() == "Linux":
+        # Modo servidor (Render) - sin pantalla, Chrome del sistema
+        chrome_options.add_argument("--headless=new")
+        driver = webdriver.Chrome(
+            service=Service("/usr/bin/chromedriver"),
+            options=chrome_options
+        )
+    else:
+        # Modo local (Windows) - con pantalla, ChromeDriver automático
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
 
-    try:
-        driver.minimize_window()
-        print("→ Ventana minimizada de inmediato")
-    except Exception as e:
-        print(f"No se pudo minimizar: {e}")
+    return driver
+
+def main():
+    url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
+
+    #  Para ejecucion funciona en Windows local, pero falla en Render (Linux):
+    #driver = webdriver.Chrome(
+        #service=Service(ChromeDriverManager().install()),
+        #options=chrome_options
+    #)
+
+    # Esto funciona en Render (Linux):
+    #driver = webdriver.Chrome(
+    #    service=Service("/usr/bin/chromedriver"),
+    #    options=chrome_options
+    #)
+
+    driver = get_driver()
+
+    # Minimizar solo si no es Linux (en servidor no aplica)
+    if platform.system() != "Linux":
+        try:
+            driver.minimize_window()
+        except Exception as e:
+            print(f"No se pudo minimizar: {e}")
+            
+    #try:
+        #driver.minimize_window()
+        #print("→ Ventana minimizada de inmediato")
+    #except Exception as e:
+        #print(f"No se pudo minimizar: {e}")
 
     html_content = ""
     try:
