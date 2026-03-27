@@ -40,7 +40,7 @@ services:
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
-        sync: false
+        sync: false 
       - key: DB_USER
         sync: false
       - key: DB_PASSWORD
