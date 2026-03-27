@@ -83,6 +83,9 @@ def obtener_ruta_credenciales_gcs():
 #)
 
 BUCKET_NAME = Global.BUCKET_NAME
+storage_client = None
+bucket = None
+
 
 def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
     try:
@@ -496,6 +499,9 @@ def main():
     1. Clasifica TODAS las preseleccionadas (FASE 1)
     2. Descarga documentos SOLO de las seleccionadas (FASE 2)
     """
+
+    global storage_client, bucket
+
     print("\n" + "="*70)
     print(" "*15 + "SISTEMA DE GESTIÓN DE ÍNFIMAS")
     print(" "*12 + "Clasificación y Descarga de Documentos")

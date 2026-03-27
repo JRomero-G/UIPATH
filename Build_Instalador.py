@@ -36,7 +36,7 @@ os.system("powershell Remove-Item -Recurse -Force build, dist")
 print("✅ Carpetas build/ y dist/ eliminadas")
 
 # ── 3. Compilar PyInstaller ──
-print("🔨 Compilando con PyInstaller...")
+print(" Compilando con PyInstaller...")
 os.system("pyinstaller run.spec")
 
 # ── 4. Copiar .env ──
@@ -60,12 +60,12 @@ inno_paths = [
 inno_exe = next((p for p in inno_paths if os.path.exists(p)), None)
 
 if inno_exe:
-    print(f"🔨 Inno Setup encontrado en: {inno_exe}")
+    print(f" Inno Setup encontrado en: {inno_exe}")
     subprocess.run([inno_exe, iss_path])
     print(f"✅ Installer_Gestorex_v{CURRENT_VERSION}.exe generado en instalador_output/")
 else:
     print("⚠️  Inno Setup no encontrado en ninguna ruta conocida.")
     print("    Compila manualmente abriendo instalador.iss con Inno Setup (F9)")
 
-print(f"\n🎉 Build v{CURRENT_VERSION} completado!")
+print(f"\n Build v{CURRENT_VERSION} completado!")
 
