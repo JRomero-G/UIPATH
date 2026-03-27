@@ -12,9 +12,7 @@ services:
     name: infimas-09h00
     runtime: python
     schedule: "0 14 * * 1-5"        # 9:00 AM Ecuador (14:00 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -34,9 +32,7 @@ services:
     name: infimas-10h15
     runtime: python
     schedule: "15 15 * * 1-5"       # 10:15 AM Ecuador (15:15 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -56,9 +52,7 @@ services:
     name: infimas-11h30
     runtime: python
     schedule: "30 16 * * 1-5"       # 11:30 AM Ecuador (16:30 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -78,9 +72,7 @@ services:
     name: infimas-12h45
     runtime: python
     schedule: "45 17 * * 1-5"       # 12:45 PM Ecuador (17:45 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -100,9 +92,7 @@ services:
     name: infimas-14h00
     runtime: python
     schedule: "0 19 * * 1-5"        # 2:00 PM Ecuador (19:00 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -122,9 +112,7 @@ services:
     name: infimas-15h15
     runtime: python
     schedule: "15 20 * * 1-5"       # 3:15 PM Ecuador (20:15 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -144,9 +132,7 @@ services:
     name: infimas-16h30
     runtime: python
     schedule: "30 21 * * 1-5"       # 4:30 PM Ecuador (21:30 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -166,9 +152,7 @@ services:
     name: infimas-17h45
     runtime: python
     schedule: "45 22 * * 1-5"       # 5:45 PM Ecuador (22:45 UTC)
-    buildCommand: |
-      pip install -r requirements.txt
-      apt-get install -y chromium chromium-driver
+    buildCommand: pip install -r requirements.txt
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
