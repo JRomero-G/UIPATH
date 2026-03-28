@@ -620,27 +620,40 @@ NO incluyas explicaciones, solo el array JSON.
 # =========================
 
 
-def configurar_driver():
-    """
-    Configura Chrome adaptándose automáticamente al sistema operativo.
-    - Linux (Render): usa ChromeDriver del sistema en /usr/bin/chromedriver
-    - Windows (local): descarga ChromeDriver automáticamente
-    """
+def get_driver():
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1280,800")
+    chrome_options.add_argument("--window-size=800,600")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
 
     if platform.system() == "Linux":
-        # Render / servidor Linux
+        # Playwright instala chromium aquí en Render
+        playwright_chromium = os.path.expanduser(
+            "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
+        )
+
+        import glob
+        rutas = glob.glob(playwright_chromium)
+
+        if rutas:
+            ruta_chrome = rutas[0]
+            print(f"✓ Chromium de Playwright encontrado: {ruta_chrome}")
+            chrome_options.binary_location = ruta_chrome
+        else:
+            raise Exception("No se encontró Chromium. Verifica el buildCommand.")
+
         driver = webdriver.Chrome(
-            service=Service("/usr/bin/chromedriver"),
+            service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
     else:
-        # Windows / Mac local
+        # Windows/Mac local — ChromeDriver automático
+        from webdriver_manager.chrome import ChromeDriverManager
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
@@ -668,7 +681,7 @@ def buscar_vtotal_en_portal(df_infimas):
         3. Actualiza V_Total si se encuentra coincidencia
         4. Cierra driver al finalizar
     """
-    driver = configurar_driver()
+    driver = get_driver()
     
     try:
         for idx, row in df_infimas.iterrows():

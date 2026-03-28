@@ -23,6 +23,7 @@ from Config import Global
 
 def get_driver():
     chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -31,16 +32,29 @@ def get_driver():
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
-    # Detecta si estás en servidor Linux o en tu Windows local
     if platform.system() == "Linux":
-        # Modo servidor (Render) - sin pantalla, Chrome del sistema
-        chrome_options.add_argument("--headless=new")
+        # Playwright instala chromium aquí en Render
+        playwright_chromium = os.path.expanduser(
+            "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
+        )
+
+        import glob
+        rutas = glob.glob(playwright_chromium)
+
+        if rutas:
+            ruta_chrome = rutas[0]
+            print(f"✓ Chromium de Playwright encontrado: {ruta_chrome}")
+            chrome_options.binary_location = ruta_chrome
+        else:
+            raise Exception("No se encontró Chromium. Verifica el buildCommand.")
+
         driver = webdriver.Chrome(
-            service=Service("/usr/bin/chromedriver"),
+            service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
     else:
-        # Modo local (Windows) - con pantalla, ChromeDriver automático
+        # Windows/Mac local — ChromeDriver automático
+        from webdriver_manager.chrome import ChromeDriverManager
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
