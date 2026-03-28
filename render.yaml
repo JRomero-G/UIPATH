@@ -15,7 +15,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -38,7 +37,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -61,7 +59,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -84,7 +81,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -107,7 +103,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -130,7 +125,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -153,7 +147,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -176,7 +169,6 @@ services:
     buildCommand: |  
       pip install -r requirements.txt
       python -m playwright install chromium
-      python -m playwright install-deps chromium
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
