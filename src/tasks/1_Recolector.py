@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from Config import Global
 
-
 def get_driver():
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -33,34 +32,44 @@ def get_driver():
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
     if platform.system() == "Linux":
-        # Playwright instala chromium aquí en Render
-        playwright_chromium = os.path.expanduser(
-            "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
-        )
-
         import glob
-        rutas = glob.glob(playwright_chromium)
 
-        if rutas:
-            ruta_chrome = rutas[0]
-            print(f"✓ Chromium de Playwright encontrado: {ruta_chrome}")
-            chrome_options.binary_location = ruta_chrome
-        else:
+        # ✅ Rutas absolutas conocidas en Render
+        patrones = [
+            "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+            "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+        ]
+
+        ruta_chrome = None
+        for patron in patrones:
+            rutas = glob.glob(patron)
+            if rutas:
+                ruta_chrome = rutas[0]
+                print(f"✓ Chromium encontrado en: {ruta_chrome}")
+                break
+
+        if not ruta_chrome:
+            # Debug: mostrar qué hay en el sistema para diagnosticar
+            print("❌ Chromium no encontrado. Buscando en el sistema...")
+            for patron in patrones:
+                print(f"   Patrón: {patron} → {glob.glob(patron)}")
             raise Exception("No se encontró Chromium. Verifica el buildCommand.")
+
+        chrome_options.binary_location = ruta_chrome
 
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
     else:
-        # Windows/Mac local — ChromeDriver automático
-        from webdriver_manager.chrome import ChromeDriverManager
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
 
     return driver
+
 
 def main():
     url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
