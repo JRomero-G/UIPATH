@@ -22,10 +22,3 @@ class Global:
     ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
     MAX_PASSWORD_BYTES = os.getenv("MAX_PASSWORD_BYTES")
     GITHUB_KEY = os.getenv("GITHUB_KEY")
-    
-# NECESARIO INSTALAR: pip install pyinstaller
-
-# Comando para empaquetar sin incluir el .env
-#  pyinstaller --onefile --windowed --icon=UI/assets/Logo_app.ico --add-data "UI/assets;UI/assets" run.py
-
-# pip install packaging requests

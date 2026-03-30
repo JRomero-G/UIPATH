@@ -621,7 +621,6 @@ NO incluyas explicaciones, solo el array JSON.
 
 def get_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -631,41 +630,23 @@ def get_driver():
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
     if platform.system() == "Linux":
-        import glob
-
-        # ✅ Rutas absolutas conocidas en Render
-        patrones = [
-            "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
-            "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
-            os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
-        ]
-
-        ruta_chrome = None
-        for patron in patrones:
-            rutas = glob.glob(patron)
-            if rutas:
-                ruta_chrome = rutas[0]
-                print(f"✓ Chromium encontrado en: {ruta_chrome}")
-                break
-
-        if not ruta_chrome:
-            # Debug: mostrar qué hay en el sistema para diagnosticar
-            print("❌ Chromium no encontrado. Buscando en el sistema...")
-            for patron in patrones:
-                print(f"   Patrón: {patron} → {glob.glob(patron)}")
-            raise Exception("No se encontró Chromium. Verifica el buildCommand.")
-
-        chrome_options.binary_location = ruta_chrome
-
+        # Docker en Render: Chromium instalado vía apt
+        chrome_options.add_argument("--headless=new")
+        chrome_options.binary_location = "/usr/bin/chromium"
         driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
+            service=Service("/usr/bin/chromedriver"),
             options=chrome_options
         )
     else:
+        # Windows local
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
+        try:
+            driver.minimize_window()
+        except:
+            pass
 
     return driver
 
@@ -745,8 +726,8 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
     try:
         print(f"      🌐 Cargando portal de compras públicas...")
         driver.get(url_base)
-        wait = WebDriverWait(driver, 20)
-        time.sleep(3)  # Esperar carga completa de página
+        wait = WebDriverWait(driver, 30)
+        time.sleep(6)  # Esperar carga completa de página
         
         # ========================================================
         # PASO 1: Click "Buscar Entidad" en página principal
@@ -1299,7 +1280,9 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             INNER JOIN evaluaciones e ON i.codigo_necesidad = e.codigo_necesidad
             SET i.nivel_de_oportunidad = 'nivel 1',
                 i.actualizado_en = NOW()
-            WHERE e.Peso_total >= 0 AND e.Peso_total <= 0.20
+            WHERE e.Peso_total IS NOT NULL 
+            AND e.Peso_total >= 0 
+            AND e.Peso_total <= 0.20
         """)
         filas_nivel_1 = cursor.rowcount
 
