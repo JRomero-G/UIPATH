@@ -15,7 +15,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "0 14 * * 1-5"        # 9:00 AM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -35,7 +35,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "15 15 * * 1-5"       # 10:15 AM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -55,7 +55,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "30 16 * * 1-5"       # 11:30 AM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -75,7 +75,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "45 17 * * 1-5"       # 12:45 PM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -95,7 +95,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "0 19 * * 1-5"        # 2:00 PM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -115,7 +115,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "15 20 * * 1-5"       # 3:15 PM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -135,7 +135,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "30 21 * * 1-5"       # 4:30 PM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -155,7 +155,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "45 22 * * 1-5"       # 5:45 PM Ecuador
-    startCommand: python main_Recoleccion.py
+    dockerCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
         sync: false
@@ -179,7 +179,7 @@ services:
     runtime: docker
     dockerfilePath: ./dockerfile
     schedule: "*/25 14-23 * * 1-5"
-    startCommand: python main_generacion.py
+    dockerCommand: python main_generacion.py
     envVars:
       - key: DB_HOST
         sync: false
