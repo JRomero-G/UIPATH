@@ -1,20 +1,20 @@
 # ─────────────────────────────────────────────────────────────
 # PROYECTO: Sistema de Gestión de Ínfimas - Compras Públicas
 # Zona horaria: Ecuador (ECT) = UTC-5
-# Conversión: Hora Ecuador + 5 = Hora UTC
+# Runtime: Docker
 # ─────────────────────────────────────────────────────────────
 
 services:
 
+  # ══════════════════════════════════════════════════════════
   # GRUPO 1: Scripts 1 al 4 (cada 75 minutos, lunes-viernes)
+  # ══════════════════════════════════════════════════════════
 
   - type: cron
     name: infimas-09h00
-    runtime: python
-    schedule: "0 14 * * 1-5"        # 9:00 AM Ecuador (14:00 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "0 14 * * 1-5"        # 9:00 AM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -32,15 +32,13 @@ services:
 
   - type: cron
     name: infimas-10h15
-    runtime: python
-    schedule: "15 15 * * 1-5"       # 10:15 AM Ecuador (15:15 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "15 15 * * 1-5"       # 10:15 AM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
-        sync: false 
+        sync: false
       - key: DB_USER
         sync: false
       - key: DB_PASSWORD
@@ -54,11 +52,9 @@ services:
 
   - type: cron
     name: infimas-11h30
-    runtime: python
-    schedule: "30 16 * * 1-5"       # 11:30 AM Ecuador (16:30 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "30 16 * * 1-5"       # 11:30 AM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -76,11 +72,9 @@ services:
 
   - type: cron
     name: infimas-12h45
-    runtime: python
-    schedule: "45 17 * * 1-5"       # 12:45 PM Ecuador (17:45 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "45 17 * * 1-5"       # 12:45 PM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -98,11 +92,9 @@ services:
 
   - type: cron
     name: infimas-14h00
-    runtime: python
-    schedule: "0 19 * * 1-5"        # 2:00 PM Ecuador (19:00 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "0 19 * * 1-5"        # 2:00 PM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -120,11 +112,9 @@ services:
 
   - type: cron
     name: infimas-15h15
-    runtime: python
-    schedule: "15 20 * * 1-5"       # 3:15 PM Ecuador (20:15 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "15 20 * * 1-5"       # 3:15 PM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -142,11 +132,9 @@ services:
 
   - type: cron
     name: infimas-16h30
-    runtime: python
-    schedule: "30 21 * * 1-5"       # 4:30 PM Ecuador (21:30 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "30 21 * * 1-5"       # 4:30 PM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -164,11 +152,9 @@ services:
 
   - type: cron
     name: infimas-17h45
-    runtime: python
-    schedule: "45 22 * * 1-5"       # 5:45 PM Ecuador (22:45 UTC)
-    buildCommand: |  
-      pip install -r requirements.txt
-      python -m playwright install chromium
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "45 22 * * 1-5"       # 5:45 PM Ecuador
     startCommand: python main_Recoleccion.py
     envVars:
       - key: DB_HOST
@@ -184,14 +170,15 @@ services:
       - key: RENDER_CRENDENTIALS_JSON
         sync: false
 
+  # ══════════════════════════════════════════════════════════
   # GRUPO 2: Script 5 (cada 25 minutos, lunes-viernes)
-  # 9:00 AM - 6:00 PM Ecuador = 14:00 - 23:00 UTC
+  # ══════════════════════════════════════════════════════════
 
   - type: cron
     name: Generar-Documentos-Infimas
-    runtime: python
-    schedule: "*/25 14-23 * * 1-5"  # cada 25 min en jornada laboral (UTC)
-    buildCommand: pip install -r requirements.txt
+    runtime: docker
+    dockerfilePath: ./dockerfile
+    schedule: "*/25 14-23 * * 1-5"
     startCommand: python main_generacion.py
     envVars:
       - key: DB_HOST

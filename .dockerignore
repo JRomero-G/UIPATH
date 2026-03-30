@@ -1,0 +1,40 @@
+# Entornos virtuales
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# Variables de entorno - NUNCA al contenedor
+.env
+.env.example
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de build e instalador
+build/
+dist/
+instalador_output/
+*.spec
+*.iss
+
+# Interfaz gráfica - no se necesita en servidor
+UI/
+
+# Datos temporales
+data/
+logs/
+cache_resultados_ia.json
+
+# Credenciales locales
+src/Credentials/
+
+# Archivos innecesarios en servidor
+*.txt.bak
+estructura.txt
+Cambios_*.txt
