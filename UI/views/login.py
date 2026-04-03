@@ -215,7 +215,7 @@ class LoginUI(BaseWindow):
                     "Accept": "application/json",
                     "Content-Type": "application/json",
                 },
-                timeout=12,
+                timeout=20,
             )
 
             if response.status_code == 200:

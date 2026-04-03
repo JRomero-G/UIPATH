@@ -97,10 +97,10 @@ class WorkspaceUserUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel", "Acción"]
+            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
         )
 
         self.table.setWordWrap(True)
@@ -182,7 +182,6 @@ class WorkspaceUserUI(BaseWindow):
 
         #====================== Boton Revision =======================
         self.btn_revision.clicked.connect(self.open_workspace_userRE)
-
 
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
@@ -338,7 +337,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def deshabilitar_boton_eliminar(self, row):
         """Desactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 5)
+        widget = self.table.cellWidget(row, 6)
         if not widget:
             return
 
@@ -355,7 +354,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def habilitar_boton_eliminar(self, row):
         """Reactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 5)
+        widget = self.table.cellWidget(row, 6)
         if not widget:
             return
 
@@ -470,7 +469,7 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row, 2, cell)
 
-            # Col 3: Grado
+            # Grado
             cell = QTableWidgetItem(
                 "✅ Recomendado"
                 if grado == "Recomendado"
@@ -485,7 +484,7 @@ class WorkspaceUserUI(BaseWindow):
             cell.setFont(QFont("Arial", 9, QFont.Bold))
             self.table.setItem(row, 3, cell)
 
-            # Col 4: Nivel
+            # nivel
             cell = QTableWidgetItem(str(nivel))
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
@@ -493,8 +492,16 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 4, cell)
 
+            # URL
+            url = item.get("entidad_contratante_url", "")
+            cell = QTableWidgetItem(url)
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setBackground(row_color)
+            cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.table.setCellWidget(row, 5, self.link_button(url, row_color))
+
             # Col 5: Acción
-            self.table.setCellWidget(row, 5, self.delete_button(row_color.name(),row))
+            self.table.setCellWidget(row, 6, self.delete_button(row_color.name(),row))
             # ================= Fin Celdas nuevo ==================
 
             #Conectar evento de checkbox (FUERA DEL LOOP)
@@ -781,7 +788,7 @@ class WorkspaceUserUI(BaseWindow):
                 resp = requests.delete(
                     f"{Global.BACKEND_URL}/infimas/eliminar-infimas/{payload}",
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
+                    timeout=20,
                 )
                 
                 if resp.status_code == 200 and resp.json().get("success"):
@@ -818,7 +825,7 @@ class WorkspaceUserUI(BaseWindow):
                 resp = requests.patch(
                     f"{Global.BACKEND_URL}/infimas/analizar-infimas/{id_infima}",
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
+                    timeout=20,
                 )
                 
                 print(f" PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
@@ -855,6 +862,30 @@ class WorkspaceUserUI(BaseWindow):
                 print(f" Error conexión al analizar ínfima {id_infima}: {e}")
         
         return exitosas, errores
+
+    def link_button(self, url: str, bg_color: QColor):
+        """Celda con enlace clickeable que abre el navegador."""
+        container = QWidget()
+        container.setStyleSheet(f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setAlignment(Qt.AlignCenter)
+
+        label = QLabel()
+
+        if url and url.strip():
+
+            label.setText('<a href="{}" style="color:#1A00FF;font-weight:bold;"> Abrir enlace</a>'.format(url))
+            label.setOpenExternalLinks(True)  # ← abre el navegador al hacer clic
+            label.setCursor(Qt.PointingHandCursor)
+        else:
+            label.setText("Sin enlace")
+            label.setStyleSheet("color: rgb(150,150,150);")
+        layout.addWidget(label)
+        
+        return container
+
 
     # llamar al RE
     def open_workspace_userRE(self):

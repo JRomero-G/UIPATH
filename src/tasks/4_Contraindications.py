@@ -271,7 +271,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
     
     Lógica:
         1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'recomendada' para todos los PAC > 0 como paso intermedio
+        2. Cambia etapa = 'seleccionada' para todos los PAC > 0 como paso intermedio
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
@@ -286,10 +286,10 @@ def actualizar_pac_desde_vtotal(df_infimas):
                 WHERE codigo_necesidad = %s
             """, (row['V_Total'], row['codigo_necesidad']))
     
-    # Cambiar etapa a 'recomendada' para todos los códigos con PAC > 0
+    # Cambiar etapa a 'seleccionada' para todos los códigos con PAC > 0
     cursor.execute("""
         UPDATE infimas 
-        SET etapa = 'recomendada',
+        SET etapa = 'seleccionada',
             actualizado_en = NOW()
         WHERE PACdoc > 0 OR PACweb >0
     """)
