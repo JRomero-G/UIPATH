@@ -379,7 +379,7 @@ class WorkspaceUserUI(BaseWindow):
             response = requests.get(
                 f"{Global.BACKEND_URL}/recomendaciones-usuario/mis-infimas",
                 headers={"Authorization": f"Bearer {sesion.get('token')}"},
-                timeout=10,
+                timeout=20,
             )
 
             if response.status_code != 200:
