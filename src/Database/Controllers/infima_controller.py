@@ -283,8 +283,9 @@ def obtener_infimas_rechazadas(db: Session):
         .limit(50)
         .all()
     )
-    if resultado:
-        print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
+    #if resultado:
+        #print("Campos consultados Rechazadas: ",resultado[0]._fields)
     
     return [
         {
@@ -297,3 +298,22 @@ def obtener_infimas_rechazadas(db: Session):
 
         for r in resultado
     ]
+
+# OBTENER LAS EVALUACIONES DE LAS INFIMAS POR CODIGO DE NECESIDAD
+def obtener_evaluacion_de_infimas_por_codigo(db: Session, codigo_necesidad: str):
+    resultado = (
+        db.query(
+            Evaluacion.codigo_necesidad,
+            Evaluacion.justificacion
+            )
+        .filter(Evaluacion.codigo_necesidad == codigo_necesidad)
+        .first()
+    )
+
+    if not resultado:
+        return {"error": "No se encontró evaluación para el código de necesidad proporcionado"}
+
+    return {
+        "codigo_necesidad": resultado.codigo_necesidad,
+        "justificacion": resultado.justificacion
+    }

@@ -122,7 +122,12 @@ def obtener_infimas_asignadas_por_usuario(id_usuario: int,db: Session = Depends(
 # Nueva ruta para que un usuario vea sus ínfimas asignadas
 @router.get("/mis-infimas")
 def mis_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
-    return obtener_infimas_recomendadas_asignadas_del_usuario(db, current_user.id_usuario)
+    resultado = obtener_infimas_recomendadas_asignadas_del_usuario(db, current_user.id_usuario)
+
+    if "error" in resultado:
+        return resultado
+    
+    return resultado
 
 @router.get("/mis-infimas-finalizadas")
 def mis_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):

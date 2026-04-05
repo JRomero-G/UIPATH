@@ -75,9 +75,9 @@ class WorkspaceUserREUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "", "NIC", "Resumen", "Fecha límite", "Documento de contratación"
+            "", "NIC", "Resumen", "Fecha límite","URL", "Documento de contratación"
         ])
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -89,6 +89,7 @@ class WorkspaceUserREUI(BaseWindow):
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -278,7 +279,7 @@ class WorkspaceUserREUI(BaseWindow):
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
                 },
-                timeout=15
+                timeout=25
             )
             response.raise_for_status()
             data = response.json()
@@ -340,8 +341,12 @@ class WorkspaceUserREUI(BaseWindow):
             fecha_item.setForeground(QColor(0, 0, 0))
             self.table.setItem(row, 3, fecha_item)
 
-            # Col 4 — Botón carpeta
-            self.table.setCellWidget(row, 4, self.document_links(row_color.name(), nic))
+            # Col 4 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table.setCellWidget(row, 4, self.link_button(url, row_color))
+
+            # Col 5 — Botón carpeta
+            self.table.setCellWidget(row, 5, self.document_links(row_color.name(), nic))
 
         self.table.blockSignals(False)
         self.update_send_button_state()
@@ -368,10 +373,10 @@ class WorkspaceUserREUI(BaseWindow):
                 "id_infima":        id_infima,
                 "codigo_necesidad": codigo
             }
-            print(f"✅ Fila {row}: {codigo} agregada para envío")
+            print(f" Fila {row}: {codigo} agregada para envío")
         else:
             self.pendientes_de_envio.pop(row, None)
-            print(f"➖ Fila {row}: {codigo} removida de envío")
+            print(f" Fila {row}: {codigo} removida de envío")
 
         print(f"   pendientes_de_envio = {self.pendientes_de_envio}")
         self.update_send_button_state()
@@ -449,7 +454,7 @@ class WorkspaceUserREUI(BaseWindow):
                 resp = requests.patch(
                     f"{Global.BACKEND_URL}/infimas/enviar-infimas/{id_infima}",
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
+                    timeout=20,
                 )
                 print(f"PATCH /enviar-infimas/{id_infima} → {resp.status_code}")
 
@@ -482,6 +487,29 @@ class WorkspaceUserREUI(BaseWindow):
                 print(f"  ❌ Conexión fallida para {codigo}: {e}")
 
         return exitosas, errores
+
+    def link_button(self, url: str, bg_color: QColor):
+        """Celda con enlace clickeable que abre el navegador."""
+        container = QWidget()
+        container.setStyleSheet(f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setAlignment(Qt.AlignCenter)
+
+        label = QLabel()
+
+        if url and url.strip():
+
+            label.setText('<a href="{}" style="color:#1A00FF;font-weight:bold;"> Abrir enlace</a>'.format(url))
+            label.setOpenExternalLinks(True)  # ← abre el navegador al hacer clic
+            label.setCursor(Qt.PointingHandCursor)
+        else:
+            label.setText("Sin enlace")
+            label.setStyleSheet("color: rgb(150,150,150);")
+        layout.addWidget(label)
+
+        return container
 
     # ================== NAVEGACIÓN ==================
     def open_workspace_user(self):

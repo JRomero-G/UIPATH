@@ -167,9 +167,9 @@ class WorkspaceManagerUI(BaseWindow):
         page_asignaciones_layout = QVBoxLayout(self.page_asignaciones)
         page_asignaciones_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_asignaciones = QTableWidget(0, 4)
+        self.table_asignaciones = QTableWidget(0, 5)
         self.table_asignaciones.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "Etapa"]
+            ["Usuario", "NIC", "Descripción", "URL", "Etapa"]
         )
         self.table_asignaciones.setWordWrap(True)
         self.table_asignaciones.setTextElideMode(Qt.ElideNone)
@@ -180,7 +180,8 @@ class WorkspaceManagerUI(BaseWindow):
         header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
         header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table_asignaciones.setColumnWidth(3, 120)
+        header_asignaciones.setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(4, 120)
 
         self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
@@ -220,9 +221,9 @@ class WorkspaceManagerUI(BaseWindow):
         page_reportes_layout = QVBoxLayout(self.page_reportes)
         page_reportes_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_reportes = QTableWidget(0, 4)
+        self.table_reportes = QTableWidget(0, 5)
         self.table_reportes.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "Etapa"]
+            ["Usuario", "NIC", "Descripción","URL", "Etapa"]
         )
         self.table_reportes.setWordWrap(True)
         self.table_reportes.setTextElideMode(Qt.ElideNone)
@@ -271,16 +272,19 @@ class WorkspaceManagerUI(BaseWindow):
         page_rechazadas_layout = QVBoxLayout(self.page_rechazadas)
         page_rechazadas_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_rechazadas = QTableWidget(0, 3)
-        self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción", "Etapa"])
+        self.table_rechazadas = QTableWidget(0, 4)
+        self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción","URL", "Etapa"])
         self.table_rechazadas.setWordWrap(True)
         self.table_rechazadas.setTextElideMode(Qt.ElideNone)
 
         header_rechazadas = self.table_rechazadas.horizontalHeader()
         header_rechazadas.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header_rechazadas.setSectionResizeMode(1, QHeaderView.Stretch)
-        header_rechazadas.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-
+        header_rechazadas.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.table_rechazadas.setColumnWidth(2, 120)
+        header_rechazadas.setSectionResizeMode(
+            3, QHeaderView.ResizeToContents
+        )
         self.table_rechazadas.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
         )
@@ -500,7 +504,7 @@ class WorkspaceManagerUI(BaseWindow):
             response = requests.get(
                 f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/infimas-disponibles",
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=70,
+                timeout=50,
             )
 
             if response.status_code != 200:
@@ -576,16 +580,25 @@ class WorkspaceManagerUI(BaseWindow):
                 item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos, start=1):
+            # Col 1, 2 → texto
+            for col, val in zip([1, 2], datos[:2]):
                 cell = QTableWidgetItem(str(val))
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
-
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
-
                 self.table_asignaciones.setItem(row, col, cell)
+
+            # Col 3 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_asignaciones.setCellWidget(row, 3, self.link_button(url, color))
+
+            # Col 4 → etapa
+            cell_etapa = QTableWidgetItem(datos[2])
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_asignaciones.setItem(row, 4, cell_etapa)
 
         print("Ínfimas disponibles actualizadas")
 
@@ -683,6 +696,7 @@ class WorkspaceManagerUI(BaseWindow):
         - Usuario
         - NIC
         - Descripción
+        - URL
         - Etapa
 
         """
@@ -743,24 +757,31 @@ class WorkspaceManagerUI(BaseWindow):
             else:
                 color = QColor(220, 220, 220)  # gris
 
-            # Datos esperados
-            datos = [
-                item.get("usuario", ""), 
+            # Col 0, 1, 2 → texto normal
+            datos_texto = [
+                item.get("usuario", ""),
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
-                item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos):
+            for col, val in enumerate(datos_texto):
                 cell = QTableWidgetItem(str(val))
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
-
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
-
                 self.table_reportes.setItem(row, col, cell)
+
+            # Col 3 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_reportes.setCellWidget(row, 3, self.link_button(url, color))
+
+            # Col 4 → etapa
+            cell_etapa = QTableWidgetItem(str(item.get("etapa", "")))
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_reportes.setItem(row, 4, cell_etapa)
 
         print("Reportes cargados correctamente")
 
@@ -806,31 +827,13 @@ class WorkspaceManagerUI(BaseWindow):
     # ================== ÍNFIMAS RECHAZADAS ===================
     # =========================================================
     def cargar_datos_rechazadas(self):
-        """
-        FUNCIÓN DECLARADA PARA ÍNFIMAS RECHAZADAS.
-
-        Esta tabla debe mostrar únicamente ínfimas que estén
-        en etapa rechazada.
-
-        Columnas esperadas:
-        - NIC
-        - Descripción
-        - Etapa
-
-        La funcionalidad real se implementará después.
-        """
-
         token = get_session().get("token")
 
         if not token:
             ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
-            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
-            # =====================================================
-            # CONSUMIR AMBOS ENDPOINTS
-            # =====================================================
             response = requests.get(
                 f"{Global.BACKEND_URL}/infimas/obtener-infimas-rechazadas",
                 headers={"Authorization": f"Bearer {token}"},
@@ -838,64 +841,65 @@ class WorkspaceManagerUI(BaseWindow):
             )
 
             if response.status_code != 200:
-                ClassicMsgBox.warning("Error", "No se pudieron cargar las infimas rechazadas.")
-                #QMessageBox.critical(self, "Error", "No se pudieron cargar las infimas rechazadas.")
+                ClassicMsgBox.warning(
+                    "Error", "No se pudieron cargar las ínfimas rechazadas."
+                )
                 return
 
-            data_rechazadas = response.json()
+            data = response.json()
 
-            # Normalizar estructura si viene como { data: [...] }
-            if isinstance(data_rechazadas, dict) and "data" in data_rechazadas:
-                data_rechazadas = data_rechazadas["data"]
-
-            # =====================================================
-            # UNIFICAR DATA
-            # =====================================================
-            data = data_rechazadas
-
-            #print(f"Infimas Rechazadas obtenidas: {len(data)}")
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
 
         except requests.RequestException:
             ClassicMsgBox.warning("Error", "Servidor no disponible.")
-            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
-        # =====================================================
-        # LIMPIAR TABLA
-        # =====================================================
+        # Limpiar tabla
         self.table_rechazadas.setRowCount(0)
 
-        # =====================================================
-        # LLENAR TABLA
-        # =====================================================
         for row, item in enumerate(data):
             self.table_rechazadas.insertRow(row)
 
-            # Color opcional según etapa
             etapa = item.get("etapa", "").lower()
 
             if "no seleccionada" in etapa:
                 color = QColor(180, 210, 255)  # azul suave
+            else:
+                color = QColor(
+                    220, 220, 220
+                )  # ← fallback, antes no había y causaría error si etapa no coincide
 
-            # Datos esperados
-            datos = [
+            # Col 0 → NIC
+            # Col 1 → Descripción
+            datos_texto = [
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
-                item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos):
+            for col, val in enumerate(datos_texto):  # ← enumerate correcto, col 0 y 1
                 cell = QTableWidgetItem(str(val))
-                cell.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
+                self.table_rechazadas.setItem(row, col, cell)  # ← tabla correcta
 
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
+            # Col 2 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_rechazadas.setCellWidget(
+                row, 2, self.link_button(url, color)
+            )  # ← tabla correcta
 
-                self.table_rechazadas.setItem(row, col, cell)
+            # Col 3 → etapa
+            cell_etapa = QTableWidgetItem(str(item.get("etapa", "")))
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_rechazadas.setItem(row, 3, cell_etapa)  # ← tabla correcta
 
-        print("Infimas cargadas correctamente")
+        print(f"Ínfimas rechazadas cargadas: {self.table_rechazadas.rowCount()}")
+
 
     # =========================================================
     # VENTANA DE USUARIOS
@@ -915,6 +919,33 @@ class WorkspaceManagerUI(BaseWindow):
         except Exception as e:
             print(f"Error al crear ventana: {e}")
 
+    def link_button(self, url: str, bg_color: QColor):
+            """Celda con enlace clickeable que abre el navegador."""
+            container = QWidget()
+            container.setStyleSheet(
+                f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});"
+            )
+
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(4, 0, 4, 0)
+            layout.setAlignment(Qt.AlignCenter)
+
+            label = QLabel()
+
+            if url and url.strip():
+                label.setText(
+                    '<a href="{}" style="color:#4aa3df;font-weight:bold;"> Abrir enlace</a>'.format(
+                        url
+                    )
+                )
+                label.setOpenExternalLinks(True)  # ← abre el navegador al hacer clic
+                label.setCursor(Qt.PointingHandCursor)
+            else:
+                label.setText("Sin enlace")
+                label.setStyleSheet("color: rgb(150,150,150);")
+
+            layout.addWidget(label)
+            return container
 
 # =========================================================
 # FUNCIÓN EXTERNA: CARGAR EMPLEADOS
