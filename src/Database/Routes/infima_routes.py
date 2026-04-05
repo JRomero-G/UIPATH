@@ -11,7 +11,8 @@ from src.Database.Controllers.infima_controller import (
     actualizar_infimas_para_analisis,
     actualizar_infimas_a_enviadas,
     eliminar_infima_permanentemente,
-    obtener_infimas_rechazadas
+    obtener_infimas_rechazadas,
+    obtener_evaluacion_de_infimas_por_codigo
 )
 
 from src.Database.Models.usuarios_model import Usuario
@@ -85,3 +86,14 @@ def obtener_infimas_asignadas(db: Session = Depends(get_db),current_user: Usuari
         }
     else:
         return {"error": "Acceso no Autorizado"}
+
+@router.get("/obtener-evaluacion-infima/{codigo_necesidad}")
+def obtener_evaluacion_infima(codigo_necesidad: str, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+    
+    data = obtener_evaluacion_de_infimas_por_codigo(db,codigo_necesidad)
+
+    if not data:
+        return {"error": "No se encontró evaluación para el código de necesidad proporcionado"}
+    return {
+        "data": data
+    }
