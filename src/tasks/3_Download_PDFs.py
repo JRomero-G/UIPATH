@@ -145,6 +145,7 @@ def obtener_datos_seleccionados():
             "FROM infimas WHERE etapa = 'seleccionada' "
             "AND entidad_contratante_url IS NOT NULL "
             "AND entidad_contratante_url != '' "
+            "AND PACweb AND PACdoc IS NULL"
             "ORDER BY codigo_necesidad"
         )
 
@@ -424,7 +425,7 @@ def fase_clasificacion():
 # =====================================================
 def fase_descarga():
     """
-    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada'
+    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada' con PACweb y PACdoc en NULL
     """
     print("\n" + "="*70)
     print(" "*18 + "FASE 2: DESCARGA DE DOCUMENTOS")

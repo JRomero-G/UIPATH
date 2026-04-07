@@ -180,7 +180,7 @@ def obtener_contraindicaciones_con_peso():
 
 def obtener_codigos_preseleccionados():
     """
-    Obtiene códigos de necesidad con etapa 'seleccionada'.
+    Obtiene códigos de necesidad con etapa 'seleccionada' con PACweb y PACdoc en NULL.
     
     Returns:
         list: Lista de códigos de necesidad (ej: 'nic-1234567890001-2026-00001')
@@ -278,7 +278,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
     
     # Actualizar PAC con valores V_Total del portal
     for _, row in df_infimas.iterrows():
-        if row['V_Total'] > 0:
+        if row['V_Total'] >= 0:
             cursor.execute("""
                 UPDATE infimas 
                 SET PACweb = %s,
@@ -286,13 +286,14 @@ def actualizar_pac_desde_vtotal(df_infimas):
                 WHERE codigo_necesidad = %s
             """, (row['V_Total'], row['codigo_necesidad']))
     
-    # Cambiar etapa a 'seleccionada' para todos los códigos con PAC > 0
-    cursor.execute("""
-        UPDATE infimas 
-        SET etapa = 'seleccionada',
-            actualizado_en = NOW()
-        WHERE PACdoc > 0 OR PACweb >0
-    """)
+    # Cambiar etapa a 'recomendada' para todas las ínfimas nuevas preseleccionadas y filtradas por cantidad de artículos
+    for _, row in df_infimas.iterrows():
+        cursor.execute("""
+            UPDATE infimas 
+            SET etapa = 'recomendada',
+                actualizado_en = NOW()
+            WHERE codigo_necesidad = %s AND (PACdoc > 0 OR PACweb >0)
+        """, (row['codigo_necesidad']))
     
     conn.commit()
     cursor.close()
@@ -306,14 +307,14 @@ def obtener_codigos_pac_mayores_cero():
         dict: Diccionario {codigo_necesidad: PAC}
     
     Nota:
-        Solo códigos con PAC > 0 pasan al análisis de contraindicaciones
+        Solo ínfimas en etapa "recomendada" pasan al análisis de contraindicaciones
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT codigo_necesidad, PACdoc, PACweb
         FROM infimas 
-        WHERE etapa = 'recomendada' AND (PACdoc > 0 OR PACweb > 0)   
+        WHERE etapa = 'recomendada'
     """)
     datos = cursor.fetchall()
     cursor.close()
