@@ -1,7 +1,7 @@
 from mysql.connector import IntegrityError
 from sqlalchemy.orm import Session
-from ..Models.usuarios_model import Usuario
-from ..Auth.Hashing import hash_password, verify_password
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.Auth.Hashing import hash_password, verify_password
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
@@ -64,11 +64,11 @@ def registrar_usuario(db: Session, data: UsuarioCreate):
         # Si ocurre un error de integridad (por ejemplo, nombre de usuario o correo duplicado),
         # hacemos rollback para evitar dejar la sesión en un estado inconsistente
         db.rollback()
-        return {"error": str(e)}  # cambiar luego por un mensaje genernico
+        return {"error": "No se pudo realizar el registro del usuario MS:1"}  # cambiar luego por un mensaje genernico
         # para no exponer detalles de la base de datos en la respuesta
     except Exception as e:
         db.rollback()
-        return {"error": str(e)}
+        return {"error": "No se pudo realizar el registro del usuario MS:1"}
 
 
 # Funcion Actualizar usuario

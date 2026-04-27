@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from ..Models.usuarios_model import Usuario
-from ..Controllers.recomendaciones_usuario_controller import (
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.Controllers.recomendaciones_usuario_controller import (
     asignar_infimas_recomendadas_a_usuario_lote,
     asignar_infimas_recomendadas_a_usuario_individual,
     obtener_infimas_recomendadas_asignadas_del_usuario,
@@ -10,15 +10,16 @@ from ..Controllers.recomendaciones_usuario_controller import (
     obtener_infimas_asignadas_finalizadas_y_a_que_usuarios,
     obtener_infimas_asignadas_enviadas_y_a_que_usuarios,
     obtener_infimas_asignadas_y_a_que_usuarios,
-    obtener_infimas_asignadas_y_a_que_usuarios_filtro
+    obtener_infimas_asignadas_y_a_que_usuarios_filtro,
+    obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario
 )
-from ..Auth.Usuario_auth import usuario_actual
-from ..database import get_db
+from src.Database.Auth.Usuario_auth import usuario_actual
+from src.Database.database import get_db
 
 # Nuevas importaciones
 from pydantic import BaseModel
 from typing import List
-from ..Controllers.infima_controller import obtener_infimas_disponibles_admin
+from src.Database.Controllers.infima_controller import obtener_infimas_disponibles_admin
 
 router = APIRouter(
     prefix="/recomendaciones-usuario", 
@@ -87,17 +88,22 @@ def asignar_infimas_multiples(data: AsignacionRequest,db: Session = Depends(get_
 # ruta para infimas asignadas en etapa en generacion
 @router.get("/admin/obtener-infimas-en-generacion-de-empleados")
 def Obtener_infimas_en_generacion_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
-    return obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db)
-
+    return {
+        "data": obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db)
+    }
 # ruta para infimas asignadas en etapa finalizada
 @router.get("/admin/obtener-infimas-finalizada-de-empleados")
 def Obtener_infimas_finalizadas_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
-    return obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db)
+    return {
+        "data": obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db)
+    }
 
 # ruta para infimas asignadas en etapa enviada
 @router.get("/admin/obtener-infimas-enviadas-de-empleados")
 def Obtener_infimas_enviadas_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
-    return obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db)
+        return {
+        "data": Obtener_infimas_enviadas_empleados(db)
+    }
 
 @router.get("/admin/obtener-infimas-asignadas")
 def obtener_infimas_asignadas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
@@ -116,5 +122,14 @@ def obtener_infimas_asignadas_por_usuario(id_usuario: int,db: Session = Depends(
 # Nueva ruta para que un usuario vea sus ínfimas asignadas
 @router.get("/mis-infimas")
 def mis_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
-    return obtener_infimas_recomendadas_asignadas_del_usuario(db, current_user.id_usuario)
+    resultado = obtener_infimas_recomendadas_asignadas_del_usuario(db, current_user.id_usuario)
+
+    if "error" in resultado:
+        return resultado
+    
+    return resultado
+
+@router.get("/mis-infimas-finalizadas")
+def mis_infimas(db: Session = Depends(get_db),current_user: Usuario = Depends(usuario_actual)):
+    return obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db, current_user.id_usuario)
 

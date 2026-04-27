@@ -1,21 +1,24 @@
-import sys
-import os
-# Agrega 'UI/' al path → Python encuentra: views, components, config
-UI_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, UI_DIR)
+def Iniciar():
+    import sys
+    import os
+    from dotenv import load_dotenv
+    from PyQt5.QtWidgets import QApplication
+    from UI.views.login import LoginUI
+    
+    # ===== Cargar variables de entorno =====
+    if getattr(sys, 'frozen', False):
+        # Si está ejecutando como .exe
+        env_path = os.path.join(os.path.dirname(sys.executable), ".env")
+    else:
+        # Desarrollo
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 
-# Agrega 'UIPATH/' al path → Python encuentra: UI como paquete
-ROOT_DIR = os.path.dirname(UI_DIR)
-sys.path.insert(0, ROOT_DIR)
+    load_dotenv(env_path)
 
-from PyQt5.QtWidgets import QApplication
-from .views.login import LoginUI
-
-
-if __name__ == "__main__":
+    # ===== Iniciar aplicación =====
     app = QApplication(sys.argv)
 
-    login = LoginUI()  # 👈 referencia viva
+    login = LoginUI()
     login.show()
 
     sys.exit(app.exec_())

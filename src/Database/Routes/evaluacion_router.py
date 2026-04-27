@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from ..Controllers.evaluacion_controller import registrar_evaluacion, listar_evaluaciones
-from ..database import get_db
+from src.Database.Controllers.evaluacion_controller import registrar_evaluacion, listar_evaluaciones
+from src.Database.database import get_db
 
 router = APIRouter(prefix="/evaluaciones", tags=["Evaluaciones"])
 

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Enum, Text, DECIMAL, TIMESTAMP
-from .base import Base
+from  src.Database.Models.base import Base
 
 class Infima(Base):
     __tablename__ = "infimas"
@@ -23,7 +23,8 @@ class Infima(Base):
             "no seleccionada",
             "seleccionada",
             "en generacion",
-            "finalizada"
+            "finalizada",
+            "enviada"
         ),
         default="ingresada"
     )

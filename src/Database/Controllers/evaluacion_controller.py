@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from ..Models.evaluacion_model import Evaluacion
+from src.Database.Models.evaluacion_model import Evaluacion
 
 
 def registrar_evaluacion(db: Session, data: dict):

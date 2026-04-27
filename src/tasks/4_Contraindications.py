@@ -15,6 +15,7 @@ Este script automatiza el análisis de procesos de "ínfima cuantía" mediante:
 import os
 import re
 import json
+import tempfile
 import time
 import unicodedata  # Para normalizar texto y quitar acentos
 import pandas as pd
@@ -29,6 +30,16 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import sys
+from pathlib import Path
+import platform
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from Config import Global
 
 # =========================
 # 1. CONFIGURACIÓN
@@ -36,20 +47,42 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # Configuración de conexión a base de datos MySQL
 MYSQL_CONFIG = {
-    "host": "35.225.240.246",
-    "user": "root",
-    "password": "Admin123%",
-    "database": "gestorex",
+    "host": Global.DB_HOST,
+    "user": Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
 }
 
 # Rutas de archivos y buckets de Google Cloud
-GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
-BUCKET_NAME = "nexusbucket1"
+GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
+BUCKET_NAME = Global.BUCKET_NAME
 CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
 # =========================
 # 2. INICIALIZACIÓN
 # =========================
+
+def obtener_ruta_credenciales():
+    """
+    Retorna una ruta válida al archivo de credenciales.
+    Compatible con:
+    - Render (JSON en variable)
+    - Local (archivo físico)
+    """
+
+    # PRODUCCIÓN (Render)
+    credentials_json = Global.RENDER_CRENDENTIALS_JSON
+
+    if credentials_json:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+            temp.write(credentials_json)
+            return temp.name
+
+    # LOCAL
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI
+
+    raise Exception("No se encontraron credenciales de Gemini")
 
 def inicializar_servicios():
     """
@@ -65,16 +98,22 @@ def inicializar_servicios():
     """
     global BUCKET_NAME
     
+    ruta_credencial = obtener_ruta_credenciales()
+
     # Cargar credenciales desde archivo JSON
     credentials = service_account.Credentials.from_service_account_file(
-        GEMINI_CREDENTIALS_PATH
+        ruta_credencial
     )
     
     # Extraer project_id del archivo de credenciales
-    with open(GEMINI_CREDENTIALS_PATH, 'r') as f:
+    with open(ruta_credencial, 'r') as f:
         creds_data = json.load(f)
         project_id = creds_data.get('project_id')
     
+    if not project_id:
+        raise Exception("No se encontró project_id en credenciales")
+
+
     # Inicializar VertexAI en región us-east4 (mejor disponibilidad)
     vertexai.init(
         project=project_id,
@@ -141,7 +180,7 @@ def obtener_contraindicaciones_con_peso():
 
 def obtener_codigos_preseleccionados():
     """
-    Obtiene códigos de necesidad con etapa 'seleccionada'.
+    Obtiene códigos de necesidad con etapa 'seleccionada' con PACweb y PACdoc en NULL.
     
     Returns:
         list: Lista de códigos de necesidad (ej: 'nic-1234567890001-2026-00001')
@@ -152,10 +191,10 @@ def obtener_codigos_preseleccionados():
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     cursor.execute("""
-       SELECT codigo_necesidad 
-       FROM infimas 
-       WHERE etapa = 'seleccionada' 
-       AND (PACweb IS NULL AND PACdoc IS NULL)
+        SELECT codigo_necesidad 
+        FROM infimas 
+        WHERE etapa = 'seleccionada' 
+        AND (PACweb IS NULL AND PACdoc IS NULL)
     """)
     filas = cursor.fetchall()
     cursor.close()
@@ -177,7 +216,7 @@ def obtener_infimas_con_pac():
     
     Nota:
         Solo obtiene registros con PACdoc >= 0 (No se encontró PAC en los documentos y en los que sí,
-                                                 se comparará el PAC de documentos con el PAC web)
+                                                se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
@@ -232,14 +271,14 @@ def actualizar_pac_desde_vtotal(df_infimas):
     
     Lógica:
         1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'recomendada' para todos los PAC > 0 como paso intermedio
+        2. Cambia etapa = 'seleccionada' para todos los PAC > 0 como paso intermedio
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     # Actualizar PAC con valores V_Total del portal
     for _, row in df_infimas.iterrows():
-        if row['V_Total'] > 0:
+        if row['V_Total'] >= 0:
             cursor.execute("""
                 UPDATE infimas 
                 SET PACweb = %s,
@@ -247,13 +286,14 @@ def actualizar_pac_desde_vtotal(df_infimas):
                 WHERE codigo_necesidad = %s
             """, (row['V_Total'], row['codigo_necesidad']))
     
-    # Cambiar etapa a 'recomendada' para todos los códigos con PAC > 0
-    cursor.execute("""
-        UPDATE infimas 
-        SET etapa = 'recomendada',
-            actualizado_en = NOW()
-        WHERE PACdoc > 0 OR PACweb >0
-    """)
+    # Cambiar etapa a 'recomendada' para todas las ínfimas nuevas preseleccionadas y filtradas por cantidad de artículos
+    for _, row in df_infimas.iterrows():
+        cursor.execute("""
+            UPDATE infimas 
+            SET etapa = 'recomendada',
+                actualizado_en = NOW()
+            WHERE codigo_necesidad = %s AND (PACdoc > 0 OR PACweb >0)
+        """, (row['codigo_necesidad']))
     
     conn.commit()
     cursor.close()
@@ -267,14 +307,14 @@ def obtener_codigos_pac_mayores_cero():
         dict: Diccionario {codigo_necesidad: PAC}
     
     Nota:
-        Solo códigos con PAC > 0 pasan al análisis de contraindicaciones
+        Solo ínfimas en etapa "recomendada" pasan al análisis de contraindicaciones
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT codigo_necesidad, PACdoc, PACweb
         FROM infimas 
-        WHERE etapa = 'recomendada' AND (PACdoc > 0 OR PACweb > 0)   
+        WHERE etapa = 'recomendada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -580,26 +620,35 @@ NO incluyas explicaciones, solo el array JSON.
 # 5. WEB SCRAPING
 # =========================
 
-def configurar_driver():
-    """
-    Configura y retorna un driver de Selenium con Chrome en modo headless.
-    
-    Returns:
-        WebDriver: Driver de Chrome configurado
-    
-    Opciones:
-        - headless: Ejecuta sin interfaz gráfica
-        - no-sandbox: Necesario para algunos entornos
-        - disable-dev-shm-usage: Evita problemas de memoria compartida
-        - disable-gpu: Desactiva aceleración GPU (no necesaria en headless)
-    """
+def get_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Sin interfaz gráfica
+    chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    
-    driver = webdriver.Chrome(options=chrome_options)
+    chrome_options.add_argument("--window-size=800,600")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
+    if platform.system() == "Linux":
+        # Docker en Render: Chromium instalado vía apt
+        chrome_options.add_argument("--headless=new")
+        chrome_options.binary_location = "/usr/bin/chromium"
+        driver = webdriver.Chrome(
+            service=Service("/usr/bin/chromedriver"),
+            options=chrome_options
+        )
+    else:
+        # Windows local
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
+        try:
+            driver.minimize_window()
+        except:
+            pass
+
     return driver
 
 def buscar_vtotal_en_portal(df_infimas):
@@ -622,7 +671,7 @@ def buscar_vtotal_en_portal(df_infimas):
         3. Actualiza V_Total si se encuentra coincidencia
         4. Cierra driver al finalizar
     """
-    driver = configurar_driver()
+    driver = get_driver()
     
     try:
         for idx, row in df_infimas.iterrows():
@@ -678,8 +727,8 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
     try:
         print(f"      🌐 Cargando portal de compras públicas...")
         driver.get(url_base)
-        wait = WebDriverWait(driver, 20)
-        time.sleep(3)  # Esperar carga completa de página
+        wait = WebDriverWait(driver, 30)
+        time.sleep(6)  # Esperar carga completa de página
         
         # ========================================================
         # PASO 1: Click "Buscar Entidad" en página principal
@@ -1232,7 +1281,9 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             INNER JOIN evaluaciones e ON i.codigo_necesidad = e.codigo_necesidad
             SET i.nivel_de_oportunidad = 'nivel 1',
                 i.actualizado_en = NOW()
-            WHERE e.Peso_total >= 0 AND e.Peso_total <= 0.20
+            WHERE e.Peso_total IS NOT NULL 
+            AND e.Peso_total >= 0 
+            AND e.Peso_total <= 0.20
         """)
         filas_nivel_1 = cursor.rowcount
 

@@ -8,34 +8,78 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import platform
 import time
 import tempfile
 import os
+import sys
+from pathlib import Path
 
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-def main():
-    url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
+from Config import Global
 
+def get_driver():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless=new")  # descomenta si quieres invisible total
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=800,600")
-
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()), options=chrome_options
-    )
+    if platform.system() == "Linux":
+        # Docker en Render: Chromium instalado vía apt
+        chrome_options.add_argument("--headless=new")
+        chrome_options.binary_location = "/usr/bin/chromium"
+        driver = webdriver.Chrome(
+            service=Service("/usr/bin/chromedriver"),
+            options=chrome_options
+        )
+    else:
+        # Windows local
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
+        try:
+            driver.minimize_window()
+        except:
+            pass
 
-    try:
-        driver.minimize_window()
-        print("→ Ventana minimizada de inmediato")
-    except Exception as e:
-        print(f"No se pudo minimizar: {e}")
+    return driver
+
+def main():
+    url = "https://www.compraspublicas.gob.ec/ProcesoContratacion/compras/NCO/FrmNCOListado.cpe"
+
+    #  Para ejecucion funciona en Windows local, pero falla en Render (Linux):
+    #driver = webdriver.Chrome(
+        #service=Service(ChromeDriverManager().install()),
+        #options=chrome_options
+    #)
+
+    # Esto funciona en Render (Linux):
+    #driver = webdriver.Chrome(
+    #    service=Service("/usr/bin/chromedriver"),
+    #    options=chrome_options
+    #)
+
+    driver = get_driver()
+
+    # Minimizar solo si no es Linux (en servidor no aplica)
+    if platform.system() != "Linux":
+        try:
+            driver.minimize_window()
+        except Exception as e:
+            print(f"No se pudo minimizar: {e}")
+            
+    #try:
+        #driver.minimize_window()
+        #print("→ Ventana minimizada de inmediato")
+    #except Exception as e:
+        #print(f"No se pudo minimizar: {e}")
 
     html_content = ""
     try:
@@ -121,6 +165,7 @@ def main():
         print(
             "No se extrajeron datos. Abre debug_pagina_final.html y verifica <tbody>."
         )
+        sys.exit(1)
 
 
 def extract_table_data(html_content, base_url):
@@ -209,11 +254,11 @@ def extract_table_data(html_content, base_url):
 def save_to_db(data):
     try:
         conn = mysql.connector.connect(
-            host="35.225.240.246",
-            user="root",
-            password="Admin123%",
-            database="gestorex",
-            connect_timeout=10,
+            host=Global.DB_HOST,
+            user=Global.DB_USER,
+            password=Global.DB_PASSWORD,
+            database=Global.DATABASE,
+            connect_timeout=15,
         )
         cur = conn.cursor()
 

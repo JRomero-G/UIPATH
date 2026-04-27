@@ -1,23 +1,23 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from ..Controllers.infima_controller import (
+from src.Database.Controllers.infima_controller import (
     listar_infimas_seleccionadas,
-    registrar_infima,
     obtener_infima_por_codigo,
     listar_infimas,
-    procesar_lote_infimas,
     listar_infimas_ingresadas,
     obtener_infimas_disponibles_admin,
     obtener_infimas_en_generacion_y_finalizadas,
     contador_de_infimas_en_generacion,
     actualizar_infimas_para_analisis,
+    actualizar_infimas_a_enviadas,
     eliminar_infima_permanentemente,
-    obtener_infimas_rechazadas
+    obtener_infimas_rechazadas,
+    obtener_evaluacion_de_infimas_por_codigo
 )
 
-from ..Models.usuarios_model import Usuario
-from ..Auth.Usuario_auth import usuario_actual
-from ..database import get_db
+from src.Database.Models.usuarios_model import Usuario
+from src.Database.Auth.Usuario_auth import usuario_actual
+from src.Database.database import get_db
 
 router = APIRouter(prefix="/infimas", tags=["Infimas"])
 
@@ -64,6 +64,12 @@ def analizar_infimas(db: Session = Depends(get_db),id_infima = int):
     resultado = actualizar_infimas_para_analisis(db,id_infima)
     return resultado
 
+@router.patch("/enviar-infimas/{id_infima}")
+def enviar_infimas(db: Session = Depends(get_db),id_infima = int):
+    resultado = actualizar_infimas_a_enviadas(db,id_infima)
+    return resultado
+
+
 @router.delete("/eliminar-infimas/{id_infima}")
 def eliminar_infimas(id_infima: int,db: Session = Depends(get_db)):
 
@@ -80,3 +86,14 @@ def obtener_infimas_asignadas(db: Session = Depends(get_db),current_user: Usuari
         }
     else:
         return {"error": "Acceso no Autorizado"}
+
+@router.get("/obtener-evaluacion-infima/{codigo_necesidad}")
+def obtener_evaluacion_infima(codigo_necesidad: str, db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+    
+    data = obtener_evaluacion_de_infimas_por_codigo(db,codigo_necesidad)
+
+    if not data:
+        return {"error": "No se encontró evaluación para el código de necesidad proporcionado"}
+    return {
+        "data": data
+    }

@@ -18,10 +18,14 @@ from PyQt5.QtWidgets import (
 )
 
 import requests
-from config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
+from UI.config import WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
-from components.base_window import BaseWindow
-from components.btns_windows import WindowButtons
+from UI.components.base_window import BaseWindow
+from UI.components.btns_windows import WindowButtons
+from Config import Global
+from src.Config.version import CURRENT_VERSION
+from src.utils.updater import verificar_actualizacion_async
+from UI.components.classic_msgbox import ClassicMsgBox
 
 
 class WorkspaceManagerUI(BaseWindow):
@@ -34,7 +38,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.asignaciones_pendientes = {}
         self.usuarios_dict = {}
 
-        self.setWindowTitle("Gestorex 1.1 - Manager")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Manager")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
         self.setStyleSheet(f"background-color:{BG_COLOR};")
@@ -138,7 +142,7 @@ class WorkspaceManagerUI(BaseWindow):
         )
         logo_label.setPixmap(pixmap)
 
-        title = QLabel("Gestorex 1.1")
+        title = QLabel(f"Gestorex {CURRENT_VERSION}")
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
@@ -163,9 +167,9 @@ class WorkspaceManagerUI(BaseWindow):
         page_asignaciones_layout = QVBoxLayout(self.page_asignaciones)
         page_asignaciones_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_asignaciones = QTableWidget(0, 4)
+        self.table_asignaciones = QTableWidget(0, 5)
         self.table_asignaciones.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "Etapa"]
+            ["Usuario", "NIC", "Descripción", "URL", "Etapa"]
         )
         self.table_asignaciones.setWordWrap(True)
         self.table_asignaciones.setTextElideMode(Qt.ElideNone)
@@ -176,7 +180,8 @@ class WorkspaceManagerUI(BaseWindow):
         header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
         header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table_asignaciones.setColumnWidth(3, 120)
+        header_asignaciones.setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(4, 120)
 
         self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
@@ -216,9 +221,9 @@ class WorkspaceManagerUI(BaseWindow):
         page_reportes_layout = QVBoxLayout(self.page_reportes)
         page_reportes_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_reportes = QTableWidget(0, 4)
+        self.table_reportes = QTableWidget(0, 5)
         self.table_reportes.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "Etapa"]
+            ["Usuario", "NIC", "Descripción","URL", "Etapa"]
         )
         self.table_reportes.setWordWrap(True)
         self.table_reportes.setTextElideMode(Qt.ElideNone)
@@ -267,16 +272,19 @@ class WorkspaceManagerUI(BaseWindow):
         page_rechazadas_layout = QVBoxLayout(self.page_rechazadas)
         page_rechazadas_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_rechazadas = QTableWidget(0, 3)
-        self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción", "Etapa"])
+        self.table_rechazadas = QTableWidget(0, 4)
+        self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción","URL", "Etapa"])
         self.table_rechazadas.setWordWrap(True)
         self.table_rechazadas.setTextElideMode(Qt.ElideNone)
 
         header_rechazadas = self.table_rechazadas.horizontalHeader()
         header_rechazadas.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header_rechazadas.setSectionResizeMode(1, QHeaderView.Stretch)
-        header_rechazadas.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-
+        header_rechazadas.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.table_rechazadas.setColumnWidth(2, 120)
+        header_rechazadas.setSectionResizeMode(
+            3, QHeaderView.ResizeToContents
+        )
         self.table_rechazadas.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
         )
@@ -329,6 +337,11 @@ class WorkspaceManagerUI(BaseWindow):
         super().showEvent(event)
         self.showMaximized()
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
+        # ← NUEVO: verificar actualización después de que cargue la UI
+        QTimer.singleShot(2000, self._verificar_actualizacion)
+
+    def _verificar_actualizacion(self):
+        self._hilo_update = verificar_actualizacion_async(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -448,7 +461,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         self.btn_asignar.hide()
         self.combo_usuarios_reportes.show()
-        url_inicial ="http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+        url_inicial =f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
         self.cargar_datos_reportes(url_inicial)
 
     def mostrar_tab_rechazadas(self):
@@ -483,18 +496,20 @@ class WorkspaceManagerUI(BaseWindow):
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
+            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/recomendaciones-usuario/admin/infimas-disponibles",
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/infimas-disponibles",
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
+                timeout=50,
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar datos.")
+                ClassicMsgBox.warning("Error", "No se pudieron cargar datos.")
+                #QMessageBox.critical(self, "Error", "No se pudieron cargar datos.")
                 return
 
             data = response.json()
@@ -503,7 +518,8 @@ class WorkspaceManagerUI(BaseWindow):
                 data = data["data"]
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.warning( "Error", "Servidor no disponible.")
+            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
         lista_usuarios = cargar_empleados(self)
@@ -564,16 +580,25 @@ class WorkspaceManagerUI(BaseWindow):
                 item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos, start=1):
+            # Col 1, 2 → texto
+            for col, val in zip([1, 2], datos[:2]):
                 cell = QTableWidgetItem(str(val))
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
-
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
-
                 self.table_asignaciones.setItem(row, col, cell)
+
+            # Col 3 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_asignaciones.setCellWidget(row, 3, self.link_button(url, color))
+
+            # Col 4 → etapa
+            cell_etapa = QTableWidgetItem(datos[2])
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_asignaciones.setItem(row, 4, cell_etapa)
 
         print("Ínfimas disponibles actualizadas")
 
@@ -600,20 +625,17 @@ class WorkspaceManagerUI(BaseWindow):
 
     def confirmar_asignaciones(self):
         if not self.asignaciones_pendientes:
-            QMessageBox.information(
-                self, "Información", "No hay asignaciones seleccionadas."
-            )
+            ClassicMsgBox.info("Información", "No hay asignaciones seleccionadas.")
+            #QMessageBox.information(self, "Información", "No hay asignaciones seleccionadas.")
             return
 
         token = get_session().get("token")
 
-        confirm = QMessageBox.question(
-            self,
+        confirm =  ClassicMsgBox.question(
             "Confirmar",
             f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-
+            QMessageBox.Yes | QMessageBox.No)
+            #QMessageBox.question(self,"Confirmar",f"¿Asignar {len(self.asignaciones_pendientes)} ínfimas?",QMessageBox.Yes | QMessageBox.No,)
         if confirm != QMessageBox.Yes:
             return
 
@@ -627,13 +649,13 @@ class WorkspaceManagerUI(BaseWindow):
 
             try:
                 resp = requests.post(
-                    "http://127.0.0.1:8000/recomendaciones-usuario/admin/asignar-infima-individual",
+                    f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/asignar-infima-individual",
                     json=payload,
                     headers={
                         "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
-                    timeout=10,
+                    timeout=60,
                 )
 
                 if resp.status_code == 200:
@@ -650,14 +672,17 @@ class WorkspaceManagerUI(BaseWindow):
 
             except requests.RequestException:
                 errores += 1
+                #TypeError: setWindowTitle(self, title: Optional[str]): argument 1 has unexpected type 'WorkspaceManagerUI'
 
         self.asignaciones_pendientes.clear()
         self.cargar_datos_asignaciones()
 
         if errores == 0:
-            QMessageBox.information(self, "OK", "Asignaciones completadas.")
+            ClassicMsgBox.info( "Exito", "Asignaciones completadas.")
+            #QMessageBox.information(self, "OK", "Asignaciones completadas.")
         else:
-            QMessageBox.warning(self, "Parcial", f"{errores} asignaciones fallaron.")
+            ClassicMsgBox.warning("Parcial", f"{errores} asignaciones fallaron.")
+            #QMessageBox.warning(self, "Parcial", f"{errores} asignaciones fallaron.")
 
     # =========================================================
     # ======================= REPORTES ========================
@@ -671,15 +696,16 @@ class WorkspaceManagerUI(BaseWindow):
         - Usuario
         - NIC
         - Descripción
+        - URL
         - Etapa
 
-        Esta funcionalidad la implementará otra persona.
         """
 
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
+            #QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
             return
 
         try:
@@ -689,11 +715,12 @@ class WorkspaceManagerUI(BaseWindow):
             response = requests.get(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
+                timeout=70,
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar los reportes.")
+                ClassicMsgBox.warning("Error", "No se pudieron cargar los reportes.")
+                #QMessageBox.critical(self, "Error", "No se pudieron cargar los reportes.")
                 return
 
             data_obtenida = response.json()
@@ -705,7 +732,8 @@ class WorkspaceManagerUI(BaseWindow):
             print(f"Reportes obtenidos: {len(data_obtenida)}")
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.critical("Error", "Servidor no disponible.")
+            #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
         # =====================================================
@@ -729,24 +757,31 @@ class WorkspaceManagerUI(BaseWindow):
             else:
                 color = QColor(220, 220, 220)  # gris
 
-            # Datos esperados
-            datos = [
-                item.get("usuario", ""), 
+            # Col 0, 1, 2 → texto normal
+            datos_texto = [
+                item.get("usuario", ""),
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
-                item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos):
+            for col, val in enumerate(datos_texto):
                 cell = QTableWidgetItem(str(val))
                 cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
-
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
-
                 self.table_reportes.setItem(row, col, cell)
+
+            # Col 3 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_reportes.setCellWidget(row, 3, self.link_button(url, color))
+
+            # Col 4 → etapa
+            cell_etapa = QTableWidgetItem(str(item.get("etapa", "")))
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_reportes.setItem(row, 4, cell_etapa)
 
         print("Reportes cargados correctamente")
 
@@ -780,166 +815,91 @@ class WorkspaceManagerUI(BaseWindow):
         user_id = self.combo_usuarios_reportes.currentData()
 
         if user_id is None:
-            url = "http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+            url = f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
         else:
-            url = f"http://127.0.0.1:8000/recomendaciones-usuario/admin/obtener-infimas-asignadas-por-usuario/{user_id}"
+            url = f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas-por-usuario/{user_id}"
         
         print(f"Asignaciones Filtradas por: {user_id}")
         self.cargar_datos_reportes(url)
 
 
-    def obtener_usuario_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el usuario que está trabajando la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_nic_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el NIC correspondiente a la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_descripcion_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la descripción correspondiente a la ínfima.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_etapa_reporte(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver una de estas tres etapas:
-        - en generacion
-        - finalizada
-        - enviada
-
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
     # =========================================================
     # ================== ÍNFIMAS RECHAZADAS ===================
     # =========================================================
     def cargar_datos_rechazadas(self):
-        """
-        FUNCIÓN DECLARADA PARA ÍNFIMAS RECHAZADAS.
-
-        Esta tabla debe mostrar únicamente ínfimas que estén
-        en etapa rechazada.
-
-        Columnas esperadas:
-        - NIC
-        - Descripción
-        - Etapa
-
-        La funcionalidad real se implementará después.
-        """
-
         token = get_session().get("token")
 
         if not token:
-            QMessageBox.warning(self, "Sesión", "Debe iniciar sesión.")
+            ClassicMsgBox.warning("Sesión", "Debe iniciar sesión.")
             return
 
         try:
-            # =====================================================
-            # CONSUMIR AMBOS ENDPOINTS
-            # =====================================================
             response = requests.get(
-                "http://127.0.0.1:8000/infimas/obtener-infimas-rechazadas",
+                f"{Global.BACKEND_URL}/infimas/obtener-infimas-rechazadas",
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=10,
             )
 
             if response.status_code != 200:
-                QMessageBox.critical(self, "Error", "No se pudieron cargar las infimas rechazadas.")
+                ClassicMsgBox.warning(
+                    "Error", "No se pudieron cargar las ínfimas rechazadas."
+                )
                 return
 
-            data_rechazadas = response.json()
+            data = response.json()
 
-            # Normalizar estructura si viene como { data: [...] }
-            if isinstance(data_rechazadas, dict) and "data" in data_rechazadas:
-                data_rechazadas = data_rechazadas["data"]
-
-            # =====================================================
-            # UNIFICAR DATA
-            # =====================================================
-            data = data_rechazadas
-
-            print(f"Infimas Rechazadas obtenidas: {len(data)}")
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
 
         except requests.RequestException:
-            QMessageBox.warning(self, "Error", "Servidor no disponible.")
+            ClassicMsgBox.warning("Error", "Servidor no disponible.")
             return
 
-        # =====================================================
-        # LIMPIAR TABLA
-        # =====================================================
+        # Limpiar tabla
         self.table_rechazadas.setRowCount(0)
 
-        # =====================================================
-        # LLENAR TABLA
-        # =====================================================
         for row, item in enumerate(data):
             self.table_rechazadas.insertRow(row)
 
-            # Color opcional según etapa
             etapa = item.get("etapa", "").lower()
 
             if "no seleccionada" in etapa:
                 color = QColor(180, 210, 255)  # azul suave
+            else:
+                color = QColor(
+                    220, 220, 220
+                )  # ← fallback, antes no había y causaría error si etapa no coincide
 
-            # Datos esperados
-            datos = [
+            # Col 0 → NIC
+            # Col 1 → Descripción
+            datos_texto = [
                 item.get("codigo_necesidad", ""),
                 item.get("descripcion_objeto_compra", ""),
-                item.get("etapa", ""),
             ]
 
-            for col, val in enumerate(datos):
+            for col, val in enumerate(datos_texto):  # ← enumerate correcto, col 0 y 1
                 cell = QTableWidgetItem(str(val))
-                cell.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                cell.setFlags(Qt.ItemIsEnabled)
                 cell.setBackground(color)
                 cell.setForeground(QColor(0, 0, 0))
+                self.table_rechazadas.setItem(row, col, cell)  # ← tabla correcta
 
-                if col == 3:
-                    cell.setTextAlignment(Qt.AlignCenter)
+            # Col 2 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_rechazadas.setCellWidget(
+                row, 2, self.link_button(url, color)
+            )  # ← tabla correcta
 
-                self.table_rechazadas.setItem(row, col, cell)
+            # Col 3 → etapa
+            cell_etapa = QTableWidgetItem(str(item.get("etapa", "")))
+            cell_etapa.setFlags(Qt.ItemIsEnabled)
+            cell_etapa.setBackground(color)
+            cell_etapa.setForeground(QColor(0, 0, 0))
+            cell_etapa.setTextAlignment(Qt.AlignCenter)
+            self.table_rechazadas.setItem(row, 3, cell_etapa)  # ← tabla correcta
 
-        print("Infimas cargadas correctamente")
+        print(f"Ínfimas rechazadas cargadas: {self.table_rechazadas.rowCount()}")
 
-    def obtener_nic_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver el NIC de la ínfima rechazada.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_descripcion_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la descripción de la ínfima rechazada.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
-
-    def obtener_etapa_rechazada(self, infima_id):
-        """
-        FUNCIÓN DECLARADA.
-        Debe devolver la etapa de la ínfima rechazada.
-        Se espera una etapa relacionada al rechazo.
-        La lógica vendrá desde BD y será implementada por otra persona.
-        """
-        pass
 
     # =========================================================
     # VENTANA DE USUARIOS
@@ -947,17 +907,45 @@ class WorkspaceManagerUI(BaseWindow):
     def abrir_ventana_usuarios(self):
         print("Abriendo gestión de usuarios...")
         try:
-            from ..views.user_management import UserManagementUI
+            from UI.views.user_management import UserManagementUI
 
             self.user = UserManagementUI()
             self.user.show()
             QTimer.singleShot(2000, self.hide)
         except ImportError as e:
             print(f"Error de importación: {e}")
-            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+            ClassicMsgBox.critical("Error", f"No se pudo abrir la ventana")
+            #QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")
 
+    def link_button(self, url: str, bg_color: QColor):
+            """Celda con enlace clickeable que abre el navegador."""
+            container = QWidget()
+            container.setStyleSheet(
+                f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});"
+            )
+
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(4, 0, 4, 0)
+            layout.setAlignment(Qt.AlignCenter)
+
+            label = QLabel()
+
+            if url and url.strip():
+                label.setText(
+                    '<a href="{}" style="color:#4aa3df;font-weight:bold;"> Abrir enlace</a>'.format(
+                        url
+                    )
+                )
+                label.setOpenExternalLinks(True)  # ← abre el navegador al hacer clic
+                label.setCursor(Qt.PointingHandCursor)
+            else:
+                label.setText("Sin enlace")
+                label.setStyleSheet("color: rgb(150,150,150);")
+
+            layout.addWidget(label)
+            return container
 
 # =========================================================
 # FUNCIÓN EXTERNA: CARGAR EMPLEADOS
@@ -966,7 +954,7 @@ def cargar_empleados(self):
     token = get_session().get("token")
 
     resp = requests.get(
-        "http://127.0.0.1:8000/usuarios/empleados-activos",
+        f"{Global.BACKEND_URL}/usuarios/empleados-activos",
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )

@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from ..Models.infima_model import Infima
-from ..Models.evaluacion_model import Evaluacion
+from src.Database.Models.infima_model import Infima
+from src.Database.Models.evaluacion_model import Evaluacion
 # Nuevas importaciones
-from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from src.Database.Models.recomendaciones_usuario_model import RecomendacionesUsuario
 from sqlalchemy import not_, or_
 
 def registrar_infima(db: Session, data: dict):
@@ -110,6 +110,7 @@ def obtener_infimas_disponibles_admin(db: Session):
             # Infima
         )
         .order_by(Infima.fecha_publicacion.desc())
+        .limit(15)
         .all()
     )
 
@@ -169,6 +170,31 @@ def actualizar_infimas_para_analisis(db: Session, id_infima = int):
         db.rollback()
         return {"error": str(e)}
     
+
+def actualizar_infimas_a_enviadas(db: Session, id_infima = int):
+    infima = (db.query(Infima).filter(Infima.id_infima == id_infima).first())
+
+    if not infima:
+        return {"error": "Infima no encontrada"}
+    
+    try:
+        
+        infima.etapa = "enviada"
+        db.commit()
+        db.refresh(infima)
+        return {
+        "id_infima": id_infima,
+        "etapa": "enviada",
+        "mensaje": "Ínfima actualizada a 'enviada'"
+        }
+
+    except IntegrityError as e:
+        db.rollback()
+        return {"error": str(e)}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
 #elimnamos infimas de manera permanente e irreversible
 def eliminar_infima_permanentemente(db: Session, id_infima: int):
 
@@ -241,7 +267,6 @@ def asignar_infimas_recomendadas_a_usuario_individual(db: Session,usuario_id: in
     }
 
 # OBTENER INFIMAS RECHAZADAS
-# ETAPAS EN GENERACION Y FINALIZADAS
 def obtener_infimas_rechazadas(db: Session):
     
     resultado = (    db.query(
@@ -249,20 +274,46 @@ def obtener_infimas_rechazadas(db: Session):
             Infima.etapa,
             Infima.descripcion_objeto_compra,
             Infima.fecha_limite_proformas,
+            Infima.entidad_contratante_url
         )
         # Filtramos por etapa
         .filter(Infima.etapa == "no seleccionada")
         # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
         .order_by(Infima.fecha_limite_proformas.asc())
+        .limit(50)
         .all()
     )
-
+    
+    #if resultado:
+        #print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
     return [
         {
             "codigo_necesidad": r.codigo_necesidad,
-            "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "etapa": r.etapa,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "fecha_limite_proformas": r.fecha_limite_proformas,
+            "entidad_contratante_url": r.entidad_contratante_url
         }
+
         for r in resultado
     ]
+
+# OBTENER LAS EVALUACIONES DE LAS INFIMAS POR CODIGO DE NECESIDAD
+def obtener_evaluacion_de_infimas_por_codigo(db: Session, codigo_necesidad: str):
+    resultado = (
+        db.query(
+            Evaluacion.codigo_necesidad,
+            Evaluacion.justificacion
+            )
+        .filter(Evaluacion.codigo_necesidad == codigo_necesidad)
+        .first()
+    )
+
+    if not resultado:
+        return {"error": "No se encontró evaluación para el código de necesidad proporcionado"}
+
+    return {
+        "codigo_necesidad": resultado.codigo_necesidad,
+        "justificacion": resultado.justificacion
+    }

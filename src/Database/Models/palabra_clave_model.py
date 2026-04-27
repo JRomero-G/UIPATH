@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String
-from .base import Base
+from  src.Database.Models.base import Base
 
 class PalabraClave(Base):
     __tablename__ = "palabras_clave"

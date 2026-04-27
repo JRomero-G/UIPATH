@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
-from ..Models.recomendaciones_usuario_model import RecomendacionesUsuario
-from ..Models.infima_model import Infima
-from ..Models.usuarios_model import Usuario
+from src.Database.Models.recomendaciones_usuario_model import RecomendacionesUsuario
+from src.Database.Models.infima_model import Infima
+from src.Database.Models.usuarios_model import Usuario
 # Nueva importacion
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
@@ -163,6 +163,17 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
         ,Infima.etapa != "en generacion")
         .order_by(Infima.fecha_publicacion.desc())
+        .limit(20)
+        .all()
+    )
+
+def obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db: Session,usuario_id: int):
+    return (
+        db.query(Infima)
+        .join(RecomendacionesUsuario)
+        .filter(RecomendacionesUsuario.usuario_id == usuario_id
+        ,Infima.etapa == "finalizada")
+        .order_by(Infima.fecha_publicacion.desc())
         .all()
     )
 
@@ -170,7 +181,7 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
 
 # INFIMAS EN ETAPA EN GENERACION
 def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -187,9 +198,21 @@ def obtener_infimas_asignadas_en_generacion_y_a_que_usuarios(db: Session):
         .all()
     )
 
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
+
 # INFIMAS EN ETAPA FINALIZADA
 def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -205,10 +228,22 @@ def obtener_infimas_asignadas_finalizadas_y_a_que_usuarios(db: Session):
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+    
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
 
 # INFIMAS EN ETAPA ENVIADA
 def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str = "enviada"):
-    return(
+    resultado = (
         db.query(
             Usuario.usuario,
             Usuario.nombre,
@@ -225,6 +260,18 @@ def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str 
         .all()
     )
 
+    return [
+        {
+            "usuario": r.usuario,
+            "nombre": r.nombre,
+            "codigo_necesidad": r.codigo_necesidad,
+            "descripcion_objeto_compra": r.descripcion_objeto_compra,
+            "fecha_limite_proformas": r.fecha_limite_proformas,
+        }
+        for r in resultado
+    ]
+
+
 # ETAPAS EN GENERACION Y FINALIZADAS
 def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
     
@@ -233,6 +280,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
             Usuario.nombre,
             Infima.codigo_necesidad,
             Infima.etapa,
+            Infima.entidad_contratante_url,
             Infima.descripcion_objeto_compra,
             Infima.fecha_limite_proformas,
         )
@@ -249,12 +297,16 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
-
+    
+    if resultado:
+        print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
     return [
         {
             "usuario": r.usuario,
             "nombre": r.nombre,
             "codigo_necesidad": r.codigo_necesidad,
+            "entidad_contratante_url": r.entidad_contratante_url,
             "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "etapa": r.etapa,
             "fecha_limite_proformas": r.fecha_limite_proformas,
@@ -270,6 +322,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
             Usuario.nombre,
             Infima.codigo_necesidad,
             Infima.etapa,
+            Infima.entidad_contratante_url,
             Infima.descripcion_objeto_compra,
             Infima.fecha_limite_proformas,
         )
@@ -287,16 +340,21 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
-
+    
+    if resultado:
+        print("Campos consultados Rechazadas: ",resultado[0]._fields)
+    
     return [
         {
             "usuario": r.usuario,
             "nombre": r.nombre,
             "codigo_necesidad": r.codigo_necesidad,
+            "entidad_contratante_url": r.entidad_contratante_url,
             "descripcion_objeto_compra": r.descripcion_objeto_compra,
             "etapa": r.etapa,
             "fecha_limite_proformas": r.fecha_limite_proformas,
         }
+
         for r in resultado
     ]
 

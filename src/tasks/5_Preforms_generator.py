@@ -7,6 +7,7 @@ y proformas (.xlsx) → sube todo al bucket de GCS.
 
 import os, sys, json, shutil, tempfile, datetime, re, copy, io, time, hashlib, mimetypes, traceback
 from pathlib import Path
+<<<<<<< HEAD
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN GLOBAL
@@ -21,13 +22,43 @@ MYSQL_CONFIG = {
 
 GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
 BUCKET_NAME             = "nexusbucket1"
+=======
+# ✅ API nueva
+from vertexai.generative_models import Tool, grounding as vertexai_grounding
+
+
+#raíz del proyecto al path de Python
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from Config import Global
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CONFIGURACIÓN GLOBAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+MYSQL_CONFIG = {
+    "host": Global.DB_HOST,
+    "user": Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
+}
+
+#GEMINI_CREDENTIALS_PATH = "src/Credentials/Clave_bucket_AIgemini.json"
+GEMINI_CREDENTIALS_PATH = Global.RENDER_CRENDENTIALS_JSON # Credenciales en las variables de entorno
+BUCKET_NAME             = Global.BUCKET_NAME
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 BUCKET_FOLDER           = "Documentos de Contratación"
 AI_MODEL                = "gemini-2.5-pro"   # mejor razonamiento multimodal
 
 # Plantillas (misma carpeta que el script o path relativo)
 SCRIPT_DIR     = Path(__file__).parent
+<<<<<<< HEAD
 TEMPLATE_DOCX  = SCRIPT_DIR / "FICHA_TECNICA_MICROFONO_Y_MEMORIA.docx"
 TEMPLATE_XLSX  = SCRIPT_DIR / "FORMATO_DE_PROFORMA_RECREADO_VACÍO.xlsx"
+=======
+TEMPLATE_DOCX  = SCRIPT_DIR / "FICHA TECNICA MICROFONO Y MEMORIA.docx"
+TEMPLATE_XLSX  = SCRIPT_DIR / "FORMATO DE PROFORMA RECREADO VACÍO.xlsm"
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 
 PROVEEDORES_NACIONALES = [
     "https://mibodega.ec/",
@@ -65,6 +96,7 @@ PROVEEDORES_EXTRANJEROS = [
     "https://www.mercadolibre.com.hn/",
     "https://www.ebay.com/",
 ]
+<<<<<<< HEAD
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -83,6 +115,56 @@ def paso(n, total, desc):
 #  PASO 1 – BASE DE DATOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+=======
+
+def resolver_credenciales_a_archivo():
+    """
+    GEMINI_CREDENTIALS_PATH puede ser un path a archivo .json
+    o directamente el contenido JSON como string (caso Render / .env).
+    Si es JSON string, lo escribe en un archivo temporal y devuelve ese path.
+    """
+    raw = GEMINI_CREDENTIALS_PATH
+
+    if raw is None:
+        raise ValueError(
+            "La variable RENDER_CRENDENTIALS_JSON no está definida. "
+            "Verifica tu archivo .env en la raíz del proyecto."
+        )
+
+    stripped = raw.strip()
+
+    if stripped.startswith("{"):
+        # Es JSON directo como string → escribir a archivo temporal
+        creds_dict = json.loads(stripped)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        json.dump(creds_dict, tmp)
+        tmp.close()
+        log("Credenciales resueltas desde variable de entorno (JSON string).")
+        return tmp.name
+    else:
+        # Es un path de archivo normal
+        log(f"Credenciales resueltas desde archivo: {stripped}")
+        return stripped
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  UTILIDADES DE TERMINAL
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def log(msg, nivel="INFO"):
+    iconos = {"INFO": "ℹ️ ", "OK": "✅", "WARN": "⚠️ ", "ERR": "❌", "STEP": "🔷"}
+    print(f"{iconos.get(nivel,'  ')} [{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+def paso(n, total, desc):
+    print(f"\n{'─'*60}\n  PASO {n}/{total}: {desc}\n{'─'*60}", flush=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 1 – BASE DE DATOS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 def obtener_data_table_1():
     import mysql.connector
     log("Conectando a MySQL…")
@@ -115,8 +197,15 @@ def obtener_data_table_1():
 def obtener_cliente_gcs():
     from google.oauth2 import service_account
     from google.cloud import storage
+<<<<<<< HEAD
     creds = service_account.Credentials.from_service_account_file(
         GEMINI_CREDENTIALS_PATH,
+=======
+
+    creds_path = resolver_credenciales_a_archivo()
+    creds = service_account.Credentials.from_service_account_file(
+        creds_path,
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
         scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
     return storage.Client(credentials=creds, project=creds.project_id)
@@ -154,7 +243,12 @@ def subir_archivo_a_bucket(gcs_client, local_path, carpeta_destino):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PASO 3 – VERTEX AI / GEMINI
 # ═══════════════════════════════════════════════════════════════════════════════
+def inicializar_vertex_ai():
+    import vertexai
+    from vertexai.generative_models import GenerativeModel
+    from google.oauth2 import service_account
 
+<<<<<<< HEAD
 def inicializar_vertex_ai():
     import vertexai
     from vertexai.generative_models import GenerativeModel
@@ -170,6 +264,19 @@ def inicializar_vertex_ai():
         project    = creds_data["project_id"],
         credentials= creds,
         location   = "us-central1",
+=======
+    creds_path = resolver_credenciales_a_archivo()
+
+    with open(creds_path, "r", encoding="utf-8") as f:
+        creds_data = json.load(f)
+
+    creds = service_account.Credentials.from_service_account_file(creds_path)
+
+    vertexai.init(
+        project  = creds_data["project_id"],
+        credentials = creds,
+        location = "us-central1",
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
     )
     modelo = GenerativeModel(AI_MODEL)
     log(f"VertexAI inicializado con modelo: {AI_MODEL}", "OK")
@@ -181,8 +288,13 @@ def blob_a_part(blob_path_local):
     from vertexai.generative_models import Part
     suffix = Path(blob_path_local).suffix.lower()
     mapa   = {".pdf": "application/pdf",
+<<<<<<< HEAD
                ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                ".doc":  "application/msword"}
+=======
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".doc":  "application/msword"}
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
     mime   = mapa.get(suffix, "application/octet-stream")
     with open(blob_path_local, "rb") as f:
         data = f.read()
@@ -344,12 +456,17 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown) con esta estructura:
       "nombre_en_tienda": "Nombre en tienda"
     }}
   ],
+<<<<<<< HEAD
   "url_imagen_producto": "URL directa a imagen de alta calidad del producto"
+=======
+  "url_imagen_producto": "URL directa a imagen de calidad del producto"
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 }}
 """
 
     log(f"  Buscando '{nombre} {marca} {modelo_prod}' en proveedores con Gemini…")
 
+<<<<<<< HEAD
     # Intentar con grounding de Google Search
     try:
         tool_grounding = Tool.from_google_search_retrieval(
@@ -359,6 +476,15 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown) con esta estructura:
             AI_MODEL,
             tools=[tool_grounding]
         )
+=======
+    #  API correcta sin disable_attribution
+    try:
+        from vertexai.preview.generative_models import grounding
+        tool_grounding = Tool.from_google_search_retrieval(
+            grounding.GoogleSearchRetrieval()   # ← sin argumentos
+        )
+        model_search = GenerativeModel(AI_MODEL, tools=[tool_grounding])
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
         response = model_search.generate_content(prompt)
     except Exception as e:
         log(f"  Grounding no disponible ({e}), usando Gemini sin grounding…", "WARN")
@@ -596,7 +722,11 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
     codigo      = registro_bd["codigo_necesidad"]
     entidad     = str(registro_bd.get("entidad_contratante", "")).upper()
     entidad_url = str(registro_bd.get("entidad_contratante_url", ""))
+<<<<<<< HEAD
     direccion   = str(registro_bd.get("dirección_entrega", ""))
+=======
+    direccion   = str(registro_bd.get("direccion_entrega", ""))
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
     contacto    = str(registro_bd.get("contacto", ""))
     ruc_ish     = codigo[4:17] if len(codigo) >= 17 else codigo  # chars 5-17 (índice 4 a 16)
 
@@ -612,12 +742,21 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
 
     fecha_hoy   = datetime.date.today().strftime("%d/%m/%Y")
     nombre_arch = re.sub(r'[^a-zA-Z0-9_\-]', '_', codigo)
+<<<<<<< HEAD
     out_path    = Path(directorio_salida) / f"{nombre_arch}.xlsx"
+=======
+    out_path    = Path(directorio_salida) / f"{nombre_arch}.xlsm"
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 
     # Copiar plantilla
     shutil.copy2(str(TEMPLATE_XLSX), str(out_path))
 
+<<<<<<< HEAD
     wb = openpyxl.load_workbook(str(out_path))
+=======
+    #wb = openpyxl.load_workbook(str(out_path))
+    wb = openpyxl.load_workbook(str(out_path), keep_vba=True)
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 
     # ── Hoja "Cotización " ──
     # Buscar hoja por nombre (puede tener espacios)
@@ -653,7 +792,11 @@ def generar_proforma(registro_bd, info_articulo, resultado_busqueda, directorio_
     escribir_celda(hoja_cot, "B9",  ruc_ish)
     escribir_celda(hoja_cot, "B10", direccion)
     escribir_celda(hoja_cot, "B11", contacto)
+<<<<<<< HEAD
     escribir_celda(hoja_cot, "B12", codigo)
+=======
+    escribir_celda(hoja_cot, "D12", codigo)
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
     escribir_celda(hoja_cot, "I8",  fecha_hoy)
 
     # Celda C16/C17 – nombre, marca y modelo del producto
@@ -812,6 +955,7 @@ def main():
                 errores.append(f"{codigo}: análisis Gemini fallido.")
                 continue
 
+<<<<<<< HEAD
             # Si devolvió array de artículos, tomar el primero para la ficha
             if "articulos" in info_articulo:
                 log(f"  Múltiples artículos detectados: {len(info_articulo['articulos'])}")
@@ -819,6 +963,32 @@ def main():
             else:
                 info_principal = info_articulo
 
+=======
+            # ── FIX: Maneja los 4 formatos posibles que devuelve Gemini ──
+            if isinstance(info_articulo, list):
+                # Gemini devolvió lista directamente → [{...}, {...}]
+                articulos = info_articulo
+                log(f"  Múltiples artículos detectados (lista raíz): {len(articulos)}")
+                info_principal = articulos[0] if articulos and isinstance(articulos[0], dict) else {}
+            elif isinstance(info_articulo, dict) and "articulos" in info_articulo:
+                # {"articulos": [{...}]}  o  {"articulos": [[{...}]]}
+                articulos = info_articulo["articulos"]
+                if articulos and isinstance(articulos[0], list):
+                    articulos = articulos[0]   # desanidar [[{...}]] → [{...}]
+                log(f"  Múltiples artículos detectados: {len(articulos)}")
+                info_principal = articulos[0] if articulos and isinstance(articulos[0], dict) else {}
+            elif isinstance(info_articulo, dict):
+                # Objeto directo {"nombre_articulo": ...}
+                info_principal = info_articulo
+            else:
+                info_principal = {}
+
+            if not info_principal:
+                log(f"  No se pudo extraer artículo del análisis de Gemini.", "ERR")
+                errores.append(f"{codigo}: formato de respuesta Gemini no reconocido.")
+                continue
+
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
             log(f"  Artículo: {info_principal.get('nombre_articulo','')} "
                 f"| Marca: {info_principal.get('marca','')} "
                 f"| Modelo: {info_principal.get('modelo','')}", "OK")
@@ -835,7 +1005,11 @@ def main():
 
             # ── 6. Subir ficha técnica al bucket ──────────────────
             paso(6, 9, f"Subiendo ficha técnica al bucket — {codigo}")
+<<<<<<< HEAD
             blob_docx = subir_archivo_a_bucket(gcs_client, path_docx, "Fichas Técnicas")
+=======
+            blob_docx = subir_archivo_a_bucket(gcs_client, path_docx, "Fichas Tecnicas")
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 
             # ── Pausa de 60 segundos antes de generar la proforma ─
             log("  Esperando 60 segundos antes de generar la proforma…", "INFO")
@@ -908,6 +1082,9 @@ def main():
     print("  Preform_generator finalizado.")
     print(f"{'═'*60}\n")
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 1a98f95025da8af346f1db246d56363884bb3f71
 if __name__ == "__main__":
     main()

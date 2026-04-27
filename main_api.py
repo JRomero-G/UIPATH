@@ -9,10 +9,18 @@ from src.Database.Routes.logs_eventos_routes import router as logs_eventos_route
 from src.Database.Routes.palabra_clave_routes import router as palabra_clave_router
 from src.Database.Routes.recomendaciones_usuario_routes import router as recomendaciones_usuario_router
 from src.Database.database import Base, engine
+from fastapi.middleware.cors import CORSMiddleware
+
+from src.Config.version_route import router as version_router
 
 Base.metadata.create_all(bind=engine)
 
+
 app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
 app.include_router(auth_router)
 app.include_router(usuarios_router)
@@ -23,3 +31,17 @@ app.include_router(evaluaciones_router)
 app.include_router(logs_eventos_router)
 app.include_router(palabra_clave_router)
 app.include_router(recomendaciones_usuario_router)
+app.include_router(version_router)
+
+
+# Evita errores de conexión entre frontend y backend
+# Permite que la app (local o web) consuma la API
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+

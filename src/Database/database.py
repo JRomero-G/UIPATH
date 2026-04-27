@@ -2,12 +2,17 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+#Variables de entorno
+from Config import Global
+
+
+
 # ================= CONFIGURACIÓN DE LA BASE =================
-USER = "Jason"
-PASSWORD = "Admin02%"
-HOST = "35.225.240.246"  # IP pública de tu instancia
-PORT = "3306"
-DATABASE = "gestorex"
+USER = Global.DB_USER
+PASSWORD = Global.DB_PASSWORD
+HOST = Global.DB_HOST  # IP pública de la instancia
+PORT = Global.DB_PORT
+DATABASE = Global.DATABASE
 
 # Usando mysql-connector-python como driver
 DATABASE_URL = f"mysql+mysqlconnector://{USER}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"

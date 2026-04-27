@@ -1,6 +1,7 @@
 import os
 # jason
 from PyQt5.QtWidgets import QMessageBox
+from Config import Global
 # naye
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
@@ -16,12 +17,16 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 import requests  # jason
-from config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
-from config import set_session, _session, get_session
+from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+from UI.config import set_session, _session, get_session
 from UI.components.table_scroll_style import apply_table_scrollbar_style
-from components.base_window import BaseWindow
-from components.table_validations import setup_row_logic
-from components.btns_windows import WindowButtons  # ← IMPORTADO
+from UI.components.base_window import BaseWindow
+from UI.components.table_validations import setup_row_logic
+from UI.components.btns_windows import WindowButtons  # ← IMPORTADO
+from src.Config.version import CURRENT_VERSION
+from src.utils.updater import verificar_actualizacion_async
+from UI.components.classic_msgbox import ClassicMsgBox
+
 
 
 class WorkspaceUserUI(BaseWindow):
@@ -37,7 +42,7 @@ class WorkspaceUserUI(BaseWindow):
         self.datos_filas = {}              # {row: dict_completo_de_infima}
 
 
-        self.setWindowTitle("Gestorex 1.1 - Usuario")
+        self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Usuario")
         # Ahora la ventana es redimensionable
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.setMinimumSize(1000, 600)
@@ -81,7 +86,7 @@ class WorkspaceUserUI(BaseWindow):
         )
         logo_label.setPixmap(pixmap)
 
-        title = QLabel("Gestorex 1.1")
+        title = QLabel(f"Gestorex {CURRENT_VERSION}")
         title.setFont(QFont("Arial", 15, QFont.Bold))
         title.setStyleSheet("color: white;")
 
@@ -92,10 +97,10 @@ class WorkspaceUserUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel", "Acción"]
+            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
         )
 
         self.table.setWordWrap(True)
@@ -175,6 +180,9 @@ class WorkspaceUserUI(BaseWindow):
         #===================== Boton Actualizar =================
         self.btn_actualizar.clicked.connect(self.Cargar_infimas)
 
+        #====================== Boton Revision =======================
+        self.btn_revision.clicked.connect(self.open_workspace_userRE)
+
         bottom_layout.addWidget(self.btn_analizar)
         main_layout.addLayout(bottom_layout)
 
@@ -184,6 +192,11 @@ class WorkspaceUserUI(BaseWindow):
         self.showMaximized()
         #Actualizar ancho de botones al maximizar
         self.window_buttons.setGeometry(0, 0, self.width(), 35)
+        #verificar actualización después de que cargue la UI
+        QTimer.singleShot(2000, self._verificar_actualizacion)
+
+    def _verificar_actualizacion(self):
+        self._hilo_update = verificar_actualizacion_async(self)
 
     # Actualizar botones al redimensionar - Misma Funcion que showEvent se deberia eliminar
     def resizeEvent(self, event):
@@ -324,7 +337,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def deshabilitar_boton_eliminar(self, row):
         """Desactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 5)
+        widget = self.table.cellWidget(row, 6)
         if not widget:
             return
 
@@ -341,7 +354,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def habilitar_boton_eliminar(self, row):
         """Reactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 5)
+        widget = self.table.cellWidget(row, 6)
         if not widget:
             return
 
@@ -362,23 +375,16 @@ class WorkspaceUserUI(BaseWindow):
 
     def Cargar_infimas(self):
         sesion = get_session()
-        print("Sesion completa: ", sesion)
-        print("Token guardado: ", sesion.get("token"))
         try:
             response = requests.get(
-                "http://127.0.0.1:8000/recomendaciones-usuario/mis-infimas",
-                headers={"Authorization": f"Bearer {get_session().get('token')}"},
-                timeout=10,
+                f"{Global.BACKEND_URL}/recomendaciones-usuario/mis-infimas",
+                headers={"Authorization": f"Bearer {sesion.get('token')}"},
+                timeout=20,
             )
 
-            print("STATUS:", response.status_code)
-
             if response.status_code != 200:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    f"Error al obtener ínfimas.\nCódigo: {response.status_code}",
-                )
+                ClassicMsgBox.critical("Error",f"Error al obtener ínfimas.")
+                #QMessageBox.critical(self,"Error",f"Error al obtener ínfimas.",)
                 return
 
             data = response.json()
@@ -390,15 +396,15 @@ class WorkspaceUserUI(BaseWindow):
                 data = data["data"]
 
             if not isinstance(data, list):
-                QMessageBox.critical(
-                    self, "Error", "La API no devolvió una lista de registros."
-                )
-                print("DATA INVALIDA:", data)
+                #ClassicMsgBox.warning("Error", "La API no devolvió una lista de registros.")
+                #QMessageBox.critical(self, "Error", "La API no devolvió una lista de registros.")
+                print("DATA INVALIDA en cargar Infimas:", data)
                 return
             
 
         except requests.RequestException as e:
-            QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
+            ClassicMsgBox.warning("Error", "No se pudo conectar al servidor.")
+            #QMessageBox.warning(self, "Error", "No se pudo conectar al servidor.")
             print("EXCEPTION:", e)
             return
 
@@ -409,6 +415,7 @@ class WorkspaceUserUI(BaseWindow):
         self.datos_filas.clear()
 
         if not data:
+            ClassicMsgBox.warning("Advertencia", "No hay registros para mostrar")
             print("⚠️ No hay registros para mostrar")
             return
         
@@ -462,7 +469,7 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row, 2, cell)
 
-            # Col 3: Grado
+            # Grado
             cell = QTableWidgetItem(
                 "✅ Recomendado"
                 if grado == "Recomendado"
@@ -477,7 +484,7 @@ class WorkspaceUserUI(BaseWindow):
             cell.setFont(QFont("Arial", 9, QFont.Bold))
             self.table.setItem(row, 3, cell)
 
-            # Col 4: Nivel
+            # nivel
             cell = QTableWidgetItem(str(nivel))
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
@@ -485,8 +492,16 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, 4, cell)
 
+            # URL
+            url = item.get("entidad_contratante_url", "")
+            cell = QTableWidgetItem(url)
+            cell.setFlags(Qt.ItemIsEnabled)
+            cell.setBackground(row_color)
+            cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.table.setCellWidget(row, 5, self.link_button(url, row_color))
+
             # Col 5: Acción
-            self.table.setCellWidget(row, 5, self.delete_button(row_color.name(),row))
+            self.table.setCellWidget(row, 6, self.delete_button(row_color.name(),row))
             # ================= Fin Celdas nuevo ==================
 
             #Conectar evento de checkbox (FUERA DEL LOOP)
@@ -675,28 +690,26 @@ class WorkspaceUserUI(BaseWindow):
         """
         
         if not self.Pendientes_de_analisis and not self.eliminacion_pendiente:
-            QMessageBox.information(
-                self,
-                "Información",
-                "No hay ínfimas seleccionadas para anailisis ni para eliminacion."
-            )
+            ClassicMsgBox.info("Información","No hay ínfimas seleccionadas para anailisis ni para eliminacion.")
+            #QMessageBox.information(self,"Información","No hay ínfimas seleccionadas para anailisis ni para eliminacion.")
             return
         
         token = get_session().get("token")
         
         if not token:
-            QMessageBox.warning(self, "Error", "No hay sesión activa.")
+            ClassicMsgBox.critical( "Error", "No hay sesión activa.")
+            #QMessageBox.critical(self, "Error", "No hay sesión activa.")
             return
         
         # ====== PASO 1: CONFIRMAR ELIMINACIÓN (si hay) ======
         if self.eliminacion_pendiente:
-            confirm_eliminar = QMessageBox.question(
-                self,
+            
+            confirm_eliminar = ClassicMsgBox.question(
                 "⚠️ Confirmar Eliminación",
                 f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n"
                 "Esta acción las quitará de tus asignaciones.",
-                QMessageBox.Yes | QMessageBox.No
-            )
+                QMessageBox.Yes | QMessageBox.No)
+            #QMessageBox.question(self,"⚠️ Confirmar Eliminación",f"¿Deseas eliminar {len(self.eliminacion_pendiente)} ínfima(s)?\n\n""Esta acción las quitará de tus asignaciones.",QMessageBox.Yes | QMessageBox.No            )
             
             if confirm_eliminar != QMessageBox.Yes:
                 print(" Usuario canceló la eliminación")
@@ -710,12 +723,13 @@ class WorkspaceUserUI(BaseWindow):
 
         # ====== PASO 2: CONFIRMAR ANÁLISIS (si hay) ======
         if self.Pendientes_de_analisis:
-            confirm_analizar = QMessageBox.question(
-                self,
+            
+            
+
+            confirm_analizar = ClassicMsgBox.question(
                 "✅ Confirmar Análisis",
                 f"¿Marcar {len(self.Pendientes_de_analisis)} ínfima(s) para análisis?",
-                QMessageBox.Yes | QMessageBox.No
-            )
+                QMessageBox.Yes | QMessageBox.No)
             
             if confirm_analizar != QMessageBox.Yes:
                 print(" Usuario canceló el análisis")
@@ -751,9 +765,11 @@ class WorkspaceUserUI(BaseWindow):
                 mensaje += f"  • {analizadas_errores} error(es) al analizar\n"
         
         if eliminadas_errores > 0 or analizadas_errores > 0:
-            QMessageBox.warning(self, "Completado con errores", mensaje)
+            ClassicMsgBox.warning("Exito Parcial", mensaje)
+            #QMessageBox.warning(self, "Completado con errores", mensaje)
         else:
-            QMessageBox.information(self, "Éxito", mensaje)
+            ClassicMsgBox.warning("Exito", mensaje)
+            #QMessageBox.information(self, "Éxito", mensaje)
 
     def ejecutar_eliminacion(self, token):
         """
@@ -770,12 +786,10 @@ class WorkspaceUserUI(BaseWindow):
             
             try:
                 resp = requests.delete(
-                    f"http://127.0.0.1:8000/infimas/eliminar-infimas/{payload}",
+                    f"{Global.BACKEND_URL}/infimas/eliminar-infimas/{payload}",
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
+                    timeout=20,
                 )
-                
-                print(f" DELETE /eliminar-infimas/{payload} → Status: {resp.status_code}")
                 
                 if resp.status_code == 200 and resp.json().get("success"):
                     exitosas += 1
@@ -809,9 +823,9 @@ class WorkspaceUserUI(BaseWindow):
             
             try:
                 resp = requests.patch(
-                    f"http://127.0.0.1:8000/infimas/analizar-infimas/{id_infima}",
+                    f"{Global.BACKEND_URL}/infimas/analizar-infimas/{id_infima}",
                     headers={"Authorization": f"Bearer {token}"},
-                    timeout=10,
+                    timeout=20,
                 )
                 
                 print(f" PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
@@ -849,17 +863,42 @@ class WorkspaceUserUI(BaseWindow):
         
         return exitosas, errores
 
+    def link_button(self, url: str, bg_color: QColor):
+        """Celda con enlace clickeable que abre el navegador."""
+        container = QWidget()
+        container.setStyleSheet(f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});")
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setAlignment(Qt.AlignCenter)
+
+        label = QLabel()
+
+        if url and url.strip():
+
+            label.setText('<a href="{}" style="color:#1A00FF;font-weight:bold;"> Abrir enlace</a>'.format(url))
+            label.setOpenExternalLinks(True)  # ← abre el navegador al hacer clic
+            label.setCursor(Qt.PointingHandCursor)
+        else:
+            label.setText("Sin enlace")
+            label.setStyleSheet("color: rgb(150,150,150);")
+        layout.addWidget(label)
+        
+        return container
+
+
     # llamar al RE
     def open_workspace_userRE(self):
         print("Abriendo Workspace User RE...")
         try:
-            from ..views.workspace_userRE import WorkspaceUserREUI
+            from UI.views.workspace_userRE import WorkspaceUserREUI
             self.workspace_re = WorkspaceUserREUI()
             self.workspace_re.show()
             #self.hide()
             QTimer.singleShot(2000, self.hide)  # Esperar 2 segundos antes de ocultar
         except ImportError as e:
             print(f"Error de importación: {e}")
-            QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
+            ClassicMsgBox.warning("Error", f"No se pudo abrir la ventana")
+            #QMessageBox.critical(self, "Error", f"No se pudo abrir la ventana: {e}")
         except Exception as e:
             print(f"Error al crear ventana: {e}")
