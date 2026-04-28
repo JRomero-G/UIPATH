@@ -3,10 +3,9 @@ import math
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtWidgets import QLabel, QWidget
-
-from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
+#comentario
 from UI.components.base_window import BaseWindow
-
+from UI.config import BASE_DIR, ASSETS_DIR, WINDOW_WIDTH, WINDOW_HEIGHT, BG_COLOR
 from UI.views.workspace_user import WorkspaceUserUI
 from UI.views.workspace_manager import WorkspaceManagerUI
 
