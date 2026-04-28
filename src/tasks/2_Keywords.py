@@ -1,8 +1,14 @@
-
-
 """
-Script de clasificación de compras públicas (infimas) usando Gemini 2.0 Flash
+Script de clasificación de compras públicas (infimas) usando Gemini 2.5 Flash
 Conecta a MySQL, obtiene datos, clasifica con IA y actualiza estados
+
+ACTUALIZACIÓN: Migrado de gemini-2.0-flash (descontinuado) a gemini-2.5-flash
+Modelo actualizado: gemini-2.5-flash - Mejor precio/rendimiento con capacidades de pensamiento
+Región: us-central1 (soportada)
+
+ALTERNATIVAS DISPONIBLES:
+- gemini-2.5-pro: Para casos que requieran máximo razonamiento (más costoso)
+- gemini-3.1-pro-preview: Modelo experimental más avanzado (preview, puede tener limitaciones)
 """
 
 import os
@@ -34,7 +40,17 @@ MYSQL_CONFIG = {
     "database": Global.DATABASE,
 }
 
-#GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
+# Modelo actualizado - Gemini 2.5 Flash
+# Este modelo ofrece:
+# - Mejor rendimiento que 2.0 Flash
+# - Capacidades de "pensamiento" (thinking) para mayor precisión
+# - Disponibilidad en us-central1
+# - Precio competitivo
+GEMINI_MODEL = "gemini-2.5-flash"
+
+# ALTERNATIVAS:
+# GEMINI_MODEL = "gemini-2.5-pro"  # Para máxima precisión (más costoso)
+# GEMINI_MODEL = "gemini-3.1-pro-preview"  # Experimental (puede tener limitaciones regionales)
 
 def obtener_ruta_credenciales():
     """
@@ -83,10 +99,10 @@ def inicializar_vertex_ai():
     vertexai.init(
         project=project_id,
         credentials=credentials,
-        location="us-central1"  # Ajusta según tu región
+        location="us-central1"  # Región soportada para Gemini 2.5
     )
     
-    return GenerativeModel("gemini-2.0-flash")
+    return GenerativeModel(GEMINI_MODEL)
 
 # =========================
 # 3. UTILIDADES
@@ -184,16 +200,35 @@ def actualizar_etapa(df, resultados):
 # =========================
 
 def clasificar_descripcion_lote(batch_data, palabras_clave, model):
-    """Clasifica un lote de descripciones usando Gemini"""
+    """
+    Clasifica un lote de descripciones usando Gemini 2.5 Flash
+    
+    Gemini 2.5 Flash incluye capacidades de pensamiento que mejoran
+    la precisión en tareas de clasificación complejas.
+    """
     prompt = f"""
-Eres un analista de compras públicas.
+Eres un analista experto de compras públicas especializado en clasificación de contenido.
+
+TAREA:
 Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
 {", ".join(palabras_clave)}
-En caso de que SI se mencione alguna palabra o frase clave entonces, tu respuesta será SI, de lo contrario será NO.
-Responde ESTRICTAMENTE con un objeto JSON donde la clave es el número de fila y el valor es "SI" o "NO".
 
-Datos:
-{json.dumps(batch_data, ensure_ascii=False)}
+INSTRUCCIONES:
+1. Lee cuidadosamente cada descripción
+2. Busca coincidencias exactas o variaciones semánticas de las palabras/frases clave
+3. Si encuentras AL MENOS UNA palabra o frase clave en la descripción, responde "SI"
+4. Si NO encuentras NINGUNA palabra o frase clave, responde "NO"
+5. Sé preciso: las palabras deben estar realmente presentes o tener clara relación semántica
+
+FORMATO DE RESPUESTA:
+Responde ESTRICTAMENTE con un objeto JSON donde:
+- La clave es el número de fila
+- El valor es "SI" (se encontró al menos una palabra clave) o "NO" (no se encontró ninguna)
+
+DATOS A ANALIZAR:
+{json.dumps(batch_data, ensure_ascii=False, indent=2)}
+
+RESPONDE SOLO CON EL JSON, SIN TEXTO ADICIONAL.
 """
 
     try:
@@ -226,11 +261,12 @@ Datos:
 def main():
     """Función principal que orquesta todo el proceso"""
     print("=" * 60)
-    print("INICIANDO CLASIFICADOR DE COMPRAS PÚBLICAS")
+    print("CLASIFICADOR DE COMPRAS PÚBLICAS")
+    print(f"Modelo: {GEMINI_MODEL}")
     print("=" * 60)
     
     # Inicializar modelo Gemini
-    print("\n1. Inicializando modelo Gemini 2.0 Flash...")
+    print(f"\n1. Inicializando modelo {GEMINI_MODEL}...")
     try:
         model = inicializar_vertex_ai()
         print("   ✓ Modelo inicializado correctamente")
