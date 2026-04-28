@@ -864,7 +864,7 @@ class WorkspaceManagerUI(BaseWindow):
             etapa = item.get("etapa", "").lower()
 
             if "no seleccionada" in etapa:
-                color = QColor(180, 210, 255)  # azul suave
+                color = QColor(220, 170, 170) # rojo suave
             else:
                 color = QColor(
                     220, 220, 220
