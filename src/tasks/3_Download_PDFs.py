@@ -145,7 +145,8 @@ def obtener_datos_seleccionados():
             "FROM infimas WHERE etapa = 'seleccionada' "
             "AND entidad_contratante_url IS NOT NULL "
             "AND entidad_contratante_url != '' "
-            "AND PACweb AND PACdoc IS NULL"
+            "AND PACdoc IS NULL"
+            "AND PACweb IS NULL"
             "ORDER BY codigo_necesidad"
         )
 
