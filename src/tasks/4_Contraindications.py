@@ -35,6 +35,17 @@ from pathlib import Path
 import platform
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from threading import Thread
+import queue
+
+# Para procesar archivos DOCX (extraer texto)
+try:
+    from docx import Document
+    DOCX_DISPONIBLE = True
+except ImportError:
+    DOCX_DISPONIBLE = False
+    print("⚠ WARNING: python-docx no está instalado. Archivos .docx no podrán procesarse.")
+    print("  Instalar con: pip install python-docx")
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -135,6 +146,93 @@ def inicializar_servicios():
     bucket = storage_client.bucket(BUCKET_NAME)
     
     return model, bucket
+
+
+def _extraer_texto_docx_worker(blob_path, result_queue):
+    """
+    Worker interno para extraer texto de DOCX.
+    Ejecuta en thread separado para permitir timeout.
+    """
+    try:
+        # Descargar y procesar
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
+            # Usar blob directamente si ya está en scope, sino crear cliente
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(BUCKET_NAME)
+            blob = bucket.blob(blob_path)
+            
+            blob.download_to_filename(temp_file.name)
+            temp_path = temp_file.name
+        
+        # Extraer texto
+        doc = Document(temp_path)
+        texto = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+        
+        # Limpiar
+        os.remove(temp_path)
+        
+        # Enviar resultado
+        result_queue.put(('success', texto if texto.strip() else None))
+        
+    except Exception as e:
+        result_queue.put(('error', str(e)))
+
+
+def extraer_texto_docx(blob, timeout=60):
+    """
+    Extrae texto de un archivo DOCX desde Google Cloud Storage con timeout.
+    
+    Args:
+        blob: Objeto blob de GCS que apunta a un archivo .docx
+        timeout: Tiempo máximo en segundos (default: 60)
+        
+    Returns:
+        str: Texto extraído del documento, o None si hay error o timeout
+    """
+    if not DOCX_DISPONIBLE:
+        print(f"      ⚠ python-docx no disponible, omitiendo {blob.name.split('/')[-1]}")
+        return None
+    
+    nombre_archivo = blob.name.split('/')[-1]
+    
+    try:
+        # Crear queue para recibir resultado del thread
+        result_queue = queue.Queue()
+        
+        # Ejecutar extracción en thread separado
+        worker = Thread(
+            target=_extraer_texto_docx_worker,
+            args=(blob.name, result_queue)
+        )
+        worker.daemon = True
+        worker.start()
+        
+        # Esperar resultado con timeout
+        worker.join(timeout=timeout)
+        
+        # Verificar si el thread terminó
+        if worker.is_alive():
+            # Timeout - el thread sigue ejecutando
+            print(f"      ⏱ TIMEOUT ({timeout}s): {nombre_archivo} - omitiendo archivo")
+            return None
+        
+        # Thread terminó - obtener resultado
+        try:
+            status, resultado = result_queue.get_nowait()
+            
+            if status == 'success':
+                return resultado
+            else:
+                print(f"      ✗ Error al procesar DOCX: {resultado}")
+                return None
+                
+        except queue.Empty:
+            print(f"      ✗ Error: No se recibió resultado de {nombre_archivo}")
+            return None
+        
+    except Exception as e:
+        print(f"      ✗ Error general al extraer texto de DOCX: {e}")
+        return None
 
 # =========================
 # 3. FUNCIONES BASE DE DATOS
@@ -412,14 +510,15 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
             print(f"      📄 PDF agregado: {blob.name.split('/')[-1]}")
 
-        # Procesar archivos DOCX (soportados nativamente por Gemini 2.5 Pro)
+        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
         elif nombre_lower.endswith('.docx'):
-            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
-            documentos_contenido.append(Part.from_uri(
-                blob_uri, 
-                mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ))
-            print(f"      📝 DOCX agregado: {blob.name.split('/')[-1]}")
+            print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
+            texto_docx = extraer_texto_docx(blob, timeout=60)
+            if texto_docx:
+                documentos_contenido.append(texto_docx)
+                print(f"      ✅ DOCX procesado exitosamente")
+            else:
+                print(f"      ⚠ DOCX omitido (error o timeout) - continuando con otros archivos")
 
         # Procesar TXTs (descargar y enviar contenido)
         elif nombre_lower.endswith('.txt'):
@@ -434,6 +533,9 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
         elif nombre_lower.endswith('.doc'):
             print(f"      ⚠ Archivo .doc (formato antiguo) detectado (omitido): {blob.name.split('/')[-1]}") 
 
+    # Resumen de documentos procesados
+    print(f"      📊 Total de documentos procesados: {len(documentos_contenido)}")
+    
     if not documentos_contenido:
         print(f"   ⚠ No se pudo procesar ningún documento para {codigo_necesidad}")
         return 0.0
@@ -576,14 +678,15 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
 
-        # Agregar soporte para archivos DOCX (Gemini 2.5 Pro lo soporta nativamente)
+        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
         elif blob.name.lower().endswith('.docx'):
-            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
-            documentos_contenido.append(Part.from_uri(
-                blob_uri,
-                mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ))
-            print(f"      📝 DOCX agregado: {blob.name.split('/')[-1]}")
+            print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
+            texto_docx = extraer_texto_docx(blob, timeout=60)
+            if texto_docx:
+                documentos_contenido.append(texto_docx)
+                print(f"      ✅ DOCX procesado exitosamente")
+            else:
+                print(f"      ⚠ DOCX omitido (error o timeout) - continuando con otros archivos")
 
         # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC ──────────
         elif blob.name.lower().endswith(('.txt', '.doc')):
@@ -600,7 +703,11 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
                     print(f"      ✗ No se pudo decodificar archivo: {blob.name.split('/')[-1]} - {e}")
         # ──────────────────────────────────────────────────────────────────────
     
+    # Resumen de documentos procesados
+    print(f"      📊 Total de documentos procesados: {len(documentos_contenido)}")
+    
     if not documentos_contenido:
+        print(f"   ⚠ No se pudo procesar ningún documento para {codigo_necesidad}")
         return []
     
     # Prompt para búsqueda SEMÁNTICA de contraindicaciones (no solo coincidencias exactas)
@@ -1432,7 +1539,7 @@ def main():
         
         # Delay entre códigos para evitar rate limits de Google Cloud
         if i < len(codigos_preseleccionados):
-            tiempo_espera = 30  # 30 segundos
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash: permite 6 req/min)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
     
@@ -1482,7 +1589,7 @@ def main():
     
         # Delay entre códigos
         if i < len(codigos_pac_positivos):
-            tiempo_espera = 30
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
 
