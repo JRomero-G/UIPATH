@@ -127,8 +127,11 @@ def inicializar_servicios():
         credentials=credentials
     )
     
-    # Usar modelo Gemini 2.5 Pro (más potente para análisis de documentos)
-    model = GenerativeModel("gemini-2.0-flash")
+    # Usar modelo Gemini 1.5 Pro - Modelo más avanzado disponible en us-central1
+    # Soporta nativamente: PDF, DOCX, imágenes, audio, video
+    # Ventana de contexto: 2 millones de tokens
+    # Capacidades: Razonamiento avanzado, búsqueda semántica, análisis multimodal
+    model = GenerativeModel("gemini-2.5-flash")
     bucket = storage_client.bucket(BUCKET_NAME)
     
     return model, bucket
@@ -178,9 +181,9 @@ def obtener_contraindicaciones_con_peso():
     df = pd.DataFrame(datos)
     return df
 
-def obtener_codigos_preseleccionados():
+def obtener_codigos_seleccionados():
     """
-    Obtiene códigos de necesidad con etapa 'seleccionada' con PACweb y PACdoc en NULL.
+    Obtiene códigos de necesidad con etapa 'seleccionada' con PACdoc en NULL.
     
     Returns:
         list: Lista de códigos de necesidad (ej: 'nic-1234567890001-2026-00001')
@@ -194,7 +197,7 @@ def obtener_codigos_preseleccionados():
         SELECT codigo_necesidad 
         FROM infimas 
         WHERE etapa = 'seleccionada' 
-        AND (PACweb IS NULL AND PACdoc IS NULL)
+        AND PACdoc IS NULL
     """)
     filas = cursor.fetchall()
     cursor.close()
@@ -205,7 +208,7 @@ def obtener_codigos_preseleccionados():
 
 def obtener_infimas_con_pac():
     """
-    Obtiene ínfimas con PACdoc >= 0 para validación de PAC en portal web.
+    Obtiene ínfimas con PACdoc >= 0 para validación de PACweb en portal web.
     
     Returns:
         DataFrame: DataFrame con columnas:
@@ -271,7 +274,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
     
     Lógica:
         1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'seleccionada' para todos los PAC > 0 como paso intermedio
+        2. Cambia etapa = 'recomendada' para todos los PAC > 0 como paso intermedio
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
@@ -292,8 +295,8 @@ def actualizar_pac_desde_vtotal(df_infimas):
             UPDATE infimas 
             SET etapa = 'recomendada',
                 actualizado_en = NOW()
-            WHERE codigo_necesidad = %s AND (PACdoc > 0 OR PACweb >0)
-        """, (row['codigo_necesidad']))
+            WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >=0)
+        """, (row['codigo_necesidad'],))
     
     conn.commit()
     cursor.close()
@@ -409,6 +412,15 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
             print(f"      📄 PDF agregado: {blob.name.split('/')[-1]}")
 
+        # Procesar archivos DOCX (soportados nativamente por Gemini 2.5 Pro)
+        elif nombre_lower.endswith('.docx'):
+            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
+            documentos_contenido.append(Part.from_uri(
+                blob_uri, 
+                mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ))
+            print(f"      📝 DOCX agregado: {blob.name.split('/')[-1]}")
+
         # Procesar TXTs (descargar y enviar contenido)
         elif nombre_lower.endswith('.txt'):
             try:
@@ -418,9 +430,9 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
             except UnicodeDecodeError:
                 print(f"      ⚠ TXT - No se pudo decodificar: {blob.name.split('/')[-1]}")
         
-        # .doc/.docx no soportados (omitir)
-        elif nombre_lower.endswith(('.doc', '.docx')):
-            print(f"      ⚠ Archivo .doc/.docx detectado (omitido): {blob.name.split('/')[-1]}") 
+        # .doc (formato antiguo) no soportado por Gemini - omitir
+        elif nombre_lower.endswith('.doc'):
+            print(f"      ⚠ Archivo .doc (formato antiguo) detectado (omitido): {blob.name.split('/')[-1]}") 
 
     if not documentos_contenido:
         print(f"   ⚠ No se pudo procesar ningún documento para {codigo_necesidad}")
@@ -564,8 +576,17 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
 
-        # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC/DOCX ──────────
-        elif blob.name.lower().endswith(('.txt', '.doc', '.docx')):
+        # Agregar soporte para archivos DOCX (Gemini 2.5 Pro lo soporta nativamente)
+        elif blob.name.lower().endswith('.docx'):
+            blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
+            documentos_contenido.append(Part.from_uri(
+                blob_uri,
+                mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ))
+            print(f"      📝 DOCX agregado: {blob.name.split('/')[-1]}")
+
+        # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC ──────────
+        elif blob.name.lower().endswith(('.txt', '.doc')):
             try:
                 contenido = blob.download_as_text(encoding='utf-8')
                 documentos_contenido.append(contenido)
@@ -582,21 +603,36 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
     if not documentos_contenido:
         return []
     
-    # Prompt para búsqueda de contraindicaciones
+    # Prompt para búsqueda SEMÁNTICA de contraindicaciones (no solo coincidencias exactas)
     contraindicaciones_str = ", ".join(contraindicaciones_list)
     prompt = f"""
 Analiza los documentos proporcionados del código de necesidad {codigo_necesidad}.
 
-Busca si aparecen mencionadas alguna de estas contraindicaciones:
+Tu tarea es identificar si el proceso de contratación descrito tiene características que coincidan CON EL SIGNIFICADO, 
+CONCEPTO O IMPLICACIÓN de alguna de estas contraindicaciones:
+
 {contraindicaciones_str}
 
-Responde ÚNICAMENTE con un array JSON de las contraindicaciones que SÍ encontraste mencionadas.
+IMPORTANTE - BÚSQUEDA SEMÁNTICA:
+No busques solo las palabras exactas. Busca también:
+- Sinónimos o términos relacionados
+- Conceptos similares o equivalentes  
+- Frases que impliquen lo mismo
+- Descripciones que indiquen actividades relacionadas
+
+Ejemplos de búsqueda semántica:
+- Si la contraindicación es "Soporte técnico", también detecta: "asistencia técnica", "mantenimiento técnico", "apoyo tecnológico", "servicio técnico"
+- Si es "Capacitación", también detecta: "entrenamiento", "formación", "curso", "taller", "adiestramiento"
+- Si es "Adquisición de software", también detecta: "compra de programa", "licencias de software", "sistema informático", "aplicación"
+- Si es "Consultoría", también detecta: "asesoría", "asesoramiento", "servicios profesionales especializados"
+
+Responde ÚNICAMENTE con un array JSON de las contraindicaciones que encontraste (usando el nombre EXACTO de la lista original).
 Si no encuentras ninguna, responde: []
 
 Ejemplo de respuesta:
-["contraindicacion1", "contraindicacion2"]
+["Certificados de buena práctica", "Procesos con registro sanitario"]
 
-NO incluyas explicaciones, solo el array JSON.
+NO incluyas explicaciones, solo el array JSON con los nombres exactos de las contraindicaciones encontradas.
 """
 
     try:
@@ -1269,7 +1305,7 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             UPDATE infimas
             SET etapa = 'seleccionada',
                 actualizado_en = NOW()
-            WHERE PACdoc > 0 OR PACweb > 0
+            WHERE PACdoc >= 0 OR PACweb >= 0
         """)
         filas_etapa = cursor.rowcount
 
@@ -1371,7 +1407,7 @@ def main():
     # PASO 3: Códigos seleccionados
     # ========================================================
     print("\n[2] Obteniendo códigos seleccionados...")
-    codigos_preseleccionados = obtener_codigos_preseleccionados()
+    codigos_preseleccionados = obtener_codigos_seleccionados()
     print(f"   ✓ {len(codigos_preseleccionados)} códigos encontrados")
     
     # ========================================================
@@ -1396,7 +1432,7 @@ def main():
         
         # Delay entre códigos para evitar rate limits de Google Cloud
         if i < len(codigos_preseleccionados):
-            tiempo_espera = 60
+            tiempo_espera = 30  # 30 segundos
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
     
@@ -1446,7 +1482,7 @@ def main():
     
         # Delay entre códigos
         if i < len(codigos_pac_positivos):
-            tiempo_espera = 60
+            tiempo_espera = 30
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
 

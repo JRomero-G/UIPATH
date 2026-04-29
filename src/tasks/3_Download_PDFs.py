@@ -103,6 +103,32 @@ def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
         return None
 
 
+def verificar_carpeta_existe_en_gcs(codigo_necesidad):
+    """
+    Verifica si ya existe una carpeta (con archivos) en GCS para el código de necesidad.
+    
+    Args:
+        codigo_necesidad (str): Código de necesidad a verificar
+        
+    Returns:
+        bool: True si existe carpeta con archivos, False si no existe
+    """
+    try:
+        # Prefijo de la carpeta en GCS
+        prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
+        
+        # Listar blobs con ese prefijo (limit=1 es suficiente para verificar existencia)
+        blobs = list(bucket.list_blobs(prefix=prefijo, max_results=1))
+        
+        # Si hay al menos un blob, la carpeta existe
+        return len(blobs) > 0
+        
+    except Exception as e:
+        print(f"    [GCS] Error al verificar carpeta: {e}")
+        # En caso de error, devolver False para intentar la descarga
+        return False
+
+
 # =====================================================
 # 2. UTILITARIAS
 # =====================================================
@@ -446,6 +472,11 @@ def fase_descarga():
         url = safe_value(row["entidad_contratante_url"])
         
         print(f"[{idx + 1}/{len(df)}] {codigo}")
+        
+        # Verificar si ya existe carpeta en GCS (evitar duplicados)
+        if verificar_carpeta_existe_en_gcs(codigo):
+            print(f"  ⚠ Carpeta ya existe en GCS - OMITIDO (evitando duplicados)")
+            continue
         
         try:
             # Obtener página web
