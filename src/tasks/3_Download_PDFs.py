@@ -135,7 +135,7 @@ def obtener_datos_preseleccionados():
 
 
 def obtener_datos_seleccionados():
-    """Obtiene ínfimas en etapa 'seleccionada'"""
+    """Obtiene ínfimas en etapa 'seleccionada' con PACdoc en NULL (sin análisis de PAC)"""
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor(dictionary=True)
@@ -144,10 +144,8 @@ def obtener_datos_seleccionados():
             "SELECT codigo_necesidad, entidad_contratante_url "
             "FROM infimas WHERE etapa = 'seleccionada' "
             "AND entidad_contratante_url IS NOT NULL "
-            "AND entidad_contratante_url != '' "
-            "AND PACdoc IS NULL"
-            "AND PACweb IS NULL"
-            "ORDER BY codigo_necesidad"
+            "AND entidad_contratante_url != ''"
+            "AND PACdoc IS NULL" 
         )
 
         datos = cursor.fetchall()
@@ -317,7 +315,7 @@ def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
         ruta_base = os.path.join(carpeta_destino, nombre)
 
         resultado = descargar_archivo(url_archivo, ruta_base, descripcion)
-        if resultado:
+        if resultado and os.path.exists(resultado):
             subir_archivo_a_gcs_temporal(resultado, os.path.basename(carpeta_destino))
             descargados += 1
 
@@ -426,7 +424,7 @@ def fase_clasificacion():
 # =====================================================
 def fase_descarga():
     """
-    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada' con PACweb y PACdoc en NULL
+    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada' con PACdoc en NULL
     """
     print("\n" + "="*70)
     print(" "*18 + "FASE 2: DESCARGA DE DOCUMENTOS")
@@ -468,11 +466,10 @@ def fase_descarga():
             if descargados > 0:
                 print(f"  ✓ {descargados} documento(s) procesado(s)")
                 exitosas += 1
-                eliminar_carpeta_temporal(carpeta)
             else:
                 print(f"  ⚠ No se encontraron documentos")
                 fallidas += 1
-                
+            eliminar_carpeta_temporal(carpeta)    
         except Exception as e:
             print(f"  ✗ Error: {e}")
             fallidas += 1
@@ -527,12 +524,9 @@ def main():
     # ============================================================
     # FASE 2: DESCARGAR SOLO LAS SELECCIONADAS
     # ============================================================
-    if seleccionadas > 0:
-        total_archivos = fase_descarga()
-    else:
-        print("⚠ No hay ínfimas seleccionadas.")
-        print("  La FASE 2 (descarga) será omitida.\n")
-        total_archivos = 0
+    # NOTA: La FASE 2 se ejecuta SIEMPRE porque puede haber ínfimas
+    # ya seleccionadas de ejecuciones anteriores (no solo las de FASE 1 actual)
+    total_archivos = fase_descarga()
     
     # ============================================================
     # REPORTE FINAL
