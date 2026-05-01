@@ -470,19 +470,7 @@ class WorkspaceUserUI(BaseWindow):
             self.table.setItem(row, 2, cell)
 
             # Grado
-            cell = QTableWidgetItem(
-                "✅ Recomendado"
-                if grado == "Recomendado"
-                else "⚠️ Poco recomendado"
-                if grado == "Poco recomendado"
-                else "❌ No recomendado"
-            )
-            cell.setFlags(Qt.ItemIsEnabled)
-            cell.setForeground(text_color)
-            cell.setBackground(row_color)
-            cell.setTextAlignment(Qt.AlignCenter)
-            cell.setFont(QFont("Arial", 9, QFont.Bold))
-            self.table.setItem(row, 3, cell)
+            self.table.setCellWidget(row, 3, self.grado_button(grado, nic, row_color))
 
             # nivel
             cell = QTableWidgetItem(str(nivel))
@@ -863,6 +851,8 @@ class WorkspaceUserUI(BaseWindow):
         
         return exitosas, errores
 
+    # ================== Funciones para celdas personalizadas ==================
+
     def link_button(self, url: str, bg_color: QColor):
         """Celda con enlace clickeable que abre el navegador."""
         container = QWidget()
@@ -886,6 +876,109 @@ class WorkspaceUserUI(BaseWindow):
         
         return container
 
+    def grado_button(self, grado: str, codigo_necesidad: str, bg_color: QColor):
+        """Botón de grado que abre un popup con la evaluación de la ínfima."""
+        container = QWidget()
+        container.setStyleSheet(
+        f"""
+        QWidget {{
+            background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});
+        }}
+        QWidget:hover {{
+            background-color: rgb({bg_color.red()-30},{bg_color.green()-30},{bg_color.blue()-30});
+        }}
+        """
+        )
+        container.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setAlignment(Qt.AlignCenter)
+
+        # Texto según grado
+        if grado == "Recomendado":
+            texto = "✅ Recomendado"
+            color_texto = "rgb(30, 120, 60)"
+        elif grado == "Poco recomendado":
+            texto = "⚠️ Poco recomendado"
+            color_texto = "rgb(160, 100, 0)"
+        else:
+            texto = "❌ No recomendado"
+            color_texto = "rgb(160, 30, 30)"
+
+        label = QLabel(texto)
+        label.setFont(QFont("Arial", 9, QFont.Bold))
+        label.setStyleSheet(f"color: {color_texto};")
+        label.setAlignment(Qt.AlignCenter)
+
+        def mouse_press_event(event):
+            self.mostrar_evaluacion(codigo_necesidad)
+
+        container.mousePressEvent = mouse_press_event
+
+        layout.addWidget(label)
+        return container
+
+    def mostrar_evaluacion(self, codigo_necesidad: str):
+        """Consulta y muestra la evaluación de una ínfima."""
+        token = get_session().get("token")
+
+        try:
+            response = requests.get(
+                f"{Global.BACKEND_URL}/infimas/obtener-evaluacion-infima/{codigo_necesidad}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=20,
+            )
+
+            #print(f"STATUS: {response.status_code}")
+            #print(f"RESPUESTA: {response.text}") 
+
+            if response.status_code == 404:
+                ClassicMsgBox.info(
+                    "Sin evaluación",
+                    f"La ínfima {codigo_necesidad} no tiene contraindicaciones registradas."
+                )
+                return
+
+            if response.status_code != 200:
+                ClassicMsgBox.warning("Error", "No se pudo obtener las contraindicaciones.")
+                return
+
+            data = response.json()
+
+            # Normalizar si viene como {"data": {...}}
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
+
+            # Verificar si hay justificación (no vacía, no null, no None)
+            justificacion = data.get("justificacion", "").strip()
+            
+            # Si no hay justificación (recomendación nivel 1 - bueno)
+            if not justificacion or justificacion.lower() in ["null", "none", ""]:
+                justificacion = "No hay Contraindicaciones Encontradas en el análisis. Revisar link de proceso para más información."
+                es_nivel_1 = True
+            else:
+                es_nivel_1 = False
+
+            # Mostrar el popup
+            msg = QMessageBox()
+            msg.setWindowTitle("Evaluación de ínfima")
+            msg.setText(f"<b>Código NIC:</b> {codigo_necesidad}")
+            msg.setInformativeText(f"<b>Justificación:</b><br>{justificacion}")
+            
+            # Opcional: Cambiar ícono o agregar info extra si es nivel 1
+            if es_nivel_1:
+                msg.setIcon(QMessageBox.Information)
+                # Podrías agregar un texto adicional
+                msg.setDetailedText("Esto indica una recomendación de Nivel 1 (buen resultado)")
+            else:
+                msg.setIcon(QMessageBox.Information)
+                
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec_()
+
+        except requests.RequestException:
+            ClassicMsgBox.warning("Error", "No se pudo conectar al servidor.")
 
     # llamar al RE
     def open_workspace_userRE(self):
