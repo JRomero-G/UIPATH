@@ -20,6 +20,9 @@ Versión corregida que resuelve:
 import os, sys, json, shutil, tempfile, datetime, re, copy, io, time, hashlib
 import mimetypes, traceback, urllib.parse, html
 from pathlib import Path
+import random
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from Config import Global
@@ -53,8 +56,11 @@ USER_AGENT = (
 )
 DEFAULT_HEADERS = {
     "User-Agent": USER_AGENT,
-    "Accept-Language": "es-EC,es;q=0.9,en;q=0.7",
+    "Accept-Language": "es-ES,es;q=0.9,en;q=0.7",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Referer": "https://duckduckgo.com/",
+    "Origin": "https://duckduckgo.com",
+    "Connection": "keep-alive",
 }
 
 PROVEEDORES_NACIONALES = [
@@ -106,6 +112,19 @@ DOMINIOS_EXTRANJEROS = [_dominio(u) for u in PROVEEDORES_EXTRANJEROS]
 # ═══════════════════════════════════════════════════════════════════════════════
 #  UTILIDADES BÁSICAS
 # ═══════════════════════════════════════════════════════════════════════════════
+def _get_session():
+    import requests
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=1.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update(DEFAULT_HEADERS)
+    return session
 
 def log(msg, nivel="INFO"):
     iconos = {"INFO": "ℹ️ ", "OK": "✅", "WARN": "⚠️ ", "ERR": "❌", "STEP": "🔷"}
@@ -241,30 +260,23 @@ def validar_url_imagen(url, timeout=10):
 #  BÚSQUEDA REAL EN INTERNET (Reemplaza la dependencia de Gemini para encontrar URLs)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _ddg_html_search(query, max_results=10, timeout=12):
-    """
-    Búsqueda en DuckDuckGo HTML (https://html.duckduckgo.com/html/).
-    Es estable y no requiere API key ni token vqd.
-    Devuelve lista de URLs reales (de páginas web) extraídas de los resultados.
-    """
+def _ddg_html_search(query, max_results=10, timeout=25):
     import requests
     try:
-        r = requests.post(
+        session = _get_session()
+
+        r = session.post(
             "https://html.duckduckgo.com/html/",
             data={"q": query},
-            headers=DEFAULT_HEADERS,
             timeout=timeout,
         )
+
         if r.status_code >= 400:
             return []
-        # DuckDuckGo HTML usa enlaces con redirección: /l/?uddg=URL_CODIFICADA
-        # El href puede tener varios formatos:
-        #   //duckduckgo.com/l/?uddg=...  (sin protocolo, lo más común)
-        #   https://duckduckgo.com/l/?uddg=...
-        #   /l/?uddg=...
-        # También aparecen enlaces directos en a.result__a href="..."
+
         urls = []
-        # Patrón 1: redirección uddg (todos los formatos de host)
+
+        # extracción por uddg
         for m in re.finditer(r'href="(?:(?:https?:)?//duckduckgo\.com)?/l/\?uddg=([^"&]+)', r.text):
             try:
                 u = urllib.parse.unquote(m.group(1))
@@ -272,10 +284,12 @@ def _ddg_html_search(query, max_results=10, timeout=12):
                     urls.append(u)
             except Exception:
                 pass
-        # Patrón 2: enlaces directos (segura como alternativa)
+
+        # extracción directa
         for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="(https?://[^"]+)"', r.text):
             urls.append(m.group(1))
-        # Eliminar duplicados manteniendo orden
+
+        # deduplicación
         vistos = set()
         out = []
         for u in urls:
@@ -284,11 +298,18 @@ def _ddg_html_search(query, max_results=10, timeout=12):
                 out.append(u)
                 if len(out) >= max_results:
                     break
+
         return out
+
+    except requests.exceptions.ConnectTimeout:
+        log("  DuckDuckGo timeout (red lenta o bloqueo).", "WARN")
+        return []
+    except requests.exceptions.ConnectionError:
+        log("  Error de conexión a DuckDuckGo (posible bloqueo o DNS).", "WARN")
+        return []
     except Exception as e:
         log(f"  DuckDuckGo HTML search falló: {e}", "WARN")
         return []
-
 
 def _ddg_image_search(query, max_results=5, timeout=12):
     """
@@ -376,7 +397,114 @@ def _bing_image_search(query, max_results=5, timeout=12):
         return []
 
 
-def buscar_urls_producto_en_proveedores(nombre, marca, modelo, max_por_proveedor=2):
+def _hay_marca_modelo_especificos(info_articulo):
+    """
+    Determina si los documentos de contratación especifican marca Y modelo
+    concretos para el artículo. Si no, se entrará al modo "propuesta" donde
+    la IA elegirá un artículo adecuado entre los proveedores autorizados.
+    """
+    marca  = (info_articulo.get("marca")  or "").strip().lower()
+    modelo = (info_articulo.get("modelo") or "").strip().lower()
+    indeterminados = {
+        "", "no especificada", "no especificado", "no especifica", "n/a", "na",
+        "ninguna", "ninguno", "genérico", "generico", "sin marca", "sin modelo",
+        "no aplica", "varios", "various", "cualquiera", "—", "-",
+    }
+    return marca not in indeterminados and modelo not in indeterminados
+
+
+def _construir_query_caracteristicas(info_articulo, max_terms=6):
+    """
+    Para el modo "propuesta": arma una consulta de búsqueda usando nombre del
+    artículo + las características/especificaciones distintivas, ya que no
+    contamos con marca/modelo.
+    """
+    nombre = (info_articulo.get("nombre_articulo") or "").strip()
+    caract = info_articulo.get("caracteristicas", []) or []
+    specs  = info_articulo.get("especificaciones_tecnicas", []) or []
+
+    keywords = []
+    for item in (caract + specs)[:8]:
+        if not isinstance(item, str):
+            continue
+        # Si es "Etiqueta: valor", quedarse con el valor (más informativo)
+        if ":" in item:
+            etiq, val = item.split(":", 1)
+            keywords.append(val.strip() if val.strip() else etiq.strip())
+        else:
+            keywords.append(item)
+
+    # Tomar hasta `max_terms` palabras únicas y descriptivas
+    palabras_extras = []
+    palabras_unicas = set(w.lower() for w in nombre.split())
+    for kw in keywords:
+        for w in re.split(r"[\s,;]+", kw):
+            w_low = w.strip().lower()
+            if len(w_low) >= 3 and w_low not in palabras_unicas:
+                palabras_extras.append(w.strip())
+                palabras_unicas.add(w_low)
+                if len(palabras_extras) >= max_terms:
+                    break
+        if len(palabras_extras) >= max_terms:
+            break
+    return f"{nombre} {' '.join(palabras_extras)}".strip()
+
+
+def extraer_titulo_de_html(html_text):
+    """
+    Extrae un título descriptivo del producto desde el HTML.
+    Prioriza: og:title → JSON-LD name → h1 → <title>.
+    Devuelve None si no encuentra nada útil.
+    """
+    if not html_text:
+        return None
+
+    # og:title
+    for pat in [
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+    ]:
+        m = re.search(pat, html_text, re.IGNORECASE)
+        if m:
+            t = html.unescape(m.group(1)).strip()
+            if t:
+                return t[:200]
+
+    # JSON-LD "name"
+    for m in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html_text, re.IGNORECASE | re.DOTALL
+    ):
+        try:
+            data = json.loads(m.group(1).strip())
+            candidatos = data if isinstance(data, list) else [data]
+            for c in candidatos:
+                if isinstance(c, dict):
+                    n = c.get("name")
+                    if isinstance(n, str) and n.strip():
+                        return n.strip()[:200]
+        except Exception:
+            continue
+
+    # <h1>
+    m = re.search(r"<h1[^>]*>(.*?)</h1>", html_text, re.IGNORECASE | re.DOTALL)
+    if m:
+        t = re.sub(r"<[^>]+>", "", m.group(1))
+        t = html.unescape(t).strip()
+        if t:
+            return t[:200]
+
+    # <title>
+    m = re.search(r"<title>(.*?)</title>", html_text, re.IGNORECASE | re.DOTALL)
+    if m:
+        t = html.unescape(m.group(1)).strip()
+        if t:
+            return t[:200]
+    return None
+
+
+def buscar_urls_producto_en_proveedores(nombre, marca, modelo, max_por_proveedor=2,
+                                        query_base=None):
     """
     Búsqueda directa en internet de URLs reales del producto en los dominios
     de los proveedores autorizados. Devuelve lista de dicts:
@@ -384,9 +512,16 @@ def buscar_urls_producto_en_proveedores(nombre, marca, modelo, max_por_proveedor
 
     Esto reemplaza la dependencia de Gemini para "encontrar URLs" — Gemini ya
     no inventa URLs porque le entregamos URLs reales y le pedimos analizar.
+
+    Si se pasa `query_base`, se usa esa cadena como consulta base (modo
+    "propuesta", sin marca/modelo). En caso contrario, se construye con
+    nombre+marca+modelo (modo "exacto").
     """
     consultas = []
-    base = " ".join(x for x in (nombre, marca, modelo) if x).strip()
+    if query_base:
+        base = query_base.strip()
+    else:
+        base = " ".join(x for x in (nombre, marca, modelo) if x).strip()
     if not base:
         return []
 
@@ -401,12 +536,16 @@ def buscar_urls_producto_en_proveedores(nombre, marca, modelo, max_por_proveedor
 
     for q, es_ext, dom in consultas:
         urls = _ddg_html_search(q, max_results=max_por_proveedor)
+
+        if not urls:
+            log("  DDG falló, usando Bing como fallback...", "WARN")
+            urls = _bing_image_search(q, max_results=max_por_proveedor)
         for u in urls:
             # Filtrar solo URLs que realmente pertenezcan al dominio buscado
             if dom in u.lower():
                 encontrados.append({"url": u, "es_extranjero": es_ext, "dominio": dom})
         # Pequeña pausa para no ser bloqueado
-        time.sleep(0.4)
+        time.sleep(1.5 + random.uniform(0.5, 1.5))
 
     # Eliminar duplicados manteniendo orden
     vistos = set()
@@ -875,7 +1014,13 @@ IMPORTANTE:
 - El nombre, marca y modelo deben ser EXACTAMENTE los que se solicitan en los documentos.
 - Si el documento menciona un modelo conocido de una marca específica (ej: "S3 Heavy Duty" es Bosch,
   "Wireless Micro" es RODE), INFIERE la marca aunque no esté escrita explícitamente.
-  Solo usa "No especificada" si realmente no hay ninguna pista en el documento.
+- Si los documentos NO especifican marca ni modelo concretos (sólo describen el artículo
+  de manera genérica o por sus características funcionales — por ejemplo "disco duro
+  externo de 2TB con USB 3.0"), deja "marca": "" y "modelo": "" (cadenas vacías).
+  NO inventes una marca o modelo en este caso. En esa situación, asegúrate de que
+  "caracteristicas" y "especificaciones_tecnicas" sean lo más completas y descriptivas
+  posibles, ya que serán la base para que después se proponga un producto adecuado
+  desde la lista de proveedores autorizados.
 - Si hay varios artículos DIFERENTES, incluye un array 'articulos': [...] con la misma estructura
   (incluyendo "cantidad" por cada artículo). Si es un solo artículo, devuelve el objeto directo.
 """
@@ -901,30 +1046,62 @@ IMPORTANTE:
 
 def buscar_producto_en_proveedores(modelo, info_articulo):
     """
-    Estrategia híbrida:
-      1) Búsqueda real con DuckDuckGo HTML restringida a los dominios autorizados.
-      2) Validación de cada URL (HTTP 200 + contiene marca/modelo).
+    Estrategia híbrida con dos modos según los documentos de contratación:
+
+    MODO EXACTO (los documentos especifican marca y modelo):
+      1) Búsqueda real con DuckDuckGo HTML restringida a los dominios autorizados,
+         usando "<nombre> <marca> <modelo> site:dominio".
+      2) Validación de cada URL: HTTP 200 + el HTML menciona la marca o el modelo.
       3) Para cada URL válida, extraer precio e imagen del HTML real.
       4) Pedir a Gemini que SELECCIONE la mejor opción entre las URLs validadas.
-         Gemini ya no inventa URLs porque solo elige entre las dadas.
-    """
-    nombre      = info_articulo.get("nombre_articulo", "")
-    marca       = info_articulo.get("marca", "")
-    modelo_prod = info_articulo.get("modelo", "")
 
-    log(f"  Buscando '{nombre} {marca} {modelo_prod}' en proveedores…")
+    MODO PROPUESTA (los documentos NO especifican marca/modelo):
+      1) Búsqueda en los dominios autorizados usando nombre + características distintivas.
+      2) Validación más laxa: la página debe mencionar al menos un término del nombre
+         o de las características.
+      3) Enriquecimiento adicional con el título del producto en cada página.
+      4) Pedir a Gemini que PROPONGA, a partir de los candidatos reales:
+         - Un artículo idóneo que cumpla los requisitos al menor precio (con su marca/modelo).
+         - 3 alternativas que también cumplen los requisitos pero son menos recomendadas.
+
+    En MODO PROPUESTA, el resultado incluye `info_articulo_actualizada` con la marca
+    y modelo del producto propuesto, para que la ficha técnica y la proforma se
+    generen a partir de ese artículo.
+    """
+    nombre      = info_articulo.get("nombre_articulo", "") or ""
+    marca       = info_articulo.get("marca", "") or ""
+    modelo_prod = info_articulo.get("modelo", "") or ""
+
+    es_propuesta = not _hay_marca_modelo_especificos(info_articulo)
 
     # ── 1. Búsqueda real ─────────────────────────────────────────────────────
-    candidatos_brutos = buscar_urls_producto_en_proveedores(nombre, marca, modelo_prod)
+    if es_propuesta:
+        query_base = _construir_query_caracteristicas(info_articulo)
+        log("  Modo PROPUESTA: los documentos no especifican marca/modelo concretos.")
+        log(f"  Buscando '{query_base}' en proveedores (a partir de características)…")
+        candidatos_brutos = buscar_urls_producto_en_proveedores(
+            nombre, marca, modelo_prod, query_base=query_base
+        )
+    else:
+        log(f"  Modo EXACTO. Buscando '{nombre} {marca} {modelo_prod}' en proveedores…")
+        candidatos_brutos = buscar_urls_producto_en_proveedores(nombre, marca, modelo_prod)
 
     if not candidatos_brutos:
         log("  No se encontraron URLs en los proveedores autorizados.", "WARN")
-        return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": ""}
+        return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": "",
+                "info_articulo_actualizada": None}
 
     # ── 2. Validar y enriquecer cada URL ─────────────────────────────────────
-    terminos = [t for t in (marca, modelo_prod) if t and t.lower() != "no especificada"]
-    if not terminos:
-        terminos = [nombre.split()[0]] if nombre else None
+    if es_propuesta:
+        # Validación laxa: que la página mencione al menos un término del nombre
+        terminos_match = [w for w in re.split(r"\s+", nombre.lower()) if len(w) >= 3]
+        if not terminos_match:
+            terminos_match = None
+    else:
+        terminos_match = [t for t in (marca, modelo_prod)
+                          if t and t.lower() != "no especificada"]
+        if not terminos_match:
+            terminos_match = [nombre.split()[0]] if nombre else None
 
     enriquecidos = []
     for cand in candidatos_brutos[:25]:  # tope para no demorar demasiado
@@ -933,19 +1110,20 @@ def buscar_producto_en_proveedores(modelo, info_articulo):
         if not html_text:
             continue
 
-        # Verificar que la página realmente menciona el producto
         cuerpo_lower = html_text.lower()
-        if terminos and not any(t.lower() in cuerpo_lower for t in terminos):
-            log(f"    URL descartada (no menciona producto): {url[:80]}", "WARN")
-            continue
+        if terminos_match:
+            coincide = any(t.lower() in cuerpo_lower for t in terminos_match)
+            if not coincide:
+                log(f"    URL descartada (sin coincidencias): {url[:80]}", "WARN")
+                continue
 
-        # Extraer precio e imagen
         precio = extraer_precio_de_html(html_text)
         img    = extraer_imagen_de_html(html_text, url)
-
-        # Validar imagen extraída
         if img and not validar_url_imagen(img, timeout=8):
             img = None
+
+        # En modo propuesta enriquecemos también con título para que Gemini decida bien
+        titulo = extraer_titulo_de_html(html_text) if es_propuesta else None
 
         enriquecidos.append({
             "url": url,
@@ -953,24 +1131,76 @@ def buscar_producto_en_proveedores(modelo, info_articulo):
             "dominio": cand["dominio"],
             "precio_unitario_usd": precio,
             "imagen_extraida": img,
+            "titulo": titulo,
         })
-        log(f"    OK: {cand['dominio']} → precio≈{precio} | img={'sí' if img else 'no'}")
+        msg = f"    OK: {cand['dominio']} → precio≈{precio} | img={'sí' if img else 'no'}"
+        if titulo:
+            msg += f" | titulo='{titulo[:60]}'"
+        log(msg)
 
-        # Pequeña pausa para no saturar
         time.sleep(0.3)
 
     if not enriquecidos:
         log("  Ninguna URL pasó la validación de contenido.", "WARN")
-        return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": ""}
+        return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": "",
+                "info_articulo_actualizada": None}
 
-    # ── 3. Pedir a Gemini que ELIJA la mejor entre las validadas ────────────
-    listado_str = "\n".join(
-        f"- [{i}] proveedor={c['dominio']}  extranjero={c['es_extranjero']}  "
-        f"precio_aprox=${c['precio_unitario_usd']}  url={c['url']}"
-        for i, c in enumerate(enriquecidos)
-    )
+    # ── 3. Pedir a Gemini que ELIJA (modo exacto) o PROPONGA (modo propuesta) ─
+    if es_propuesta:
+        # Listado con título para que Gemini pueda evaluar idoneidad
+        listado_str = "\n".join(
+            f"- [{i}] proveedor={c['dominio']}  extranjero={c['es_extranjero']}  "
+            f"precio_aprox=${c['precio_unitario_usd']}  "
+            f"titulo='{(c.get('titulo') or '')[:120]}'  url={c['url']}"
+            for i, c in enumerate(enriquecidos)
+        )
+        caract_str = "\n".join(f"  - {c}" for c in (info_articulo.get("caracteristicas") or [])[:10])
+        specs_str  = "\n".join(f"  - {s}" for s in (info_articulo.get("especificaciones_tecnicas") or [])[:10])
 
-    prompt_seleccion = f"""
+        prompt_decision = f"""
+Los documentos de contratación NO especifican marca ni modelo concretos para el artículo.
+Tu tarea es PROPONER un artículo adecuado entre los candidatos REALES de los proveedores
+autorizados que se listan más abajo, basándote en las características y especificaciones
+descritas en los documentos.
+
+ARTÍCULO REQUERIDO (de los documentos de contratación):
+- Nombre genérico: {nombre}
+- Características requeridas:
+{caract_str or '  (no detalladas)'}
+- Especificaciones técnicas requeridas:
+{specs_str or '  (no detalladas)'}
+
+CANDIDATOS REALES (URLs ya verificadas en proveedores autorizados):
+{listado_str}
+
+Reglas:
+1. Selecciona como artículo IDÓNEO el candidato que MEJOR cumpla las características
+   y especificaciones requeridas con el MENOR precio final. Para extranjero=true, suma
+   ~25% al precio_aprox por envío y arancel; para extranjero=false, precio_final = precio_aprox.
+2. Identifica también 3 ALTERNATIVAS que también cumplen los requisitos pero son menos
+   recomendadas (peor relación calidad/precio o cumplen los requisitos de forma menos completa).
+3. Para el idóneo extrae la marca y modelo reales del producto a partir del título dado.
+
+Devuelve ÚNICAMENTE este JSON (sin markdown):
+{{
+  "mejor_indice": 0,
+  "marca_propuesta": "Marca real del artículo idóneo",
+  "modelo_propuesto": "Modelo real del artículo idóneo",
+  "nombre_propuesto": "Nombre completo del artículo idóneo",
+  "precio_total_usd": 0.00,
+  "costos_adicionales_usd": 0.00,
+  "detalle_costos": "envío + arancel" | "",
+  "alternativas_ordenadas": [1, 2, 3]
+}}
+"""
+        prompt_seleccion = prompt_decision
+    else:
+        listado_str = "\n".join(
+            f"- [{i}] proveedor={c['dominio']}  extranjero={c['es_extranjero']}  "
+            f"precio_aprox=${c['precio_unitario_usd']}  url={c['url']}"
+            for i, c in enumerate(enriquecidos)
+        )
+        prompt_seleccion = f"""
 Te entrego una lista de candidatos REALES (URLs ya verificadas) para el producto:
 PRODUCTO: {nombre}  MARCA: {marca}  MODELO: {modelo_prod}
 
@@ -995,12 +1225,13 @@ Devuelve ÚNICAMENTE este JSON (sin markdown):
 donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterior
 (las alternativas son las siguientes mejores opciones en orden ascendente de precio_final).
 """
+
     decision = None
     try:
         resp = llamar_gemini_con_reintentos(modelo, prompt_seleccion)
         decision = _parsear_json_de_respuesta(resp.text)
     except Exception as e:
-        log(f"  Gemini no pudo seleccionar mejor opción ({e}). Usando heurística.", "WARN")
+        log(f"  Gemini no pudo decidir ({e}). Usando heurística por precio.", "WARN")
 
     # Heurística de respaldo si Gemini falla: ordenar por precio
     if not decision or not isinstance(decision, dict):
@@ -1011,7 +1242,8 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
         ))
         ordenados = con_precio + sin_precio
         if not ordenados:
-            return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": ""}
+            return {"mejor_opcion": {}, "alternativas": [], "url_imagen_producto": "",
+                    "info_articulo_actualizada": None}
         mejor = ordenados[0]
         alts  = ordenados[1:4]
         precio_final = (mejor["precio_unitario_usd"] or 0) * (1.25 if mejor["es_extranjero"] else 1.0)
@@ -1029,6 +1261,24 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
         idx_mejor = 0
     mejor = enriquecidos[idx_mejor]
 
+    # En modo propuesta, la marca/modelo finales son los que devolvió Gemini
+    if es_propuesta:
+        marca_final  = (decision.get("marca_propuesta")  or "").strip() or marca
+        modelo_final = (decision.get("modelo_propuesto") or "").strip() or modelo_prod
+        nombre_final = (decision.get("nombre_propuesto") or "").strip() or nombre
+        info_articulo_actualizada = {
+            "marca":           marca_final,
+            "modelo":          modelo_final,
+            "nombre_articulo": nombre_final,
+        }
+        log(f"  Artículo propuesto por la IA: {nombre_final} | "
+            f"Marca: {marca_final} | Modelo: {modelo_final}", "OK")
+    else:
+        marca_final  = marca
+        modelo_final = modelo_prod
+        nombre_final = nombre
+        info_articulo_actualizada = None
+
     # Construir mejor_opcion en el formato esperado por el resto del script
     mejor_opcion = {
         "proveedor": mejor["dominio"],
@@ -1039,12 +1289,12 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
         "es_extranjero": mejor["es_extranjero"],
         "costos_adicionales_usd": decision.get("costos_adicionales_usd", 0),
         "detalle_costos": decision.get("detalle_costos", ""),
-        "nombre_en_tienda": f"{nombre} {marca} {modelo_prod}".strip(),
+        "nombre_en_tienda": f"{nombre_final} {marca_final} {modelo_final}".strip(),
         "disponible": True,
-        "url_verificada": True,  # ya validamos contenido
+        "url_verificada": True,
     }
 
-    # Alternativas
+    # Alternativas (en modo propuesta son las "menos recomendadas pero válidas")
     indices_alt = decision.get("alternativas_ordenadas", []) or []
     alternativas = []
     for idx in indices_alt[:3]:
@@ -1055,7 +1305,7 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
                 "url_producto": alt["url"],
                 "precio_total_usd": (alt["precio_unitario_usd"] or 0) *
                                     (1.25 if alt["es_extranjero"] else 1.0),
-                "nombre_en_tienda": f"{nombre} {marca} {modelo_prod}".strip(),
+                "nombre_en_tienda": f"{nombre_final} {marca_final} {modelo_final}".strip(),
                 "url_verificada": True,
             })
 
@@ -1073,7 +1323,7 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
     # Si aún no hay imagen, búsqueda directa con DuckDuckGo Images / Bing
     if not url_imagen:
         log("  Buscando imagen del producto en motores de imágenes…")
-        query_img = " ".join(x for x in (nombre, marca, modelo_prod) if x).strip()
+        query_img = " ".join(x for x in (nombre_final, marca_final, modelo_final) if x).strip()
         for fuente, fn in [("DuckDuckGo Images", _ddg_image_search),
                            ("Bing Images",       _bing_image_search)]:
             urls_img = fn(query_img, max_results=8)
@@ -1095,6 +1345,7 @@ donde "mejor_indice" y "alternativas_ordenadas" son índices del listado anterio
         "mejor_opcion": mejor_opcion,
         "alternativas": alternativas,
         "url_imagen_producto": url_imagen,
+        "info_articulo_actualizada": info_articulo_actualizada,
     }
 
 
@@ -1566,6 +1817,21 @@ def main():
 
             paso(4, 9, f"Buscando producto en proveedores — {codigo}")
             resultado_busqueda = buscar_producto_en_proveedores(modelo_ai, info_principal)
+
+            # Si la IA propuso un artículo (modo PROPUESTA: los documentos no
+            # especificaban marca/modelo concretos), actualizamos info_principal
+            # y articulos[0] para que la ficha técnica y la proforma se generen
+            # a partir del artículo propuesto.
+            info_actualizada = resultado_busqueda.get("info_articulo_actualizada")
+            if info_actualizada:
+                log(f"  Actualizando datos del artículo con la propuesta de la IA: "
+                    f"Marca={info_actualizada.get('marca')} | "
+                    f"Modelo={info_actualizada.get('modelo')}", "OK")
+                for k, v in info_actualizada.items():
+                    if v:
+                        info_principal[k] = v
+                        if articulos:
+                            articulos[0][k] = v
 
             paso(5, 9, f"Generando ficha técnica .docx — {codigo}")
             path_docx, path_img = generar_ficha_tecnica(
