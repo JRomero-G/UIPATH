@@ -28,8 +28,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el resto del proyecto
-COPY . .
+# Copiar solo lo estrictamente necesario
+COPY Config/         ./Config/
+COPY src/tasks/      ./src/tasks/
+COPY Main_recoleccion.py .
+COPY Main_generacion.py .
 
 # Verificar instalación
 RUN chromium --version && chromedriver --version

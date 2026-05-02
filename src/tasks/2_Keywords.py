@@ -54,55 +54,51 @@ GEMINI_MODEL = "gemini-2.5-flash"
 
 def obtener_ruta_credenciales():
     """
-    Retorna una ruta válida al archivo de credenciales.
-    - En Render: crea archivo temporal desde JSON
-    - En local: usa archivo físico
+    Retorna (ruta, es_temporal).
+    El llamador debe hacer os.remove(ruta) si es_temporal=True.
     """
-
-    # PRODUCCIÓN (Render)
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
-
     if credentials_json:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w"
+        ) as temp:
             temp.write(credentials_json)
-            return temp.name
+            return temp.name, True  # ← flag para limpieza
 
-    # LOCAL
     if Global.CREDENTIALS_GEMINI:
-        return Global.CREDENTIALS_GEMINI
+        return Global.CREDENTIALS_GEMINI, False
 
-    raise Exception("No se encontraron credenciales de Gemini")
-
+    raise Exception("No se encontraron credenciales")
 
 # =========================
 # 2. INICIALIZACIÓN DE VERTEX AI
 # =========================
 
 def inicializar_vertex_ai():
-    """Inicializa VertexAI con las credenciales de servicio"""
+    ruta_credenciales, es_temp = obtener_ruta_credenciales()
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            ruta_credenciales
+        )
+        with open(ruta_credenciales, 'r') as f:
+            creds_data = json.load(f)
+            project_id = creds_data.get("project_id")
 
-    ruta_credenciales = obtener_ruta_credenciales()
+        if not project_id:
+            raise Exception("No se encontró project_id en las credenciales")
 
-    #Crear credenciales
-    credentials = service_account.Credentials.from_service_account_file(
-        ruta_credenciales
-    )
-    
-    # Obtener project_id del archivo de credenciales
-    with open(ruta_credenciales, 'r') as f:
-        creds_data = json.load(f)
-        project_id = creds_data.get("project_id")
-        
-    if not project_id:
-        raise Exception("No se encontró project_id en las credenciales")
-            
-    vertexai.init(
-        project=project_id,
-        credentials=credentials,
-        location="us-central1"  # Región soportada para Gemini 2.5
-    )
-    
-    return GenerativeModel(GEMINI_MODEL)
+        vertexai.init(
+            project=project_id,
+            credentials=credentials,
+            location="us-central1"
+        )
+        return GenerativeModel(GEMINI_MODEL)
+    finally:
+        if es_temp:
+            try:
+                os.remove(ruta_credenciales)
+            except Exception:
+                pass
 
 # =========================
 # 3. UTILIDADES
