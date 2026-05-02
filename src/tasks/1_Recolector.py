@@ -33,8 +33,14 @@ def get_driver():
 
     if platform.system() == "Linux":
         chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--single-process")      
+        chrome_options.add_argument("--single-process")
         chrome_options.add_argument("--disable-software-rasterizer")
+        # ── Opciones que faltaban para Docker ──────────────────
+        chrome_options.add_argument("--remote-debugging-port=9222")
+        chrome_options.add_argument("--disable-setuid-sandbox")
+        chrome_options.add_argument("--no-zygote")          # crítico en contenedores
+        chrome_options.add_argument("--disable-dev-tools")
+        chrome_options.add_argument("--ignore-certificate-errors")
         chrome_options.binary_location = "/usr/bin/chromium"
         driver = webdriver.Chrome(
             service=Service("/usr/bin/chromedriver"),

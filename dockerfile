@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ENV CHROMIUM_FLAGS="--no-sandbox"
+
 # Instalar Chromium + dependencias compatibles con Debian Trixie
 RUN apt-get update && apt-get install -y \
     chromium \
