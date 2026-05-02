@@ -55,26 +55,23 @@ session.headers.update(HEADERS)
 # =====================================================
 # 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
-
-def obtener_ruta_credenciales_gcs():
+def obtener_ruta_credenciales():
     """
-    Retorna ruta válida a credenciales de GCS.
-    - Render: crea archivo temporal desde variable de entorno
-    - Local:  usa archivo físico
+    Retorna (ruta, es_temporal).
+    El llamador debe hacer os.remove(ruta) si es_temporal=True.
     """
-    # PRODUCCIÓN (Render) - variable de entorno con JSON completo
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
     if credentials_json:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w"
+        ) as temp:
             temp.write(credentials_json)
-            return temp.name
+            return temp.name, True  # ← flag para limpieza
 
-    # LOCAL - archivo físico
-    ruta_local = os.path.join(BASE_DIR, "data", "Clave_bucket_AIgemini.json")
-    if os.path.exists(ruta_local):
-        return ruta_local
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI, False
 
-    raise Exception("No se encontraron credenciales de GCS")
+    raise Exception("No se encontraron credenciales")
 
 
 
@@ -361,7 +358,6 @@ def eliminar_carpeta_temporal(carpeta):
     except Exception as e:
         print(f"    [CLEAN] Error: {e}")
 
-
 # =====================================================
 # 7. FASE 1: CLASIFICACIÓN
 # =====================================================
@@ -500,10 +496,11 @@ def fase_descarga():
             else:
                 print(f"  ⚠ No se encontraron documentos")
                 fallidas += 1
-            eliminar_carpeta_temporal(carpeta)    
         except Exception as e:
             print(f"  ✗ Error: {e}")
             fallidas += 1
+        finally:
+            eliminar_carpeta_temporal(carpeta)  
         
         time.sleep(PAUSA_ENTRE_PROCESOS)
     
@@ -539,7 +536,7 @@ def main():
 
     # Inicializar GCS aquí, de forma controlada
     print("[INIT] Conectando a Google Cloud Storage...")
-    ruta_creds = obtener_ruta_credenciales_gcs()
+    ruta_creds, es_temp = obtener_ruta_credenciales()
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = ruta_creds
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
@@ -572,6 +569,12 @@ def main():
     print(f"Archivos descargados:       {total_archivos}")
     print(f"Tiempo total ejecución:     {duracion_total:.2f} minutos")
     print("="*70 + "\n")
+
+    if es_temp:
+        try:
+            os.remove(ruta_creds)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

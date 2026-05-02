@@ -27,19 +27,22 @@ def get_driver():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=800,600")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-extensions")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
     if platform.system() == "Linux":
-        # Docker en Render: Chromium instalado vía apt
         chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--single-process")      
+        chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.binary_location = "/usr/bin/chromium"
         driver = webdriver.Chrome(
             service=Service("/usr/bin/chromedriver"),
             options=chrome_options
         )
+        driver.set_page_load_timeout(120)
+        driver.set_script_timeout(60)
     else:
-        # Windows local
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
@@ -69,11 +72,11 @@ def main():
     driver = get_driver()
 
     # Minimizar solo si no es Linux (en servidor no aplica)
-    if platform.system() != "Linux":
-        try:
-            driver.minimize_window()
-        except Exception as e:
-            print(f"No se pudo minimizar: {e}")
+    #if platform.system() != "Linux":
+    #    try:
+    #        driver.minimize_window()
+    #    except Exception as e:
+    #        print(f"No se pudo minimizar: {e}")
             
     #try:
         #driver.minimize_window()
@@ -125,6 +128,7 @@ def main():
                 lambda d: len(d.find_elements(By.CSS_SELECTOR, "tbody tr")) > 20
             )
             print("Tabla actualizada con más filas → éxito.")
+        
             dropdown_found = True
 
         except Exception as e:
@@ -157,9 +161,9 @@ def main():
 
     if data:
         print(f"\nExtraídos {len(data)} registros.")
-        print("Ejemplos (primeros 3):")
-        for reg in data[:3]:
-            print(reg)
+        #print("Ejemplos (primeros 3):")
+        #for reg in data[:3]:
+        #    print(reg)
         save_to_db(data)
     else:
         print(

@@ -72,81 +72,56 @@ CARPETA_DOCUMENTOS = "Documentos de Contratación"
 # =========================
 # 2. INICIALIZACIÓN
 # =========================
-
 def obtener_ruta_credenciales():
     """
-    Retorna una ruta válida al archivo de credenciales.
-    Compatible con:
-    - Render (JSON en variable)
-    - Local (archivo físico)
+    Retorna (ruta, es_temporal).
+    El llamador debe hacer os.remove(ruta) si es_temporal=True.
     """
-
-    # PRODUCCIÓN (Render)
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
-
     if credentials_json:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w"
+        ) as temp:
             temp.write(credentials_json)
-            return temp.name
+            return temp.name, True  # ← flag para limpieza
 
-    # LOCAL
     if Global.CREDENTIALS_GEMINI:
-        return Global.CREDENTIALS_GEMINI
+        return Global.CREDENTIALS_GEMINI, False
 
-    raise Exception("No se encontraron credenciales de Gemini")
+    raise Exception("No se encontraron credenciales")
 
 def inicializar_servicios():
-    """
-    Inicializa los servicios de Google Cloud (VertexAI y Storage).
-    
-    Returns:
-        tuple: (model, bucket)
-            - model: Modelo generativo de VertexAI para análisis de documentos
-            - bucket: Cliente de Google Cloud Storage para acceder a documentos
-    
-    Raises:
-        Exception: Si falla la autenticación o inicialización de servicios
-    """
     global BUCKET_NAME
-    
-    ruta_credencial = obtener_ruta_credenciales()
+    ruta_credencial, es_temp = obtener_ruta_credenciales()
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            ruta_credencial
+        )
+        with open(ruta_credencial, 'r') as f:
+            creds_data = json.load(f)
+            project_id = creds_data.get('project_id')
 
-    # Cargar credenciales desde archivo JSON
-    credentials = service_account.Credentials.from_service_account_file(
-        ruta_credencial
-    )
-    
-    # Extraer project_id del archivo de credenciales
-    with open(ruta_credencial, 'r') as f:
-        creds_data = json.load(f)
-        project_id = creds_data.get('project_id')
-    
-    if not project_id:
-        raise Exception("No se encontró project_id en credenciales")
+        if not project_id:
+            raise Exception("No se encontró project_id en credenciales")
 
-
-    # Inicializar VertexAI en región us-east4 (mejor disponibilidad)
-    vertexai.init(
-        project=project_id,
-        credentials=credentials,
-        location="us-central1"
-    )
-    
-    # Inicializar cliente de Cloud Storage
-    storage_client = storage.Client(
-        project=project_id,
-        credentials=credentials
-    )
-    
-    # Usar modelo Gemini 1.5 Pro - Modelo más avanzado disponible en us-central1
-    # Soporta nativamente: PDF, DOCX, imágenes, audio, video
-    # Ventana de contexto: 2 millones de tokens
-    # Capacidades: Razonamiento avanzado, búsqueda semántica, análisis multimodal
-    model = GenerativeModel("gemini-2.5-flash")
-    bucket = storage_client.bucket(BUCKET_NAME)
-    
-    return model, bucket
-
+        vertexai.init(
+            project=project_id,
+            credentials=credentials,
+            location="us-central1"
+        )
+        storage_client = storage.Client(
+            project=project_id,
+            credentials=credentials
+        )
+        model = GenerativeModel("gemini-2.5-flash")
+        bucket = storage_client.bucket(BUCKET_NAME)
+        return model, bucket
+    finally:
+        if es_temp:
+            try:
+                os.remove(ruta_credencial)
+            except Exception:
+                pass
 
 def _extraer_texto_docx_worker(blob_path, result_queue):
     """
@@ -176,7 +151,6 @@ def _extraer_texto_docx_worker(blob_path, result_queue):
         
     except Exception as e:
         result_queue.put(('error', str(e)))
-
 
 def extraer_texto_docx(blob, timeout=60):
     """
@@ -770,19 +744,22 @@ def get_driver():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=800,600")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-extensions")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
     if platform.system() == "Linux":
-        # Docker en Render: Chromium instalado vía apt
         chrome_options.add_argument("--headless=new")
+        chrome_options.add_argument("--single-process")      
+        chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.binary_location = "/usr/bin/chromium"
         driver = webdriver.Chrome(
             service=Service("/usr/bin/chromedriver"),
             options=chrome_options
         )
+        driver.set_page_load_timeout(120)
+        driver.set_script_timeout(60)
     else:
-        # Windows local
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
@@ -793,6 +770,7 @@ def get_driver():
             pass
 
     return driver
+
 
 def buscar_vtotal_en_portal(df_infimas):
     """
