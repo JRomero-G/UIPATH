@@ -31,8 +31,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar solo lo estrictamente necesario
 COPY Config/         ./Config/
 COPY src/tasks/      ./src/tasks/
-COPY Main_recoleccion.py .
-COPY Main_generacion.py .
+COPY main_Recoleccion.py .
+COPY main_generacion.py .
 
 # Verificar instalación
 RUN chromium --version && chromedriver --version
