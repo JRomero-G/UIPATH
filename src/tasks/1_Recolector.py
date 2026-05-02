@@ -15,12 +15,16 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+import tempfile
+
+# Al inicio del archivo, después de los imports
+os.environ['TMPDIR'] = '/tmp'
+os.environ['TMP'] = '/tmp'
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from Config import Global
-
 
 def debug_entorno():
     """Imprime toda la información del entorno antes de iniciar Chromium"""
@@ -102,33 +106,74 @@ def debug_entorno():
         print(f"[DEBUG] ✗ Excepción al lanzar Chromium: {e}")
 
     print("=" * 50)
-
 def get_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=800,600")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--disable-extensions")
+    
+    # === CONFIGURACIÓN BASE OBLIGATORIA PARA RENDER ===
+    chrome_options.add_argument("--headless=new")  # Headless obligatorio en servidor
+    chrome_options.add_argument("--no-sandbox")  # Necesario en contenedores
+    chrome_options.add_argument("--disable-dev-shm-usage")  # CRÍTICO: Evita usar /dev/shm
+    chrome_options.add_argument("--disable-gpu")  # GPU no disponible en servidor
+    
+    # === CONFIGURACIÓN DE MEMORIA Y RENDIMIENTO ===
+    chrome_options.add_argument("--single-process")  # Evita procesos hijos (problemáticos en Render)
+    chrome_options.add_argument("--disable-setuid-sandbox")  # Alternativa a sandbox
+    chrome_options.add_argument("--memory-pressure-off")  # Reduce presión de memoria
+    chrome_options.add_argument("--max_old_space_size=512")  # Limita memoria a 512MB
+    
+    # === CONFIGURACIÓN DE ESTABILIDAD ===
+    chrome_options.add_argument("--disable-software-rasterizer")  # Evita problemas con GPU virtual
+    chrome_options.add_argument("--disable-extensions")  # Sin extensiones
+    chrome_options.add_argument("--disable-plugins")  # Sin plugins
+    chrome_options.add_argument("--disable-images")  # No cargar imágenes (ahorra memoria)
+    chrome_options.add_argument("--disable-javascript")  # Si el sitio NO requiere JS (opcional)
+    
+    # === CONFIGURACIÓN DE RED Y TIMEOUTS ===
+    chrome_options.add_argument("--disable-web-security")  # Evita problemas CORS
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")  # Feature problemático
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")  # Anti-detección
+    chrome_options.add_argument("--ignore-certificate-errors")  # Ignora SSL (si es necesario)
+    
+    # === CONFIGURACIÓN DE VENTANA ===
+    chrome_options.add_argument("--window-size=1280,720")  # Tamaño razonable
+    
+    # === OCULTAR AUTOMATIZACIÓN ===
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
-
+    
     if platform.system() == "Linux":
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-zygote")
-        chrome_options.add_argument("--disable-setuid-sandbox")
-        chrome_options.add_argument("--disable-software-rasterizer")
-        chrome_options.add_argument("--remote-debugging-port=9222")
-        chrome_options.add_argument("--ignore-certificate-errors")
+        # Configuración específica para Render/Linux
         chrome_options.binary_location = "/usr/bin/chromium"
+        
+        # IMPORTANTE: Usar /tmp en lugar de /dev/shm
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+        
+        # Variables de entorno para forzar uso de /tmp
+        os.environ['TMPDIR'] = '/tmp'
+        os.environ['TMP'] = '/tmp'
+        
+        # Crear servicio con logging para debug (opcional)
+        service = Service(
+            "/usr/bin/chromedriver",
+            service_args=['--verbose', f'--log-path=/tmp/chromedriver.log']
+        )
+        
         driver = webdriver.Chrome(
-            service=Service("/usr/bin/chromedriver"),
+            service=service,
             options=chrome_options
         )
-        driver.set_page_load_timeout(120)
+        
+        # Timeouts más generosos pero realistas
+        driver.set_page_load_timeout(180)
         driver.set_script_timeout(60)
+        
     else:
+        # Configuración para Windows/Mac (local)
+        from webdriver_manager.chrome import ChromeDriverManager
+        
+        chrome_options.add_argument("--window-size=1280,720")
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
@@ -137,7 +182,7 @@ def get_driver():
             driver.minimize_window()
         except:
             pass
-
+    
     return driver
 
 def main():
@@ -154,7 +199,7 @@ def main():
     #    service=Service("/usr/bin/chromedriver"),
     #    options=chrome_options
     #)
-
+    print("\n[INFO] Iniciando driver...")
     driver = get_driver()
 
     # Minimizar solo si no es Linux (en servidor no aplica)
