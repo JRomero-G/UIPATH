@@ -13,12 +13,95 @@ import time
 import tempfile
 import os
 import sys
+import subprocess
 from pathlib import Path
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from Config import Global
+
+
+def debug_entorno():
+    """Imprime toda la información del entorno antes de iniciar Chromium"""
+    print("=" * 50)
+    print("[DEBUG] INFORMACIÓN DEL ENTORNO")
+    print("=" * 50)
+    print(f"[DEBUG] Sistema operativo : {platform.system()}")
+    print(f"[DEBUG] Versión Python    : {sys.version}")
+    print(f"[DEBUG] Directorio actual : {os.getcwd()}")
+    print(f"[DEBUG] Usuario actual    : {os.popen('whoami').read().strip()}")
+
+    # Verificar binarios
+    chromium_path = "/usr/bin/chromium"
+    chromedriver_path = "/usr/bin/chromedriver"
+    print(f"\n[DEBUG] Chromium existe     : {os.path.exists(chromium_path)}")
+    print(f"[DEBUG] Chromedriver existe : {os.path.exists(chromedriver_path)}")
+
+    # Verificar versiones
+    for binario, nombre in [(chromium_path, "Chromium"), (chromedriver_path, "Chromedriver")]:
+        try:
+            result = subprocess.run(
+                [binario, "--version"],
+                capture_output=True, text=True, timeout=10
+            )
+            print(f"[DEBUG] {nombre} version : {result.stdout.strip()}")
+            if result.stderr:
+                print(f"[DEBUG] {nombre} stderr  : {result.stderr.strip()[:300]}")
+        except Exception as e:
+            print(f"[DEBUG] Error ejecutando {nombre}: {e}")
+
+    # Verificar memoria disponible
+    try:
+        mem = subprocess.run(
+            ["cat", "/proc/meminfo"],
+            capture_output=True, text=True
+        )
+        lineas = [l for l in mem.stdout.split("\n") if "MemAvailable" in l or "MemTotal" in l]
+        print(f"\n[DEBUG] Memoria:")
+        for l in lineas:
+            print(f"  {l}")
+    except:
+        pass
+
+    # Verificar /dev/shm
+    try:
+        shm = subprocess.run(
+            ["df", "-h", "/dev/shm"],
+            capture_output=True, text=True
+        )
+        print(f"\n[DEBUG] /dev/shm:\n  {shm.stdout.strip()}")
+    except:
+        pass
+
+    # Intentar lanzar Chromium manualmente sin ChromeDriver
+    print(f"\n[DEBUG] Probando lanzar Chromium directamente...")
+    try:
+        test = subprocess.run(
+            [
+                chromium_path,
+                "--headless=new",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--no-zygote",
+                "--disable-setuid-sandbox",
+                "--dump-dom",
+                "about:blank"
+            ],
+            capture_output=True, text=True, timeout=15
+        )
+        if test.returncode == 0:
+            print(f"[DEBUG] ✓ Chromium lanzó correctamente (about:blank)")
+        else:
+            print(f"[DEBUG] ✗ Chromium falló con código: {test.returncode}")
+            print(f"[DEBUG] stdout: {test.stdout[:200]}")
+            print(f"[DEBUG] stderr: {test.stderr[:500]}")
+    except subprocess.TimeoutExpired:
+        print(f"[DEBUG] ✗ Chromium tardó más de 15s en about:blank → renderer bloqueado")
+    except Exception as e:
+        print(f"[DEBUG] ✗ Excepción al lanzar Chromium: {e}")
+
+    print("=" * 50)
 
 def get_driver():
     chrome_options = Options()
