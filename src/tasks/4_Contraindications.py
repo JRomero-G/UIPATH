@@ -39,10 +39,6 @@ from threading import Thread
 import queue
 import tempfile
 
-# Al inicio del archivo, después de los imports
-os.environ['TMPDIR'] = '/tmp'
-os.environ['TMP'] = '/tmp'
-
 # Para procesar archivos DOCX (extraer texto)
 try:
     from docx import Document
@@ -785,10 +781,6 @@ def get_driver():
         import tempfile
         temp_dir = tempfile.mkdtemp()
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
-        
-        # Variables de entorno para forzar uso de /tmp
-        os.environ['TMPDIR'] = '/tmp'
-        os.environ['TMP'] = '/tmp'
         
         # Crear servicio con logging para debug (opcional)
         service = Service(

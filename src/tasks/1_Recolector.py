@@ -17,10 +17,6 @@ import subprocess
 from pathlib import Path
 import tempfile
 
-# Al inicio del archivo, después de los imports
-os.environ['TMPDIR'] = '/tmp'
-os.environ['TMP'] = '/tmp'
-
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -106,6 +102,7 @@ def debug_entorno():
         print(f"[DEBUG] ✗ Excepción al lanzar Chromium: {e}")
 
     print("=" * 50)
+
 def get_driver():
     chrome_options = Options()
     
@@ -149,11 +146,7 @@ def get_driver():
         import tempfile
         temp_dir = tempfile.mkdtemp()
         chrome_options.add_argument(f"--user-data-dir={temp_dir}")
-        
-        # Variables de entorno para forzar uso de /tmp
-        os.environ['TMPDIR'] = '/tmp'
-        os.environ['TMP'] = '/tmp'
-        
+
         # Crear servicio con logging para debug (opcional)
         service = Service(
             "/usr/bin/chromedriver",
