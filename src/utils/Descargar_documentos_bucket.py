@@ -73,7 +73,7 @@ def descargar_archivos_nic(codigo_necesidad: str, directorio_base: Path = None) 
     encontrados = 0
 
     # Buscar en ambas carpetas del bucket
-    for prefijo_bucket in ["Fichas Tecnicas", "Proformas"]:
+    for prefijo_bucket in ["Fichas Técnicas", "Proformas"]:
         blobs = list(gcs.list_blobs(bucket, prefix=f"{prefijo_bucket}/"))
 
         # Filtrar solo los blobs que pertenecen a este NIC
