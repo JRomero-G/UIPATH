@@ -116,7 +116,7 @@ def inicializar_servicios():
         )
         model = GenerativeModel("gemini-2.5-flash")
         bucket = storage_client.bucket(BUCKET_NAME)
-        return model, bucket
+        return model, ruta_credencial, es_temp, bucket
     finally:
         if es_temp:
             try:
@@ -124,7 +124,7 @@ def inicializar_servicios():
             except Exception:
                 pass
 
-def _extraer_texto_docx_worker(blob_path, result_queue):
+def _extraer_texto_docx_worker(blob_path, result_queue,credentials_path):
     """
     Worker interno para extraer texto de DOCX.
     Ejecuta en thread separado para permitir timeout.
@@ -134,11 +134,18 @@ def _extraer_texto_docx_worker(blob_path, result_queue):
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
             # Usar blob directamente si ya está en scope, sino crear cliente
             storage_client = storage.Client()
+            # Usar credenciales explícitas
+            from google.oauth2 import service_account
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path
+            )
+            storage_client = storage.Client(credentials=credentials)
             bucket = storage_client.bucket(BUCKET_NAME)
             blob = bucket.blob(blob_path)
             
-            blob.download_to_filename(temp_file.name)
-            temp_path = temp_file.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
+                blob.download_to_filename(temp_file.name)
+                temp_path = temp_file.name
         
         # Extraer texto
         doc = Document(temp_path)
@@ -153,12 +160,13 @@ def _extraer_texto_docx_worker(blob_path, result_queue):
     except Exception as e:
         result_queue.put(('error', str(e)))
 
-def extraer_texto_docx(blob, timeout=60):
+def extraer_texto_docx(blob, credentials_path, timeout=60):
     """
     Extrae texto de un archivo DOCX desde Google Cloud Storage con timeout.
     
     Args:
         blob: Objeto blob de GCS que apunta a un archivo .docx
+        credentials_path: Ruta al archivo de credenciales
         timeout: Tiempo máximo en segundos (default: 60)
         
     Returns:
@@ -177,7 +185,7 @@ def extraer_texto_docx(blob, timeout=60):
         # Ejecutar extracción en thread separado
         worker = Thread(
             target=_extraer_texto_docx_worker,
-            args=(blob.name, result_queue)
+            args=(blob.name, result_queue, credentials_path)
         )
         worker.daemon = True
         worker.start()
@@ -438,7 +446,7 @@ def actualizar_peso_en_bd(codigo_necesidad, peso, contraindicaciones_encontradas
 # 4. FUNCIONES DE BUCKET/IA
 # =========================
 
-def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
+def buscar_pac_en_documentos(bucket, codigo_necesidad, model, credentials_path):
     """
     Busca el PAC (presupuesto) en documentos del bucket usando IA de Google Gemini.
     
@@ -446,7 +454,7 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
         bucket: Cliente de Google Cloud Storage
         codigo_necesidad (str): Código de la ínfima
         model: Modelo generativo de VertexAI
-    
+        credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     Returns:
         float: Valor del PAC encontrado, o 0.0 si no se encuentra
     
@@ -488,7 +496,7 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
         # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
         elif nombre_lower.endswith('.docx'):
             print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
-            texto_docx = extraer_texto_docx(blob, timeout=60)
+            texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
             if texto_docx:
                 documentos_contenido.append(texto_docx)
                 print(f"      ✅ DOCX procesado exitosamente")
@@ -565,7 +573,7 @@ Tu respuesta (solo el número):"""
                 "temperature": 0.1,  # Baja temperatura = más determinístico
                 "top_p": 0.8,
                 "top_k": 20,
-                "max_output_tokens": 100,  # Solo necesitamos un número
+                "max_output_tokens": 500,  # Solo necesitamos un número
             }
             
             # Llamada a IA
@@ -615,7 +623,7 @@ Tu respuesta (solo el número):"""
     
     return 0.0
 
-def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model):
+def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model,credentials_path):
     """
     Busca contraindicaciones mencionadas en documentos usando IA.
     
@@ -624,6 +632,7 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         codigo_necesidad (str): Código de la ínfima
         contraindicaciones_list (list): Lista de contraindicaciones a buscar
         model: Modelo generativo de VertexAI
+        credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     
     Returns:
         list: Lista de contraindicaciones encontradas en los documentos
@@ -656,7 +665,7 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
         elif blob.name.lower().endswith('.docx'):
             print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
-            texto_docx = extraer_texto_docx(blob, timeout=60)
+            texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
             if texto_docx:
                 documentos_contenido.append(texto_docx)
                 print(f"      ✅ DOCX procesado exitosamente")
@@ -1504,7 +1513,7 @@ def main():
     # PASO 4-6: Buscar PAC en documentos con IA
     # ========================================================
     print("\n[3] Inicializando servicios Google Cloud...")
-    model, bucket = inicializar_servicios()
+    model, ruta_credencial, bucket = inicializar_servicios()
     print("   ✓ Servicios inicializados")
     
     print("\n[4] Buscando PAC en documentos...")
@@ -1512,7 +1521,7 @@ def main():
 
     for i, codigo in enumerate(codigos_preseleccionados, 1):
         print(f"   [{i}/{len(codigos_preseleccionados)}] {codigo}")
-        pac = buscar_pac_en_documentos(bucket, codigo, model)
+        pac = buscar_pac_en_documentos(bucket, codigo, model, ruta_credencial)
         codigos_pac_dict[codigo] = pac
 
         if pac > 0:
@@ -1561,7 +1570,7 @@ def main():
     for i, codigo in enumerate(codigos_pac_positivos.keys(), 1):
         print(f"   [{i}/{len(codigos_pac_positivos)}] {codigo}")
         contraindicaciones_encontradas = buscar_contraindicaciones_en_documentos(
-            bucket, codigo, contraindicaciones_list, model
+            bucket, codigo, contraindicaciones_list, model, ruta_credencial
         )
         contraindicaciones_por_codigo[codigo] = contraindicaciones_encontradas
         
