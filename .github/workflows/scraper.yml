@@ -1,0 +1,46 @@
+name: Scraper de Compras Públicas
+
+on:
+  schedule:
+    # Horario Ecuador (UTC-5)
+    # 8am (13 UTC), 11am (16 UTC), 2pm (19 UTC)
+    # 8am, 11am, 2pm Ecuador
+    - cron: '0 13,16,19 * * 1-5'   
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+      
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Instalar Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium chromium-driver
+      
+      - name: Instalar dependencias Python
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Ejecutar scraper
+        run: python main_Recoleccion.py
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DATABASE: ${{ secrets.DATABASE }}
+          CREDENTIALS_GEMINI: ${{ secrets.CREDENTIALS_GEMINI }}
+          RENDER_CRENDENTIALS_JSON: ${{ secrets.RENDER_CRENDENTIALS_JSON }}
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          GEMINI_CREDENTIALS: ${{ secrets.GEMINI_CREDENTIALS }}
+          TMPDIR: /tmp
+          TMP: /tmp
+          PYTHONUNBUFFERED: 1
