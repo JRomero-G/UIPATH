@@ -794,8 +794,8 @@ def get_driver():
         )
         
         # Timeouts más generosos pero realistas
-        driver.set_page_load_timeout(180)
-        driver.set_script_timeout(60)
+        driver.set_page_load_timeout(300)
+        driver.set_script_timeout(120)
         
     else:
         # Configuración para Windows/Mac (local)
