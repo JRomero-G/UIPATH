@@ -1,4 +1,4 @@
-name: Scraper de Compras Públicas
+name: Scraper de Gestorex Recoleccion
 
 on:
   schedule:
