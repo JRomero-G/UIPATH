@@ -161,11 +161,25 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         db.query(Infima)
         .join(RecomendacionesUsuario)
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
-        ,Infima.etapa != "en generacion")
+        ,Infima.etapa != "en generacion", Infima.etapa != "enviada", Infima.etapa != "finalizada")
         .order_by(Infima.fecha_publicacion.desc())
         .limit(20)
         .all()
     )
+
+
+# Devuelve las ínfimas asignadas a un usuario específico 
+def obtener_infimas_recomendadas_asignadas_del_usuario2(db: Session,usuario_id: int):
+    return (
+        db.query(Infima)
+        .join(RecomendacionesUsuario)
+        .filter(RecomendacionesUsuario.usuario_id == usuario_id
+        ,Infima.etapa != "en generacion", Infima.etapa != "enviada", Infima.etapa != "finalizada")
+        .order_by(Infima.fecha_publicacion.desc())
+        .limit(20)
+        .all()
+    )
+
 
 def obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db: Session,usuario_id: int):
     return (
