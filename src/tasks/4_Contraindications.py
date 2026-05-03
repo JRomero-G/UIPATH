@@ -737,34 +737,43 @@ NO incluyas explicaciones, solo el array JSON con los nombres exactos de las con
 # =========================
 # 5. WEB SCRAPING
 # =========================
+
 def get_driver():
     chrome_options = Options()
     
-    # SOLO estas 5 opciones (son las únicas realmente necesarias para Render)
+    # 1. Configuración MÍNIMA pero CORRECTA para Render
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-dev-shm-usage")  # FUNDAMENTAL
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1280,720")
     
-    if platform.system() == "Linux":
-        chrome_options.binary_location = "/usr/bin/chromium"
-        
-        service = Service("/usr/bin/chromedriver")
-        
-        driver = webdriver.Chrome(
-            service=service,
-            options=chrome_options
-        )
-        
-        driver.set_page_load_timeout(180)
-        
-    else:
-        from webdriver_manager.chrome import ChromeDriverManager
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=chrome_options
-        )
+    # 2. Ocultar automatización (evita bloqueos)
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+    
+    # 3. Configuración de red para Render (CRÍTICO)
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--ignore-certificate-errors")
+    
+    # 4. Prevenir timeouts por procesos bloqueados
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    
+    # 5. Usar /tmp en lugar de memoria compartida (clave para Render)
+    temp_dir = tempfile.mkdtemp()
+    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+    
+    # 6. Driver con logging para monitoreo
+    service = Service(
+        "/usr/bin/chromedriver",
+        service_args=['--verbose', '--log-path=/tmp/chromedriver.log']
+    )
+    
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    driver.set_page_load_timeout(180)  # Timeout realista
     
     return driver
 
