@@ -119,7 +119,7 @@ def inicializar_servicios():
         )
         model = GenerativeModel("gemini-2.5-flash")
         bucket = storage_client.bucket(BUCKET_NAME)
-        return model, ruta_credencial, es_temp, bucket
+        return model, ruta_credencial, bucket
     finally:
         if es_temp:
             try:
@@ -1534,7 +1534,7 @@ def main():
     # PASO 4-6: Buscar PAC en documentos con IA
     # ========================================================
     print("\n[3] Inicializando servicios Google Cloud...")
-    model, ruta_credencial, es_temp,  bucket = inicializar_servicios()
+    model, ruta_credencial,  bucket = inicializar_servicios()
     print("   ✓ Servicios inicializados")
     
     print("\n[4] Buscando PAC en documentos...")
