@@ -16,11 +16,11 @@ import sys
 import subprocess
 from pathlib import Path
 import tempfile
-from Config import Global
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from Config import Global
 def get_driver():
     chrome_options = Options()
     
