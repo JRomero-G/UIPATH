@@ -63,6 +63,9 @@ MYSQL_CONFIG = {
     "user": Global.DB_USER,
     "password": Global.DB_PASSWORD,
     "database": Global.DATABASE,
+    "use_pure": True,              # ← Usa implementación Python pura
+    "connect_timeout": 30,         # ← Timeout de conexión
+    "connection_timeout": 60, 
 }
 
 # Rutas de archivos y buckets de Google Cloud
@@ -133,9 +136,8 @@ def _extraer_texto_docx_worker(blob_path, result_queue,credentials_path):
         # Descargar y procesar
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
             # Usar blob directamente si ya está en scope, sino crear cliente
-            storage_client = storage.Client()
+            #storage_client = storage.Client()
             # Usar credenciales explícitas
-            from google.oauth2 import service_account
             credentials = service_account.Credentials.from_service_account_file(
                 credentials_path
             )
@@ -348,40 +350,53 @@ def actualizar_pac_en_bd(codigos_pac_dict):
 def actualizar_pac_desde_vtotal(df_infimas):
     """
     Actualiza PACweb con valores de V_Total obtenidos del portal web.
-    También cambia la etapa a 'seleccionada' para códigos con PACweb > 0.
-    
-    Args:
-        df_infimas (DataFrame): DataFrame con columnas codigo_necesidad y V_Total
-    
-    Lógica:
-        1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'recomendada' para todos los PAC > 0 como paso intermedio
     """
-    conn = mysql.connector.connect(**MYSQL_CONFIG)
-    cursor = conn.cursor()
+    # Configuración con timeouts más altos
+    config = MYSQL_CONFIG.copy()
+    config.update({
+        'connect_timeout': 30,      # Tiempo para establecer conexión
+        'connection_timeout': 60,   # Timeout general
+        'pool_size': 1,              # Pool pequeño para desarrollo
+        'use_pure': True,            # Usar implementación pura de Python (más compatible)
+    })
     
-    # Actualizar PAC con valores V_Total del portal
-    for _, row in df_infimas.iterrows():
-        if row['V_Total'] >= 0:
+    conn = None
+    cursor = None
+    try:
+        conn = mysql.connector.connect(**config)
+        cursor = conn.cursor()
+        
+        # Actualizar PAC con valores V_Total del portal
+        for _, row in df_infimas.iterrows():
+            if row['V_Total'] >= 0:
+                cursor.execute("""
+                    UPDATE infimas 
+                    SET PACweb = %s,
+                        actualizado_en = NOW()
+                    WHERE codigo_necesidad = %s
+                """, (row['V_Total'], row['codigo_necesidad']))
+        
+        # Cambiar etapa a 'recomendada'
+        for _, row in df_infimas.iterrows():
             cursor.execute("""
                 UPDATE infimas 
-                SET PACweb = %s,
+                SET etapa = 'recomendada',
                     actualizado_en = NOW()
-                WHERE codigo_necesidad = %s
-            """, (row['V_Total'], row['codigo_necesidad']))
-    
-    # Cambiar etapa a 'recomendada' para todas las ínfimas nuevas preseleccionadas y filtradas por cantidad de artículos
-    for _, row in df_infimas.iterrows():
-        cursor.execute("""
-            UPDATE infimas 
-            SET etapa = 'recomendada',
-                actualizado_en = NOW()
-            WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >=0)
-        """, (row['codigo_necesidad'],))
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+                WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >= 0)
+            """, (row['codigo_necesidad'],))
+        
+        conn.commit()
+        
+    except mysql.connector.Error as err:
+        print(f"Error en actualizar_pac_desde_vtotal: {err}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
 
 def obtener_codigos_pac_mayores_cero():
     """
@@ -746,44 +761,50 @@ NO incluyas explicaciones, solo el array JSON con los nombres exactos de las con
 # =========================
 # 5. WEB SCRAPING
 # =========================
-
 def get_driver():
     chrome_options = Options()
     
-    # 1. Configuración MÍNIMA pero CORRECTA para Render
+    # Configuración común
     chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")  # FUNDAMENTAL
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1280,720")
-    
-    # 2. Ocultar automatización (evita bloqueos)
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-    
-    # 3. Configuración de red para Render (CRÍTICO)
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--ignore-certificate-errors")
     
-    # 4. Prevenir timeouts por procesos bloqueados
-    chrome_options.add_argument("--disable-setuid-sandbox")
-    chrome_options.add_argument("--disable-software-rasterizer")
+    if platform.system() == "Linux":
+        # Configuración para Linux (Render/GitHub Actions)
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--disable-setuid-sandbox")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        
+        temp_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+        
+        service = Service(
+            "/usr/bin/chromedriver",
+            service_args=['--verbose', '--log-path=/tmp/chromedriver.log']
+        )
+        
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+    else:
+        # Configuración para Windows (desarrollo local)
+        from webdriver_manager.chrome import ChromeDriverManager
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=chrome_options
+        )
+        # Opcional: minimizar ventana en Windows
+        try:
+            driver.minimize_window()
+        except:
+            pass
     
-    # 5. Usar /tmp en lugar de memoria compartida (clave para Render)
-    temp_dir = tempfile.mkdtemp()
-    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
-    
-    # 6. Driver con logging para monitoreo
-    service = Service(
-        "/usr/bin/chromedriver",
-        service_args=['--verbose', '--log-path=/tmp/chromedriver.log']
-    )
-    
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    driver.set_page_load_timeout(180)  # Timeout realista
-    
+    driver.set_page_load_timeout(180)
     return driver
 
 def buscar_vtotal_en_portal(df_infimas):
@@ -1513,7 +1534,7 @@ def main():
     # PASO 4-6: Buscar PAC en documentos con IA
     # ========================================================
     print("\n[3] Inicializando servicios Google Cloud...")
-    model, ruta_credencial, bucket = inicializar_servicios()
+    model, ruta_credencial, es_temp,  bucket = inicializar_servicios()
     print("   ✓ Servicios inicializados")
     
     print("\n[4] Buscando PAC en documentos...")
