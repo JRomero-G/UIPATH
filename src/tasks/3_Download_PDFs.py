@@ -25,6 +25,9 @@ MYSQL_CONFIG = {
     "user": Global.DB_USER,
     "password": Global.DB_PASSWORD,
     "database": Global.DATABASE,
+    "use_pure": True,              # ← Usa implementación Python pura
+    "connect_timeout": 30,         # ← Timeout de conexión
+    "connection_timeout": 60, 
 }
 
 # Ruta base del proyecto

@@ -40,7 +40,6 @@ jobs:
           CREDENTIALS_GEMINI: ${{ secrets.CREDENTIALS_GEMINI }}
           RENDER_CRENDENTIALS_JSON: ${{ secrets.RENDER_CRENDENTIALS_JSON }}
           BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
-          GEMINI_CREDENTIALS: ${{ secrets.GEMINI_CREDENTIALS }}
           TMPDIR: /tmp
           TMP: /tmp
           PYTHONUNBUFFERED: 1
