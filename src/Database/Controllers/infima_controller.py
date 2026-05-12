@@ -110,7 +110,7 @@ def obtener_infimas_disponibles_admin(db: Session):
             # Infima
         )
         .order_by(Infima.fecha_publicacion.desc())
-        .limit(18)
+        #.limit(150)
         .all()
     )
 
