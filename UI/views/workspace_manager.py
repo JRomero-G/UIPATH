@@ -517,6 +517,7 @@ class WorkspaceManagerUI(BaseWindow):
                 return
 
             data = response.json()
+            print(f"Infimas totales: {len(data)}")
 
             if isinstance(data, dict) and "data" in data:
                 data = data["data"]
