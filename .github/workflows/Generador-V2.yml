@@ -1,0 +1,38 @@
+name: Generador de Documentos de Infimas
+
+on:
+  schedule:
+    # Ejecutar cada hora, 8am a 4pm Ecuador (UTC-5), Lunes a Viernes
+    - cron: '0 13-21 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: generador-infimas
+      cancel-in-progress: false
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar generador
+        run: python main_generador.py   # Nota: nombre corregido (antes main_generacion.py)
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DATABASE: ${{ secrets.DATABASE }}
+          CREDENTIALS_GEMINI: ${{ secrets.CREDENTIALS_GEMINI }}
+          RENDER_CREDENTIALS_JSON: ${{ secrets.RENDER_CREDENTIALS_JSON }}
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          PYTHONUNBUFFERED: 1
