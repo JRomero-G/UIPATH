@@ -26,7 +26,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Ejecutar generador
-        run: python main_generador.py   # Nota: nombre corregido (antes main_generacion.py)
+        run: python main_generacion.py   # Nota: nombre corregido (antes main_generacion.py)
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_USER: ${{ secrets.DB_USER }}
