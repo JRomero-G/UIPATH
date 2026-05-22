@@ -23,7 +23,7 @@ MYSQL_CONFIG = {
 }
 
 
-GEMINI_CREDENTIALS_PATH = Global.RENDER_CRENDENTIALS_JSON
+GEMINI_CREDENTIALS_PATH = Global.GEMINI_CRENDENTIALS
 BUCKET_NAME             = Global.BUCKET_NAME
 BUCKET_FOLDER           = "Documentos de Contratación"
 AI_MODEL                = "gemini-2.5-pro"
