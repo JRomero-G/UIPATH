@@ -32,7 +32,6 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DATABASE: ${{ secrets.DATABASE }}
-          CREDENTIALS_GEMINI: ${{ secrets.CREDENTIALS_GEMINI }}
-          RENDER_CREDENTIALS_JSON: ${{ secrets.RENDER_CREDENTIALS_JSON }}
+          GEMINI_CREDENTIALS: ${{ secrets.GEMINI_CREDENTIALS }}
           BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
           PYTHONUNBUFFERED: 1
