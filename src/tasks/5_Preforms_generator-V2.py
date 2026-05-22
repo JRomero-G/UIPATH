@@ -289,7 +289,7 @@ def paso(n, total, desc):
 def resolver_credenciales_a_archivo():
     raw = GEMINI_CREDENTIALS_PATH
     if raw is None:
-        raise ValueError("RENDER_CRENDENTIALS_JSON no definida.")
+        raise ValueError("GEMINI_CREDENTIALS_PATH no definida.")
     stripped = raw.strip()
     if stripped.startswith("{"):
         creds_dict = json.loads(stripped)
