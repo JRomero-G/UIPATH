@@ -163,7 +163,7 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
         ,Infima.etapa != "en generacion", Infima.etapa != "enviada", Infima.etapa != "finalizada")
         .order_by(Infima.fecha_publicacion.desc())
-        .limit(20)
+        #.limit(20)
         .all()
     )
 
