@@ -1193,6 +1193,49 @@ def buscar_producto_en_proveedores(modelo_ai, info_articulo):
     
     return todos_resultados[0] if todos_resultados else {}
 
+def extraer_imagen_de_pagina(url, producto_nombre, timeout=15):
+    """
+    Extrae la imagen del producto directamente desde la página del producto.
+    Primero usa las metaetiquetas (og:image, etc.) y luego busca etiquetas <img> 
+    con atributos que sugieran que es la imagen principal del producto.
+    """
+    html_text = fetch_html(url, timeout=timeout, max_bytes=400_000)
+    if not html_text:
+        return None
+
+    # Intentar con los métodos existentes (metaetiquetas, JSON‑LD)
+    img_url = extraer_imagen_de_html(html_text, url)
+    if img_url and validar_url_imagen(img_url):
+        return img_url
+
+    # Búsqueda adicional en etiquetas <img> que parezcan del producto
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html_text, 'html.parser')
+        # Buscar imágenes con id, class o alt que contengan el nombre del producto
+        keywords = producto_nombre.lower().split()
+        for img_tag in soup.find_all('img', src=True):
+            # Ignorar iconos, logos, banners pequeños
+            src = urllib.parse.urljoin(url, img_tag['src'])
+            if any(ign in src.lower() for ign in ['icon', 'logo', 'banner', 'thumbnail', 'small']):
+                continue
+            # Verificar que la URL es absoluta y válida
+            if src.startswith('http') and validar_url_imagen(src):
+                # Dar preferencia si el alt, id o class contienen alguna palabra clave
+                attrs = ' '.join([str(v).lower() for v in img_tag.attrs.values()])
+                if any(kw in attrs for kw in keywords):
+                    log(f"  Imagen extraída de etiqueta <img> relevante: {src[:70]}", "OK")
+                    return src
+        # Si no encontramos una con keywords, devolvemos la primera imagen grande válida
+        for img_tag in soup.find_all('img', src=True):
+            src = urllib.parse.urljoin(url, img_tag['src'])
+            if src.startswith('http') and validar_url_imagen(src):
+                log(f"  Imagen extraída de etiqueta <img> (primera válida): {src[:70]}", "OK")
+                return src
+    except Exception:
+        pass
+    return None
+
 def _buscar_producto_unico(info_articulo,modelo_ai=None):
     nombre = info_articulo.get("nombre_articulo", "") or ""
     marca = info_articulo.get("marca", "") or ""
@@ -1236,12 +1279,26 @@ def _buscar_producto_unico(info_articulo,modelo_ai=None):
     for i, res in enumerate(candidatos[:3]):
         log(f"    #{i+1}: {res['relevancia']:.0f}% - {res['url'][:70]}")
 
-    # Obtener imagen
-    url_imagen = mejor.get('imagen_url', '')
-    if not url_imagen or not validar_url_imagen(url_imagen):
-        log(f"  Buscando imagen específica para '{nombre}'...", "INFO")
-        query_img = f"{nombre} {marca} {modelo_prod}".strip()
-        url_imagen = buscar_imagen_especifica_producto(query_img, nombre)
+    # Obtener imagen primero desde la página del producto seleccionado
+    log(f"  Extrayendo imagen desde la página del proveedor...")
+    url_imagen = extraer_imagen_de_pagina(mejor['url'], nombre)
+    if not url_imagen:
+        # Intentar con las alternativas (segundo y tercer candidato)
+        for alt_res in candidatos[1:4]:
+            alt_url = alt_res.get('url', '')
+            url_imagen = extraer_imagen_de_pagina(alt_url, nombre)
+            if url_imagen:
+                log(f"  Imagen obtenida de alternativa: {alt_url[:60]}")
+                break
+    if not url_imagen:
+        # Último recurso: búsqueda de imagen genérica con DuckDuckGo
+        log(f"  Buscando imagen genérica para '{nombre}'...")
+        url_imagen = buscar_imagen_especifica_producto(query_base, nombre)
+
+    if url_imagen:
+        log(f"  Imagen final: {url_imagen[:70]}", "OK")
+    else:
+        log("  No se pudo obtener ninguna imagen.", "WARN")
 
     dominio = _dominio(mejor['url'])
     es_extranjero = dominio not in DOMINIOS_NACIONALES
