@@ -703,23 +703,32 @@ def extraer_precio_de_html(html_text):
                     stack.extend(cur)
         except: continue
 
-    # Patrones $XX.XX en el texto
-    for m in re.finditer(r'(?:USD|US\$|\$)\s*([0-9]{1,5}(?:[.,][0-9]{2})?)', html_text):
-        try: candidatos.append(float(m.group(1).replace(",", ".")))
-        except: pass
+    # Patrones adicionales: $ 1,234.56 o $1.234,56 o 1 234,56 $
+    patrones_extra = [
+        r'(?:USD|US\$|\$)\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2}))',  # $1,234.56
+        r'([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2}))\s*(?:USD|US\$|\$)',  # 1,234.56 $
+        r'(?:Precio|PRECIO|precio)\s*:?\s*\$?\s*([0-9]+(?:[.,][0-9]+))',        # Precio: $1234.56
+    ]
+    for pat in patrones_extra:
+        for m in re.finditer(pat, html_text, re.IGNORECASE):
+            try:
+                val = m.group(1).replace(",", ".").replace(" ", "")
+                # manejar formato con punto de miles
+                if re.match(r'^\d{1,3}(\.\d{3})*,\d{1,2}$', m.group(1)):  # formato 1.234,56
+                    val = m.group(1).replace(".", "").replace(",", ".")
+                candidatos.append(float(val))
+            except:
+                pass
 
     candidatos = [c for c in candidatos if 1.0 <= c <= 50000.0]
     if not candidatos:
         return None
     candidatos.sort()
-    return candidatos[len(candidatos) // 2]
+    return candidatos[len(candidatos)//2]
 
 def extraer_precio_con_ia(html_text, url_producto, modelo_ai):
-    """Intenta extraer el precio del HTML usando Gemini como fallback."""
     if not html_text or not modelo_ai:
         return None
-
-    # Limpiar HTML
     try:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html_text, 'html.parser')
@@ -729,18 +738,20 @@ def extraer_precio_con_ia(html_text, url_producto, modelo_ai):
     except:
         texto = html_text[:3000]
 
-    prompt = f"""
-Eres un asistente que extrae el precio de un producto desde el texto de una página web.
-La URL del producto es: {url_producto}
+    prompt = f"""Eres un asistente que extrae el precio de un producto desde el texto de una página web.
+    URL: {url_producto}
 
-Texto de la página:
-{texto}
+    Texto:
+    {texto}
 
-Devuelve ÚNICAMENTE un JSON válido con la estructura:
-{{"precio": número (float), "moneda": "USD"}}
-Si no encuentras ningún precio, responde {{"precio": null, "moneda": null}}.
-El precio debe ser el valor numérico final que pagaría el comprador.
-"""
+    Devuelve ÚNICAMENTE un JSON con la estructura:
+    {{"precio": número, "moneda": "USD"}}
+
+    Reglas:
+    - El precio debe ser el valor final que paga el comprador (impuestos incluidos si aparecen).
+    - Si ves varios precios, quédate con el que más se repite o el que aparezca junto a "precio", "total", "a pagar".
+    - Si no hay precio, devuelve {{"precio": null, "moneda": null}}.
+    """
     response = modelo_ai.generate_content(prompt)
     data = _parsear_json_de_respuesta(response.text)
     if data and isinstance(data.get("precio"), (int, float)):
@@ -1261,7 +1272,8 @@ def _buscar_producto_unico(info_articulo,modelo_ai=None):
                 "relevancia": res['relevancia']
             })
 
-    if not mejor_opcion.get('precio_total_usd') and modelo_ai:
+    precio_encontrado = mejor_opcion.get('precio_total_usd', 0) or 0
+    if (precio_encontrado == 0 or precio_encontrado < 1.0) and modelo_ai:
         html = fetch_html(mejor['url'], timeout=15)
         if html:
             precio_ia = extraer_precio_con_ia(html, mejor['url'], modelo_ai)
