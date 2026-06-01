@@ -82,6 +82,19 @@ from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 
+# ── Objeto de configuración compartido del proyecto (Config/Global) ───────────
+#   Igual que en los demás scripts del proyecto: se añade la raíz del proyecto al
+#   sys.path y se importa "Global" desde el paquete Config. De ahí provienen las
+#   credenciales ADECUADAS (DB_HOST, DB_USER, DB_PASSWORD, DATABASE,
+#   GEMINI_CREDENTIALS, BUCKET_NAME, etc.). El helper _g() (más abajo) leerá estos
+#   valores con prioridad. Si el script se ejecuta fuera del proyecto y no encuentra
+#   el paquete Config, se continúa con CONFIG_LOCAL / variables de entorno.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+try:
+    from Config import Global
+except Exception:
+    Global = None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  0)  UTILIDAD DE REGISTRO EN TERMINAL
@@ -125,17 +138,58 @@ log = Consola
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  1)  CONFIGURACIÓN GLOBAL
-#      Se respetan las variables Global.* del entorno de ejecución. Si el objeto
-#      "Global" no existe (ejecución autónoma), se leen de variables de entorno.
+#
+#  Cada valor se resuelve con esta PRIORIDAD:
+#      1) atributo del objeto Global  (si tu plataforma NEXUS lo provee),
+#      2) variable de entorno del sistema operativo,
+#      3) bloque CONFIG_LOCAL de aquí abajo  (edición manual),
+#      4) valor por defecto.
+#
+#  ►► SI EJECUTAS EL SCRIPT DE FORMA AUTÓNOMA (sin el objeto Global y sin variables
+#     de entorno), RELLENA CONFIG_LOCAL. Es lo único que necesitas tocar para correrlo.
 # ═══════════════════════════════════════════════════════════════════════════════
+CONFIG_LOCAL = {
+    # --- Base de datos MySQL -------------------------------------------------
+    "DB_HOST":     "",            # p. ej. "localhost"
+    "DB_USER":     "",            # p. ej. "root"
+    "DB_PASSWORD": "",            # contraseña de la base de datos
+    "DATABASE":    "gestorex",    # nombre de la base de datos
+
+    # --- Google Cloud / Vertex AI --------------------------------------------
+    # Ruta ABSOLUTA al archivo .json de la cuenta de servicio de Google Cloud.
+    # En Windows, antepón una "r" y usa la ruta tal cual (con barras invertidas),
+    # por ejemplo:
+    #     r"C:\Users\donom\Documents\Proyecto NEXUS\credenciales.json"
+    "GEMINI_CREDENTIALS": r"",
+    "BUCKET_NAME":        "",     # nombre EXACTO del bucket de Google Cloud Storage
+
+    # --- Regiones de Vertex AI (opcional; cámbialas si tu proyecto usa otras) -
+    "VERTEX_LOCATION_GEMINI": "us-central1",
+    "VERTEX_REGION_CLAUDE":   "us-east5",
+}
+
+
 def _g(nombre: str, defecto: str = "") -> str:
-    """Lee un valor desde el objeto Global del host o desde os.environ."""
+    """Obtiene un valor de configuración respetando la prioridad descrita arriba:
+    Global.*  →  variable de entorno  →  CONFIG_LOCAL  →  valor por defecto.
+    Un valor vacío en una fuente NO bloquea: se pasa a la siguiente."""
+    # 1) Objeto Global de la plataforma (si está definido y tiene el atributo).
     try:
-        return getattr(Global, nombre)            # type: ignore  # provisto por la plataforma
-    except NameError:
-        return os.environ.get(nombre, defecto)
-    except AttributeError:
-        return os.environ.get(nombre, defecto)
+        valor = getattr(Global, nombre)           # type: ignore  # provisto por la plataforma
+        if valor:
+            return valor
+    except (NameError, AttributeError):
+        pass
+    # 2) Variable de entorno del sistema.
+    valor = os.environ.get(nombre)
+    if valor:
+        return valor
+    # 3) Bloque CONFIG_LOCAL editable.
+    valor = CONFIG_LOCAL.get(nombre)
+    if valor:
+        return valor
+    # 4) Valor por defecto.
+    return defecto
 
 
 # --- Conexión a la base de datos MySQL --------------------------------------------------
@@ -148,7 +202,11 @@ MYSQL_CONFIG = {
 }
 
 # --- Google Cloud / Vertex AI -----------------------------------------------------------
-GEMINI_CREDENTIALS_PATH = _g("GEMINI_CREDENTIALS")          # ruta al service-account .json
+# En el Config del proyecto, la ruta de credenciales se expone como RENDER_CRENDENTIALS_JSON
+# (mismo nombre de atributo que usan los demás scripts; se respeta su grafía exacta). Si no
+# hay objeto Config disponible, se recurre a la variable de entorno / CONFIG_LOCAL bajo la
+# clave GEMINI_CREDENTIALS.
+GEMINI_CREDENTIALS_PATH = getattr(Global, "RENDER_CRENDENTIALS_JSON", "") or _g("GEMINI_CREDENTIALS")
 BUCKET_NAME             = _g("BUCKET_NAME")
 
 # Carpetas del bucket (nombres EXACTOS, con tildes y espacios incluidos):
@@ -930,10 +988,56 @@ class GeneradorProforma:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  VALIDACIÓN DE CONFIGURACIÓN
+#  Comprueba que estén los datos mínimos y muestra un mensaje claro (en vez de un
+#  error críptico de las librerías) si falta algo. Evita, por ejemplo, que la
+#  librería de Google intente abrir una ruta de credenciales vacía ("").
+# ═══════════════════════════════════════════════════════════════════════════════
+def validar_configuracion() -> None:
+    problemas = []
+
+    # Credenciales de Google Cloud / Vertex AI (archivo .json de cuenta de servicio).
+    if not GEMINI_CREDENTIALS_PATH:
+        problemas.append(
+            "Falta la ruta de las credenciales (GEMINI_CREDENTIALS): no se indicó "
+            "ningún archivo .json de cuenta de servicio de Google Cloud."
+        )
+    elif not Path(GEMINI_CREDENTIALS_PATH).is_file():
+        problemas.append(
+            f"No se encontró el archivo de credenciales en la ruta indicada: "
+            f"«{GEMINI_CREDENTIALS_PATH}». Revisa que la ruta sea correcta y que el "
+            f".json exista."
+        )
+
+    # Nombre del bucket.
+    if not BUCKET_NAME:
+        problemas.append("Falta el nombre del bucket de Google Cloud (BUCKET_NAME).")
+
+    # Datos mínimos de la base de datos.
+    if not MYSQL_CONFIG.get("host"):
+        problemas.append("Falta el host de la base de datos (DB_HOST).")
+    if not MYSQL_CONFIG.get("user"):
+        problemas.append("Falta el usuario de la base de datos (DB_USER).")
+
+    if problemas:
+        log.error("No se puede iniciar: la configuración está incompleta.")
+        for p in problemas:
+            log.error(f"   - {p}")
+        log.info("Soluciónalo de UNA de estas formas:")
+        log.info("   1) Rellena el bloque CONFIG_LOCAL al inicio de este script, o")
+        log.info("   2) define esas variables de entorno en el sistema, o")
+        log.info("   3) provéelas mediante el objeto Global de tu plataforma.")
+        sys.exit(1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ORQUESTADOR PRINCIPAL  (encadena las 9 etapas)
 # ═══════════════════════════════════════════════════════════════════════════════
 def main() -> None:
     log.etapa("INICIO DEL PROCESO DE GENERACIÓN DE FICHAS Y PROFORMAS")
+
+    # Validación de configuración (credenciales, bucket, base de datos).
+    validar_configuracion()
 
     # Validación rápida de plantillas.
     for plantilla in (TEMPLATE_DOCX, TEMPLATE_XLSX):
