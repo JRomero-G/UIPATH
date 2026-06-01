@@ -38,6 +38,13 @@ NOTAS DE INGENIERÍA IMPORTANTES (verificadas contra las plantillas reales):
     la etiqueta "CODIGO NECESIDAD DE CONTRATACION:". El valor real corresponde
     a la celda combinada contigua D12:E12, por lo que se escribe en D12.
   • NO se tocan las fórmulas ni celdas que el requerimiento no menciona.
+  • Plantilla actualizada y RE-VERIFICADA: el encabezado de la tabla de ítems está en
+    la fila 14 (Ítem/CPC/Producto/U·M/Cantidad/Costo unitario/Costo total). El PRIMER
+    producto se mantiene en Cotización!16 ↔ Costos!15 (mismo desfase de siempre, según
+    las fórmulas internas). La plantilla incluye una fila de muestra (fila 15 de
+    «Cotización », con un CPC de ejemplo) que se deja intacta a propósito, por lo que los
+    productos se escriben a partir de la fila 16. Subtotales/IVA/total y los enlaces entre
+    hojas se recalculan sin errores con estos datos.
   • Carpetas del bucket (nombres exactos): los documentos de contratación se LEEN de
     "Documentos de Contratación/<código de necesidad>/"; las fichas se SUBEN a
     "Fichas Técnicas" y las proformas a "Proformas".
