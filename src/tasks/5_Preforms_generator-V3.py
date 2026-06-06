@@ -8,7 +8,7 @@
 Automatización de procesos de contratación para IMPOCRUZ EC S.A.S.
 
 Flujo general (resumen de las 9 etapas del requerimiento):
-  1) Lee de MySQL (gestorex.ínfimas) las líneas con etapa = "en generacion".
+  1) Lee de MySQL (gestorex.infimas) las líneas con etapa = "en generacion".
   2) Entra al bucket de Google Cloud → carpeta "Documentos de Contratación"
      → subcarpeta por cada "codigo_necesidad" y descarga doc/docx/pdf.
   3) Pide a Gemini (Vertex AI) que analice esos documentos y extraiga los
@@ -160,7 +160,7 @@ CONFIG_LOCAL = {
     # En Windows, antepón una "r" y usa la ruta tal cual (con barras invertidas),
     # por ejemplo:
     #     r"C:\Users\donom\Documents\Proyecto NEXUS\credenciales.json"
-    "GEMINI_CREDENTIALS": r"",
+    "GEMINI_CREDENTIALS": r"C:\Users\donom\Documents\Proyecto NEXUS\Repositorio github\UIPATH\src\Credentials\Clave_bucket_AIgemini.json",
     "BUCKET_NAME":        "",     # nombre EXACTO del bucket de Google Cloud Storage
 
     # --- Regiones de Vertex AI (opcional; cámbialas si tu proyecto usa otras) -
@@ -206,7 +206,7 @@ MYSQL_CONFIG = {
 # (mismo nombre de atributo que usan los demás scripts; se respeta su grafía exacta). Si no
 # hay objeto Config disponible, se recurre a la variable de entorno / CONFIG_LOCAL bajo la
 # clave GEMINI_CREDENTIALS.
-GEMINI_CREDENTIALS_PATH = getattr(Global, "RENDER_CRENDENTIALS_JSON", "") or _g("GEMINI_CREDENTIALS")
+GEMINI_CREDENTIALS_PATH = _g("GEMINI_CREDENTIALS")
 BUCKET_NAME             = _g("BUCKET_NAME")
 
 # Carpetas del bucket (nombres EXACTOS, con tildes y espacios incluidos):
@@ -338,7 +338,7 @@ class Articulo:
 
 @dataclass
 class Necesidad:
-    """Una línea de la tabla 'ínfimas' en etapa 'en generacion'."""
+    """Una línea de la tabla 'infimas' en etapa 'en generacion'."""
     id: str
     codigo: str
     entidad: str
@@ -354,7 +354,7 @@ class Necesidad:
 #  2)  ACCESO A LA BASE DE DATOS  (etapa 1 y etapa 9)
 # ═══════════════════════════════════════════════════════════════════════════════
 class BaseDatos:
-    """Encapsula la lectura de 'ínfimas' y la actualización de la etapa."""
+    """Encapsula la lectura de 'infimas' y la actualización de la etapa."""
 
     def __init__(self, config: dict):
         self.config = config
@@ -364,17 +364,17 @@ class BaseDatos:
 
     def obtener_necesidades(self) -> List[Necesidad]:
         """Etapa 1: toma las líneas 'en generacion' y las guarda en data_table_1."""
-        log.info("Conectando a MySQL y consultando la tabla `ínfimas`…")
+        log.info("Conectando a MySQL y consultando la tabla `infimas`…")
         # NOTA: se usan backticks porque hay identificadores con acentos/espacios/símbolos.
         #       Ajuste el nombre real de la columna de ID si difiere de `# de ID`.
         sql = (
-            "SELECT `# de ID`            AS id, "
+            "SELECT `id_infima`            AS id, "
             "       `codigo_necesidad`   AS codigo, "
             "       `entidad_contratante` AS entidad, "
             "       `entidad_contratante_url` AS entidad_url, "
-            "       `dirección_entrega`  AS direccion, "
+            "       `direccion_entrega`  AS direccion, "
             "       `contacto`           AS contacto "
-            "FROM `ínfimas` "
+            "FROM `infimas` "
             "WHERE `etapa` = %s"
         )
         cnx = self._conectar()
@@ -402,7 +402,7 @@ class BaseDatos:
 
     def finalizar(self, codigo: str) -> None:
         """Etapas 3c y 9: cambia la etapa de la línea a 'finalizada'."""
-        sql = "UPDATE `ínfimas` SET `etapa` = %s WHERE `codigo_necesidad` = %s"
+        sql = "UPDATE `infimas` SET `etapa` = %s WHERE `codigo_necesidad` = %s"
         cnx = self._conectar()
         try:
             cur = cnx.cursor()
