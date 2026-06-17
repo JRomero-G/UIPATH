@@ -473,11 +473,20 @@ def eliminar_fila_infima(codigo_necesidad):
     Elimina completamente la fila de la tabla infimas cuyo
     codigo_necesidad coincide con el valor indicado.
 
+    Primero elimina los registros hijo en 'evaluaciones' para evitar
+    el error de clave foránea (evaluaciones_ibfk_1).
+
     Retorna True si la operación fue exitosa, False en caso contrario.
     """
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
+        # 1. Eliminar registros dependientes en evaluaciones
+        cursor.execute(
+            "DELETE FROM evaluaciones WHERE codigo_necesidad = %s",
+            (codigo_necesidad,),
+        )
+        # 2. Eliminar la fila padre en infimas
         cursor.execute(
             "DELETE FROM infimas WHERE codigo_necesidad = %s",
             (codigo_necesidad,),
