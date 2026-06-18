@@ -36,7 +36,7 @@ MYSQL_CONFIG = {
     "connection_timeout": 20,
 }
 
-GEMINI_CREDENTIALS_PATH = Global.GEMINI_CREDENTIALS
+GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
 BUCKET_NAME             = Global.BUCKET_NAME
 BUCKET_FOLDER           = "Documentos de Contratación"
 CARPETA_FICHAS          = "Fichas Técnicas"
