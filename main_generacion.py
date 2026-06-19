@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════
 SCRIPTS = [
-    "src/tasks/5_Preforms_generator-V4.py"
+    "src/tasks/5_Preforms_generator-V3.py"
 ]
 
 
