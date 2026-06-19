@@ -21,7 +21,8 @@ from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+RAIZ_PROYECTO = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(RAIZ_PROYECTO))
 from Config import Global
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -36,7 +37,6 @@ MYSQL_CONFIG = {
     "connection_timeout": 20,
 }
 
-GEMINI_CREDENTIALS_PATH = Global.GEMINI_CREDENTIALS
 BUCKET_NAME             = Global.BUCKET_NAME
 BUCKET_FOLDER           = "Documentos de Contratación"
 CARPETA_FICHAS          = "Fichas Técnicas"
@@ -131,21 +131,68 @@ def _get_session():
     session.headers.update(DEFAULT_HEADERS)
     return session
 
+# Variables de Config.Global que pueden contener las credenciales de servicio de GCP,
+# en orden de preferencia. El valor puede ser el JSON de la cuenta de servicio en
+# TEXTO PLANO (portátil: sirve también en la nube) o una RUTA a un archivo .json.
+_VARS_CREDENCIALES = ("GEMINI_CREDENTIALS", "RENDER_CRENDENTIALS_JSON", "CREDENTIALS_GEMINI")
+
+def _candidatas_credenciales():
+    """Valores de credenciales definidos en Config.Global (sin vacíos), en orden."""
+    vals = []
+    for n in _VARS_CREDENCIALES:
+        v = getattr(Global, n, None)
+        if v is not None and str(v).strip():
+            vals.append((n, str(v).strip()))
+    return vals
+
+def _localizar_archivo_credenciales(raw):
+    """Resuelve una ruta de credenciales probando: tal cual, relativa al directorio de
+       trabajo y relativa a la raíz del proyecto (carpeta de Config.py). Normaliza los
+       separadores '\\' y '/'. Devuelve la ruta existente o None."""
+    p = Path(raw.replace("\\", os.sep).replace("/", os.sep))
+    candidatos = [p]
+    if not p.is_absolute():
+        candidatos.append(Path.cwd() / p)
+        candidatos.append(RAIZ_PROYECTO / p)
+    for c in candidatos:
+        try:
+            if c.is_file():
+                return str(c.resolve())
+        except Exception:
+            continue
+    return None
+
 def resolver_credenciales_a_archivo():
-    """GEMINI_CREDENTIALS puede ser una ruta a un JSON o el JSON en texto plano."""
-    raw = GEMINI_CREDENTIALS_PATH
-    if raw is None:
-        raise ValueError("GEMINI_CREDENTIALS_PATH no definida.")
-    stripped = raw.strip()
-    if stripped.startswith("{"):
-        creds_dict = json.loads(stripped)
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
-        json.dump(creds_dict, tmp)
-        tmp.close()
-        log("Credenciales resueltas desde variable de entorno.")
-        return tmp.name
-    log(f"Credenciales resueltas desde archivo: {stripped}")
-    return stripped
+    """Resuelve las credenciales de servicio de GCP a una RUTA de archivo .json.
+       Acepta el JSON en texto plano (cualquiera de las variables soportadas) o una
+       ruta a un archivo .json. Devuelve la ruta del archivo de credenciales."""
+    candidatas = _candidatas_credenciales()
+    if not candidatas:
+        raise ValueError(
+            "No hay credenciales de GCP definidas. Define en el .env (o como variable de "
+            "entorno en la nube) una de estas: RENDER_CRENDENTIALS_JSON, CREDENCIALES_GEMINI "
+            "o GEMINI_CREDENTIALS (JSON de la cuenta de servicio en texto o ruta a un .json)."
+        )
+    ultimo = None
+    for nombre, raw in candidatas:
+        if raw.startswith("{"):                          # (a) JSON en texto plano
+            try:
+                creds_dict = json.loads(raw)
+            except json.JSONDecodeError as e:
+                ultimo = f"{nombre}: JSON inválido ({e})"
+                continue
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
+                                              delete=False, encoding="utf-8")
+            json.dump(creds_dict, tmp)
+            tmp.close()
+            log(f"Credenciales resueltas desde variable de entorno ({nombre}).")
+            return tmp.name
+        ruta = _localizar_archivo_credenciales(raw)      # (b) ruta a un archivo .json
+        if ruta:
+            log(f"Credenciales resueltas desde archivo ({nombre}): {ruta}")
+            return ruta
+        ultimo = f"{nombre}: no se encontró el archivo '{raw}'"
+    raise ValueError(f"No se pudieron resolver las credenciales de GCP. Último problema: {ultimo}.")
 
 def _parsear_json_de_respuesta(raw):
     """Extrae el primer objeto/array JSON válido de la respuesta del modelo."""
