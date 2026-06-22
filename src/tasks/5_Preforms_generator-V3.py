@@ -364,7 +364,7 @@ def obtener_data_table_1():
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT id_infima, codigo_necesidad, entidad_contratante, entidad_contratante_url,
-               direccion_entrega, contacto
+               direccion_entrega, contacto, CPC, PACdoc, PACweb
         FROM   infimas
         WHERE  LOWER(etapa) = 'en generacion'
     """)
@@ -882,6 +882,8 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown):
   "especificaciones_tecnicas": ["al menos 10 especificaciones técnicas"],
   "especificaciones_electricas": ["especificaciones eléctricas o []"],
   "incluye": ["accesorios/extras incluidos o []"],
+  "garantia_meses": 12,
+  "garantia_texto": "12 meses",
   "imagen_url": "https://enlace-real-de-la-imagen",
   "imagenes_adicionales": ["otras imágenes reales del MISMO producto"],
   "alternativas": ["url-2da-mejor-opcion", "url-3ra", "url-4ta"]
@@ -892,6 +894,11 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown):
   Guayaquil suele ser de 86 a 155 USD.
 - "costo_instalacion_unitario_usd": mano de obra por unidad si el artículo requiere instalación
   (entre 60 y 80 USD); 0 si no requiere.
+- "garantia_meses": garantía técnica del producto según el PROVEEDOR o el FABRICANTE, expresada
+  SIEMPRE en MESES (1 año = 12 meses, 2 años = 24 meses, etc.). Si la página no la indica de forma
+  explícita, usa la garantía estándar del fabricante para ese tipo de producto; usa 0 SOLO si no
+  es posible determinarla.
+- "garantia_texto": la misma garantía en formato legible (p. ej. "12 meses" o "2 años").
 - "alternativas": hasta 3 URLs reales de las siguientes mejores opciones, en orden decreciente
   de conveniencia. [] si no hay.
 - Si NO encuentras ningún producto adecuado, devuelve {{"encontrado": false}}.
@@ -1015,6 +1022,8 @@ def buscar_articulo(client, info, direccion, n_articulos, descargar_imagenes=Tru
         "especificaciones_tecnicas": _lista("especificaciones_tecnicas", "especificaciones_tecnicas"),
         "especificaciones_electricas": _lista("especificaciones_electricas", "especificaciones_electricas"),
         "incluye": _lista("incluye", "incluye"),
+        "garantia_meses": max(0, int(round(_num(res.get("garantia_meses", 0), 0)))),
+        "garantia_texto": (res.get("garantia_texto") or "").strip(),
         "alternativas": [u for u in (res.get("alternativas") or []) if u][:3],
         "imagen_local": None,
         "imagen_url": "",
@@ -1069,6 +1078,7 @@ def buscar_todos_los_articulos(client, articulos, direccion, descargar_imagenes=
                 "especificaciones_tecnicas": info.get("especificaciones_tecnicas", []),
                 "especificaciones_electricas": info.get("especificaciones_electricas", []),
                 "incluye": info.get("incluye", []),
+                "garantia_meses": 0, "garantia_texto": "",
                 "alternativas": [], "url_producto": "",
                 "imagen_local": None, "imagen_url": "", "imagenes_adicionales_local": [],
             })
@@ -1414,6 +1424,34 @@ def _inyectar_boton_pdf(ruta_xlsm, plantilla_xlsm):
         return False
 
 
+def _formatear_garantia(meses) -> str:
+    """Convierte un número de MESES en texto de garantía ('12 MESES', '1 AÑO',
+       '2 AÑOS'…). Devuelve '' si la garantía no es válida (<= 0)."""
+    try:
+        m = int(round(_num(meses, 0)))
+    except Exception:
+        m = 0
+    if m <= 0:
+        return ""
+    if m % 12 == 0:
+        a = m // 12
+        return f"{a} AÑO" if a == 1 else f"{a} AÑOS"
+    return f"{m} MES" if m == 1 else f"{m} MESES"
+
+
+def _garantia_para_proforma(resultados) -> str:
+    """Garantía técnica ÚNICA para la celda I12. La hoja tiene un solo campo de
+       garantía, pero puede haber varios artículos: se usa la MENOR garantía (en
+       meses) entre los productos con garantía válida — la cobertura mínima común a
+       TODOS los artículos. Devuelve '' si ningún producto reporta garantía."""
+    meses = []
+    for r in (resultados or []):
+        m = int(round(_num(r.get("garantia_meses", 0), 0)))
+        if m > 0:
+            meses.append(m)
+    return _formatear_garantia(min(meses)) if meses else ""
+
+
 def generar_proforma(registro, resultados, directorio, id_infima):
     """Genera la proforma .xlsm modificando ÚNICAMENTE las celdas indicadas por la
        especificación, respetando la estructura de la plantilla (sin insertar/borrar
@@ -1427,13 +1465,21 @@ def generar_proforma(registro, resultados, directorio, id_infima):
     ent_url   = registro.get("entidad_contratante_url") or ""
     direccion = registro.get("direccion_entrega") or ""
     contacto  = _formatear_contacto(registro.get("contacto") or "")
+    # Datos de la ínfima (tabla 'infimas') para la proforma:
+    #   • CPC    → hoja "Cotización", col. B en cada línea de artículo (B16:B25)
+    #   • PACdoc → hoja "Costos", celda G8 (se omite si es 0)
+    #   • PACweb → hoja "Costos", celda H8 (se omite si es 0)
+    _cpc_raw = registro.get("CPC")
+    cpc      = _cpc_raw if (_cpc_raw is not None and str(_cpc_raw).strip() != "") else None
+    pacdoc   = _num(registro.get("PACdoc"), 0.0)
+    pacweb   = _num(registro.get("PACweb"), 0.0)
 
     nombre_archivo = _sanitizar_nombre_archivo(f"{codigo}_Proforma_{id_infima}.xlsm")
     ruta = os.path.join(directorio, nombre_archivo)
     shutil.copy(str(TEMPLATE_XLSX), ruta)
 
     wb = load_workbook(ruta, keep_vba=True)
-    ws_cot    = wb["Cotización "]    # ← nombre con espacio final (NO renombrar)
+    ws_cot    = wb["Cotización"]     # ← nombre EXACTO de la hoja (sin espacio final)
     ws_costos = wb["Costos"]
 
     def escribir_celda(ws, ref, valor):
@@ -1448,7 +1494,7 @@ def generar_proforma(registro, resultados, directorio, id_infima):
 
     n = len(resultados)
 
-    # ── HOJA "Cotización " ──────────────────────────────────────────────
+    # ── HOJA "Cotización" ───────────────────────────────────────────────
     log("  Llenando hoja de Cotización…")
     escribir_celda(ws_cot, "B8",  entidad)
     escribir_celda(ws_cot, "B9",  str(codigo)[4:17])      # caracteres 5-17 del código
@@ -1457,6 +1503,9 @@ def generar_proforma(registro, resultados, directorio, id_infima):
     escribir_celda(ws_cot, "D12", codigo)                 # celda de VALOR de la fila 12
     escribir_celda(ws_cot, "I3",  _numero_proforma(id_infima))
     escribir_celda(ws_cot, "I8",  datetime.date.today().strftime("%d/%m/%Y"))
+    garantia_txt = _garantia_para_proforma(resultados)        # garantía técnica → I12
+    if garantia_txt:
+        escribir_celda(ws_cot, "I12", garantia_txt)
 
     FILA_COT_INI = 16
     # Filas activas (16 .. 15+n)
@@ -1466,6 +1515,8 @@ def generar_proforma(registro, resultados, directorio, id_infima):
         nombre_full = " ".join([x for x in [r.get("nombre", ""), r.get("marca", ""),
                                             r.get("modelo", "")] if x]).strip()
         escribir_celda(ws_cot, f"C{fila}", nombre_full)
+        if cpc is not None:
+            escribir_celda(ws_cot, f"B{fila}", cpc)           # CPC (mismo para todos los artículos)
         escribir_celda(ws_cot, f"G{fila}", r.get("cantidad", 1))
         img_path = r.get("imagen_local")
         if img_path and os.path.exists(img_path):
@@ -1484,6 +1535,7 @@ def generar_proforma(registro, resultados, directorio, id_infima):
     # Filas de producto sobrantes (16+n .. 25): dejar en blanco
     for fila in range(FILA_COT_INI + n, 26):
         ws_cot[f"A{fila}"].value = None      # número de ítem (fórmula)
+        escribir_celda(ws_cot, f"B{fila}", None)   # CPC sobrante
         escribir_celda(ws_cot, f"C{fila}", None)
         ws_cot[f"F{fila}"].value = None      # 'U'
         escribir_celda(ws_cot, f"G{fila}", None)
@@ -1498,6 +1550,11 @@ def generar_proforma(registro, resultados, directorio, id_infima):
     # ── HOJA "Costos" ───────────────────────────────────────────────────
     log("  Llenando hoja de Costos…")
     escribir_celda(ws_costos, "C7", ent_url)
+    # PAC referencial del proceso (se omite la celda si el valor es 0):
+    if pacdoc > 0:
+        escribir_celda(ws_costos, "G8", round(pacdoc, 2))     # PACdoc
+    if pacweb > 0:
+        escribir_celda(ws_costos, "H8", round(pacweb, 2))     # PACweb
 
     # Clasificación del costo extra por proveedor:
     #   • COMPARTIDO (2+ artículos): costo extra → columna A; en G se escribe una fórmula
