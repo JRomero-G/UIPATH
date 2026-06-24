@@ -773,26 +773,27 @@ class WorkspaceUserUI(BaseWindow):
             payload = datos["id_infima"]
             
             try:
-                resp = requests.delete(
-                    f"{Global.BACKEND_URL}/infimas/eliminar-infimas/{payload}",
+                resp = requests.patch(
+                    f"{Global.BACKEND_URL}/infimas/no-seleccionada/{payload}",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=20,
                 )
                 
-                if resp.status_code == 200 and resp.json().get("success"):
+                if resp.status_code == 200:
                     exitosas += 1
-                    print(f" Ínfima {payload} eliminada")
+                    print(f" Ínfima {payload} marcada como no seleccionada")
+                    
                 else:
                     errores += 1
                     try:
-                        error_msg = resp.json().get("detail", "Error desconocido")
+                        error_msg = resp.json().get("detail", resp.text)
                     except:
                         error_msg = resp.text
-                    print(f" Error al eliminar ínfima {payload}: {error_msg}")
-            
+                    print(f" Error al <<marcar infimas como no seleccionada>>  {payload}: {error_msg}")
+                
             except requests.RequestException as e:
                 errores += 1
-                print(f" Error conexión al eliminar ínfima {payload}: {e}")
+                print(f" Error de conexión al <<marcar infimas como no seleccionada>>  {payload}: {e}")
         
         return exitosas, errores
 
@@ -847,7 +848,7 @@ class WorkspaceUserUI(BaseWindow):
             
             except requests.RequestException as e:
                 errores += 1
-                print(f" Error conexión al analizar ínfima {id_infima}: {e}")
+                print(f" Error de conexión al analizar ínfima {id_infima}: {e}")
         
         return exitosas, errores
 
