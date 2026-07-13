@@ -161,7 +161,7 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         db.query(Infima)
         .join(RecomendacionesUsuario)
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
-        ,Infima.etapa != "en generacion", Infima.etapa != "enviada", Infima.etapa != "finalizada")
+        ,Infima.etapa != "en generacion",Infima.etapa != "no seleccionada", Infima.etapa != "enviada", Infima.etapa != "finalizada")
         .order_by(Infima.nivel_de_oportunidad.asc()) # Ordenadas ahora por nivel de oportunidad
         #.limit(20)
         .all()
@@ -174,9 +174,9 @@ def obtener_infimas_recomendadas_asignadas_del_usuario2(db: Session,usuario_id: 
         db.query(Infima)
         .join(RecomendacionesUsuario)
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
-        ,Infima.etapa != "en generacion", Infima.etapa != "enviada", Infima.etapa != "finalizada")
+        ,Infima.etapa != "en generacion",Infima.etapa != "no seleccionada", Infima.etapa != "enviada", Infima.etapa != "finalizada")
         .order_by(Infima.fecha_publicacion.desc())
-        .limit(20)
+        #.limit(20)
         .all()
     )
 
