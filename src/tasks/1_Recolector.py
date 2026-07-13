@@ -279,8 +279,24 @@ def save_to_db(data):
         )
         cur = conn.cursor()
 
+        # Códigos de necesidad (NIC) ya registrados en la BD, para filtrar duplicados.
+        cur.execute("SELECT codigo_necesidad FROM infimas")
+        codigos_existentes = {row[0] for row in cur.fetchall() if row[0] is not None}
+        print(f"Códigos de necesidad ya registrados en BD: {len(codigos_existentes)}")
+
         inserted = 0
+        omitidos = 0
         for registro in data:
+            # NIC tal como se guarda en la columna codigo_necesidad (texto visible),
+            # no la URL: si la celda trae enlace el NIC está en 'codigo_texto', y si
+            # no trae enlace queda en 'codigo_necesidad'.
+            nic = registro.get("codigo_texto") or registro.get("codigo_necesidad")
+
+            # Solo subir los que NO están en la BD (ni se hayan insertado en este lote).
+            if nic in codigos_existentes:
+                omitidos += 1
+                continue
+
             params = (
                 registro.get("tipo_necesidad", None),
                 registro.get("codigo_necesidad") or registro.get("codigo_texto", None),
@@ -298,13 +314,17 @@ def save_to_db(data):
             try:
                 cur.callproc("upsert_infimas", params)
                 inserted += 1
+                codigos_existentes.add(nic)  # evita duplicados dentro del mismo lote
             except mysql.connector.Error as err:
                 print(
-                    f"Error en upsert_infimas para {registro.get('codigo_necesidad', 'N/A')}: {err}"
+                    f"Error en upsert_infimas para {nic or 'N/A'}: {err}"
                 )
 
         conn.commit()
-        print(f"Guardados/actualizados {inserted} registros vía procedimiento.")
+        print(
+            f"Registros nuevos insertados: {inserted}. "
+            f"Omitidos por ya existir en BD: {omitidos}."
+        )
 
     except Exception as e:
         print(f"Error en BD: {e}")
