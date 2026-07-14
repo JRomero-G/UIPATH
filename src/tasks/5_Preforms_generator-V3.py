@@ -1,93 +1,63 @@
-# -*- coding: utf-8 -*-
-"""
-═══════════════════════════════════════════════════════════════════════════════
- 5_Preforms_generator.py  ·  Proyecto NEXUS  ·  IMPOCRUZ EC S.A.S.
-═══════════════════════════════════════════════════════════════════════════════
- Generador de Fichas Técnicas (.docx) y Proformas (.xlsm) a partir de los
- Documentos de Contratación (ínfimas cuantías) usando Gemini 3.1 Pro Preview
- en Vertex AI (fallback: Gemini 2.5 Pro).
-
- FLUJO GENERAL (una "fase" por cada paso numerado del funcionamiento):
-   FASE 1  Lee de MySQL (gestorex.infimas) las filas con etapa='en generacion'
-           y guarda las columnas requeridas en data_table_1.
-   FASE 2  Lista en el bucket GCS la carpeta "Documentos de Contratación/<código>"
-           y descarga los documentos (doc, docx, pdf).
-   FASE 3  Pide a Gemini (3.1 pro preview → fallback 2.5 pro) el análisis de los
-           documentos + búsqueda web en la lista de proveedores de confianza.
-   FASE 4  Verifica/repara URLs y descarga + valida la imagen del producto.
-   FASE 5  Genera la Ficha Técnica .docx (plantilla corporativa) y la sube a
-           la carpeta "Fichas Técnicas" del bucket.
-   FASE 6  Genera la Proforma .xlsm (plantilla corporativa, conserva el botón
-           "Imprimir PDF") y la sube a la carpeta "Proformas" del bucket.
-   FASE 7  Cambia la etapa de la ínfima a 'finalizada' en la base de datos.
-
- REGLA DEL LÍMITE: si un código de necesidad tiene MÁS de 10 artículos
- distintos, la ficha contiene únicamente el mensaje en rojo (Arial bold 14),
- NO se crea proforma y la etapa pasa directamente a 'finalizada'.
-
- MODO PRUEBA LOCAL (sin nube):
-   python 5_Preforms_generator.py --test-local RUTA.pdf [--mock-json datos.json]
-                                  [--salida DIR]
-   · Usa un documento de contratación local, un registro simulado y (si no hay
-     credenciales de Vertex) un análisis simulado, para probar de punta a punta
-     la generación de ficha y proforma sin tocar MySQL ni GCS.
-
- Requisitos (producción):
-   pip install mysql-connector-python google-cloud-storage google-genai
-   pip install python-docx openpyxl requests pillow ddgs
-═══════════════════════════════════════════════════════════════════════════════
-"""
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Proyecto NEXUS — 5_Preforms_generator (V3)
+#  Genera, por cada código de necesidad "en generacion":
+#     • una Ficha Técnica .docx  → carpeta GCS "Fichas Técnicas"
+#     • una Proforma   .xlsm     → carpeta GCS "Proformas"
+#  y marca la ínfima como "finalizada".
+#
+#  Cambios clave de esta versión (ver notas al pie del script):
+#   - Migrado al SDK google-genai (Vertex AI) con Gemini 3.1 Pro (tareas complejas
+#     y búsqueda con grounding) y Gemini 2.5 Pro como fallback.
+#   - Búsqueda de productos con Google Search grounding (links reales) en vez del
+#     scraping/scoring manual; DuckDuckGo se conserva solo como respaldo de imágenes.
+#   - Ficha y proforma reescritas según la especificación y la estructura EXACTA
+#     de las plantillas (orden de secciones, celdas, alturas, alternativas, etc.).
+# ═══════════════════════════════════════════════════════════════════════════════
 
 import os, sys, json, shutil, tempfile, datetime, re, io, time, traceback
-import urllib.parse, html, argparse, zipfile, copy
-from typing import Dict, List, Optional, Tuple, Any
+import urllib.parse, html
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
-
-import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# ── Ruta raíz del proyecto (el script vive 3 niveles bajo la raíz) ────────────
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RAIZ_PROYECTO))
-try:
-    from Config import Global                     # configuración centralizada
-    _HAY_CONFIG = True
-except Exception:                                 # en modo prueba local puede no existir
-    Global = None
-    _HAY_CONFIG = False
+from Config import Global
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MYSQL_CONFIG = {
-    "host":     getattr(Global, "DB_HOST", None),
-    "user":     getattr(Global, "DB_USER", None),
-    "password": getattr(Global, "DB_PASSWORD", None),
-    "database": getattr(Global, "DATABASE", None),   # "gestorex"
+    "host":     Global.DB_HOST,
+    "user":     Global.DB_USER,
+    "password": Global.DB_PASSWORD,
+    "database": Global.DATABASE,
     "connection_timeout": 20,
-} if _HAY_CONFIG else {}
+}
 
-BUCKET_NAME       = getattr(Global, "BUCKET_NAME", None) if _HAY_CONFIG else None
-BUCKET_FOLDER     = "Documentos de Contratación"     # carpeta de entrada en GCS
-CARPETA_FICHAS    = "Fichas Técnicas"                # carpeta de salida (docx)
-CARPETA_PROFORMAS = "Proformas"                      # carpeta de salida (xlsm)
+BUCKET_NAME             = Global.BUCKET_NAME
+BUCKET_FOLDER           = "Documentos de Contratación"
+CARPETA_FICHAS          = "Fichas Técnicas"
+CARPETA_PROFORMAS       = "Proformas"
 
-# ── Modelos Vertex AI ─────────────────────────────────────────────────────────
-MODEL_COMPLEX   = "gemini-3.1-pro-preview"   # tareas complejas + grounding web
-MODEL_SIMPLE    = "gemini-2.5-pro"           # fallback ante cuota/errores
-VERTEX_LOCATION = "global"                   # endpoint global (Gemini 3.x)
+# --- Modelos / Vertex ---
+MODEL_COMPLEX   = "gemini-3.1-pro-preview"   # tareas complejas + grounding
+MODEL_SIMPLE    = "gemini-2.5-pro"           # tareas simples / fallback
+VERTEX_LOCATION = "global"                    # endpoint global (Gemini 3.x)
 
-# ── Reglas de negocio ─────────────────────────────────────────────────────────
-LIMITE_ARTICULOS       = 10                  # > 10 artículos ⇒ sin proforma
-ENVIO_MIN, ENVIO_MAX   = 86.0, 155.0         # USD, entregas fuera de Guayaquil
-INSTAL_MIN, INSTAL_MAX = 60.0, 80.0          # USD por artículo con instalación
-ALTURA_FILA_ARTICULO   = 220.0               # altura recomendada por artículo
+# --- Reglas de negocio ---
+LIMITE_ARTICULOS   = 10        # > 10 artículos distintos ⇒ no se genera proforma
+ENVIO_MIN, ENVIO_MAX       = 86.0, 155.0   # USD, entregas fuera de Guayaquil
+INSTAL_MIN, INSTAL_MAX     = 60.0, 80.0    # USD por artículo, si requiere instalación
 
-MENSAJE_LIMITE = "La cantidad de artículos supera el límite permitido de 10 artículos de compra"
+# Un proveedor se considera "compartido" cuando surte a este número de artículos o más.
+# (La instrucción menciona "más de dos"; con 2 el costo se distribuye en cuanto un
+#  proveedor se repite. Cambia a 3 si se desea el umbral literal de "más de dos".)
+MIN_ARTICULOS_PROVEEDOR_COMPARTIDO = 2
 
-# ── Plantillas (junto al script en producción) ────────────────────────────────
+# --- Plantillas (junto al script en producción) ---
 SCRIPT_DIR    = Path(__file__).parent
 TEMPLATE_DOCX = SCRIPT_DIR / "FICHA TECNICA MICROFONO Y MEMORIA.docx"
 TEMPLATE_XLSX = SCRIPT_DIR / "FORMATO DE PROFORMA RECREADO VACÍO.xlsm"
@@ -103,7 +73,7 @@ DEFAULT_HEADERS = {
     "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
 }
 
-# ── Lista de proveedores de confianza (se inyecta en el prompt de búsqueda) ──
+# Listas de proveedores de confianza (se inyectan en el prompt de búsqueda)
 PROVEEDORES_NACIONALES = [
     "https://mibodega.ec/", "https://bodeguitadelahorro.com/", "https://comercialvaca.ec/",
     "https://kissu.com.ec/", "https://altatenalmacen.com.ec/", "https://www.tventas.com/",
@@ -123,14 +93,13 @@ PROVEEDORES_EXTRANJEROS = [
     "https://www.homedepot.com/", "https://www.costco.com/",
 ]
 
-def _dominio(url: str) -> str:
-    """Extrae el dominio de una URL (sin 'www.') para agrupar proveedores."""
+def _dominio(url):
     try:
         return urllib.parse.urlparse(url).netloc.lower().replace("www.", "")
     except Exception:
         return ""
 
-DOMINIOS_NACIONALES  = [d for d in (_dominio(u) for u in PROVEEDORES_NACIONALES) if d]
+DOMINIOS_NACIONALES = [d for d in (_dominio(u) for u in PROVEEDORES_NACIONALES) if d]
 DOMINIOS_EXTRANJEROS = [d for d in (_dominio(u) for u in PROVEEDORES_EXTRANJEROS) if d]
 
 # Respaldo opcional de búsqueda de imágenes (no crítico si no está instalado)
@@ -139,1095 +108,1765 @@ try:
 except Exception:
     DDGS = None
 
-_URL_CACHE: Dict[str, bool] = {}     # memoriza URLs ya verificadas (ahorra red)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  UTILIDADES: consola, cronómetro de fases y sesión HTTP con reintentos
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def log(msg: str, nivel: str = "INFO") -> None:
-    """Imprime en consola con marca de tiempo y nivel (pasos importantes)."""
-    hora = datetime.datetime.now().strftime("%H:%M:%S")
-    print(f"[{hora}] [{nivel:<5}] {msg}", flush=True)
-
-
-class Cronometro:
-    """Mide la duración de cada fase y acumula un resumen por fase."""
-
-    def __init__(self):
-        self.registros: List[Tuple[str, float]] = []   # (nombre de fase, segundos)
-        self._t0: Optional[float] = None
-        self._nombre: Optional[str] = None
-
-    def iniciar(self, nombre: str) -> None:
-        self._nombre = nombre
-        self._t0 = time.perf_counter()
-        log(f"— Inicia {nombre} —")
-
-    def detener(self) -> float:
-        dur = time.perf_counter() - self._t0
-        self.registros.append((self._nombre, dur))
-        log(f"— Termina {self._nombre} en {dur:.2f} s —")
-        return dur
-
-    def resumen(self) -> None:
-        print("\n" + "─" * 70)
-        print(" RESUMEN DE TIEMPOS POR FASE")
-        print("─" * 70)
-        for nombre, dur in self.registros:
-            print(f"   {nombre:<52} {dur:>8.2f} s")
-        print(f"   {'TOTAL':<52} {sum(d for _, d in self.registros):>8.2f} s")
-        print("─" * 70)
-
-
-def crear_sesion_http() -> requests.Session:
-    """Sesión requests con reintentos automáticos ante errores transitorios."""
-    s = requests.Session()
-    reintentos = Retry(total=3, backoff_factor=0.8,
-                       status_forcelist=(429, 500, 502, 503, 504),
-                       allowed_methods=frozenset(["GET", "HEAD"]))
-    s.mount("http://", HTTPAdapter(max_retries=reintentos))
-    s.mount("https://", HTTPAdapter(max_retries=reintentos))
-    s.headers.update(DEFAULT_HEADERS)
-    return s
-
-SESION = crear_sesion_http()
-
+_URL_CACHE: Dict[str, bool] = {}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CREDENCIALES (acepta JSON en línea o ruta a archivo; nombres en prioridad)
+#  UTILIDADES BÁSICAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def resolver_credenciales_a_archivo() -> Optional[str]:
-    """
-    Busca la credencial de servicio en varios nombres de variable (en orden de
-    prioridad) tanto en Config.Global como en variables de entorno. Acepta:
-      · JSON en línea  → lo vuelca a un archivo temporal
-      · Ruta a archivo → la normaliza (incluye rutas Windows)
-    Devuelve la ruta final del archivo o None si no encontró nada.
-    NOTA: 'RENDER_CRENDENTIALS_JSON' conserva su errata intencional.
-    """
-    nombres = ["GEMINI_CREDENTIALS", "RENDER_CRENDENTIALS_JSON", "CREDENTIALS_GEMINI"]
-    valor = None
-    for n in nombres:
-        valor = getattr(Global, n, None) if _HAY_CONFIG else None
-        if not valor:
-            valor = os.environ.get(n)
-        if valor:
-            break
-    if not valor:
-        return None
-    valor = str(valor).strip()
-    if valor.lstrip().startswith("{"):                    # JSON en línea
-        tmp = Path(tempfile.gettempdir()) / "nexus_sa_credentials.json"
-        tmp.write_text(valor, encoding="utf-8")
-        return str(tmp)
-    ruta = Path(valor.replace("\\", "/"))                 # normaliza Windows
-    return str(ruta) if ruta.exists() else None
+def log(msg, nivel="INFO"):
+    iconos = {"INFO": "ℹ️ ", "OK": "✅", "WARN": "⚠️ ", "ERR": "❌"}
+    print(f"{iconos.get(nivel,'  ')} [{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
+def paso(n, total, desc):
+    print(f"\n{'─'*60}\n  PASO {n}/{total}: {desc}\n{'─'*60}", flush=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 1 · BASE DE DATOS → data_table_1
-# ═══════════════════════════════════════════════════════════════════════════════
+def _get_session():
+    import requests
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=1.5, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://",  adapter)
+    session.headers.update(DEFAULT_HEADERS)
+    return session
 
-def obtener_data_table_1() -> List[Dict[str, Any]]:
-    """
-    Lee de gestorex.infimas SOLO las filas con etapa='en generacion' y devuelve
-    una lista de diccionarios (data_table_1) con las columnas literales:
-    codigo_necesidad, entidad_contratante, entidad_contratante_url,
-    dirección_entrega, id_infima, CPC, contacto.
-    """
-    import mysql.connector                                 # import diferido
-    consulta = (
-        "SELECT `codigo_necesidad`, `entidad_contratante`, `entidad_contratante_url`, "
-        "`dirección_entrega`, `id_infima`, `CPC`, `contacto` "
-        "FROM `infimas` WHERE `etapa` = 'en generacion'"
-    )
-    conexion = mysql.connector.connect(**MYSQL_CONFIG)
-    try:
-        cursor = conexion.cursor(dictionary=True)
-        cursor.execute(consulta)
-        data_table_1 = cursor.fetchall()
-        cursor.close()
-    finally:
-        conexion.close()
-    log(f"FASE 1 · {len(data_table_1)} ínfima(s) en etapa 'en generacion'.")
-    return data_table_1
+# Variables de Config.Global que pueden contener las credenciales de servicio de GCP,
+# en orden de preferencia. El valor puede ser el JSON de la cuenta de servicio en
+# TEXTO PLANO (portátil: sirve también en la nube) o una RUTA a un archivo .json.
+_VARS_CREDENCIALES = ("GEMINI_CREDENTIALS", "RENDER_CRENDENTIALS_JSON", "CREDENTIALS_GEMINI")
 
+def _candidatas_credenciales():
+    """Valores de credenciales definidos en Config.Global (sin vacíos), en orden."""
+    vals = []
+    for n in _VARS_CREDENCIALES:
+        v = getattr(Global, n, None)
+        if v is not None and str(v).strip():
+            vals.append((n, str(v).strip()))
+    return vals
 
-def marcar_finalizada(id_infima: Any) -> None:
-    """Cambia la etapa de la ínfima a 'finalizada' (FASE 7)."""
-    import mysql.connector
-    conexion = mysql.connector.connect(**MYSQL_CONFIG)
-    try:
-        cursor = conexion.cursor()
-        cursor.execute("UPDATE `infimas` SET `etapa`='finalizada' WHERE `id_infima`=%s",
-                       (id_infima,))
-        conexion.commit()
-        cursor.close()
-        log(f"FASE 7 · Ínfima {id_infima} marcada como 'finalizada'.")
-    finally:
-        conexion.close()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 2 · GOOGLE CLOUD STORAGE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def cliente_gcs():
-    """Crea el cliente de Cloud Storage con la credencial de servicio."""
-    from google.cloud import storage                       # import diferido
-    ruta = resolver_credenciales_a_archivo()
-    if ruta:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = ruta
-    return storage.Client()
-
-
-def descargar_documentos_contratacion(bucket, codigo: str, destino: Path) -> List[Path]:
-    """
-    Descarga a 'destino' todos los doc/docx/pdf que estén en
-    'Documentos de Contratación/<codigo>/' dentro del bucket.
-    """
-    prefijo = f"{BUCKET_FOLDER}/{codigo}/"
-    rutas: List[Path] = []
-    for blob in bucket.list_blobs(prefix=prefijo):
-        nombre = Path(blob.name).name
-        if not nombre or not nombre.lower().endswith((".pdf", ".doc", ".docx")):
-            continue
-        destino.mkdir(parents=True, exist_ok=True)
-        ruta = destino / nombre
-        blob.download_to_filename(str(ruta))
-        rutas.append(ruta)
-    log(f"FASE 2 · {codigo}: {len(rutas)} documento(s) de contratación descargado(s).")
-    return rutas
-
-
-def subir_a_gcs(bucket, ruta_local: Path, carpeta_destino: str) -> None:
-    """Sube un archivo local al bucket dentro de la carpeta indicada."""
-    blob = bucket.blob(f"{carpeta_destino}/{ruta_local.name}")
-    blob.upload_from_filename(str(ruta_local))
-    log(f"GCS · Subido {ruta_local.name} → {carpeta_destino}/")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 3 · ANÁLISIS CON GEMINI (Vertex AI)  ·  búsqueda web + JSON estricto
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _cliente_genai():
-    """Cliente google-genai apuntando a Vertex AI (endpoint global)."""
-    from google import genai                                # import diferido
-    ruta = resolver_credenciales_a_archivo()
-    if ruta:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = ruta
-        proyecto = json.loads(Path(ruta).read_text(encoding="utf-8")).get("project_id")
-    else:
-        proyecto = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    return genai.Client(vertexai=True, project=proyecto, location=VERTEX_LOCATION)
-
-
-def _partes_documentos(rutas: List[Path]):
-    """
-    Convierte los documentos de contratación en 'parts' para Gemini:
-      · PDF   → bytes nativos (Gemini los lee directamente)
-      · DOCX  → texto extraído con python-docx
-      · DOC   → intento de conversión a texto plano (LibreOffice si existe)
-    """
-    from google.genai import types
-    partes = []
-    for ruta in rutas:
-        ext = ruta.suffix.lower()
-        if ext == ".pdf":
-            partes.append(types.Part.from_bytes(data=ruta.read_bytes(),
-                                                mime_type="application/pdf"))
-        elif ext == ".docx":
-            import docx as _docx
-            texto = "\n".join(p.text for p in _docx.Document(str(ruta)).paragraphs)
-            partes.append(types.Part.from_text(text=f"[Documento {ruta.name}]\n{texto}"))
-        elif ext == ".doc":
-            try:                                            # conversión opcional
-                import subprocess
-                subprocess.run(["soffice", "--headless", "--convert-to", "txt",
-                                "--outdir", str(ruta.parent), str(ruta)],
-                               check=True, capture_output=True, timeout=120)
-                txt = ruta.with_suffix(".txt")
-                partes.append(types.Part.from_text(
-                    text=f"[Documento {ruta.name}]\n{txt.read_text(errors='ignore')}"))
-            except Exception:
-                log(f"No se pudo convertir {ruta.name}; se omite.", "WARN")
-    return partes
-
-
-def _llamar_modelo(contenidos, config, usar_grounding: bool) -> str:
-    """
-    Llama primero a MODEL_COMPLEX (gemini-3.1-pro-preview) y, si falla por
-    cuota/errores, cae automáticamente a MODEL_SIMPLE (gemini-2.5-pro).
-    Devuelve el texto de la respuesta.
-    """
-    from google.genai import types
-    cliente = _cliente_genai()
-    if usar_grounding:                                     # búsqueda web nativa
-        config.tools = [types.Tool(google_search=types.GoogleSearch())]
-    for modelo in (MODEL_COMPLEX, MODEL_SIMPLE):
+def _localizar_archivo_credenciales(raw):
+    """Resuelve una ruta de credenciales probando: tal cual, relativa al directorio de
+       trabajo y relativa a la raíz del proyecto (carpeta de Config.py). Normaliza los
+       separadores '\\' y '/'. Devuelve la ruta existente o None."""
+    p = Path(raw.replace("\\", os.sep).replace("/", os.sep))
+    candidatos = [p]
+    if not p.is_absolute():
+        candidatos.append(Path.cwd() / p)
+        candidatos.append(RAIZ_PROYECTO / p)
+    for c in candidatos:
         try:
-            log(f"FASE 3 · Llamando a {modelo}…")
-            resp = cliente.models.generate_content(model=modelo,
-                                                   contents=contenidos,
-                                                   config=config)
-            return resp.text or ""
-        except Exception as e:
-            log(f"{modelo} falló ({type(e).__name__}: {e}); probando fallback…", "WARN")
-    raise RuntimeError("Ambos modelos Gemini fallaron.")
+            if c.is_file():
+                return str(c.resolve())
+        except Exception:
+            continue
+    return None
 
+def resolver_credenciales_a_archivo():
+    """Resuelve las credenciales de servicio de GCP a una RUTA de archivo .json.
+       Acepta el JSON en texto plano (cualquiera de las variables soportadas) o una
+       ruta a un archivo .json. Devuelve la ruta del archivo de credenciales."""
+    candidatas = _candidatas_credenciales()
+    if not candidatas:
+        raise ValueError(
+            "No hay credenciales de GCP definidas. Define en el .env (o como variable de "
+            "entorno en la nube) una de estas: RENDER_CRENDENTIALS_JSON, CREDENCIALES_GEMINI "
+            "o GEMINI_CREDENTIALS (JSON de la cuenta de servicio en texto o ruta a un .json)."
+        )
+    ultimo = None
+    for nombre, raw in candidatas:
+        if raw.startswith("{"):                          # (a) JSON en texto plano
+            try:
+                creds_dict = json.loads(raw)
+            except json.JSONDecodeError as e:
+                ultimo = f"{nombre}: JSON inválido ({e})"
+                continue
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json",
+                                              delete=False, encoding="utf-8")
+            json.dump(creds_dict, tmp)
+            tmp.close()
+            log(f"Credenciales resueltas desde variable de entorno ({nombre}).")
+            return tmp.name
+        ruta = _localizar_archivo_credenciales(raw)      # (b) ruta a un archivo .json
+        if ruta:
+            log(f"Credenciales resueltas desde archivo ({nombre}): {ruta}")
+            return ruta
+        ultimo = f"{nombre}: no se encontró el archivo '{raw}'"
+    raise ValueError(f"No se pudieron resolver las credenciales de GCP. Último problema: {ultimo}.")
 
-def _extraer_json(texto: str) -> dict:
-    """Extrae el primer objeto JSON válido de la respuesta del modelo."""
-    texto = re.sub(r"```(?:json)?", "", texto).strip().strip("`")
-    inicio = texto.find("{")
-    if inicio < 0:
-        raise ValueError("La respuesta del modelo no contiene JSON.")
-    return json.loads(texto[inicio:texto.rfind("}") + 1])
+def _parsear_json_de_respuesta(raw):
+    """Extrae el primer objeto/array JSON válido de la respuesta del modelo."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        for ch_open, ch_close in [("{", "}"), ("[", "]")]:
+            i = raw.find(ch_open)
+            if i < 0:
+                continue
+            depth = 0
+            for j in range(i, len(raw)):
+                if raw[j] == ch_open:
+                    depth += 1
+                elif raw[j] == ch_close:
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(raw[i:j + 1])
+                        except Exception:
+                            break
+    return None
 
+def _num(valor, defecto=0.0):
+    """Convierte de forma segura a float (acepta '1.234,56', '$1,234.56', None, etc.)."""
+    if valor is None:
+        return defecto
+    if isinstance(valor, (int, float)):
+        try:
+            return float(valor)
+        except Exception:
+            return defecto
+    s = str(valor)
+    s = re.sub(r"[^0-9,.\-]", "", s)
+    if not s:
+        return defecto
+    # formato europeo 1.234,56
+    if re.match(r"^-?\d{1,3}(\.\d{3})+,\d{1,2}$", s):
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        s = s.replace(",", "")
+    try:
+        return float(s)
+    except Exception:
+        return defecto
 
-ESQUEMA_ANALISIS = """
-{
-  "excede_limite": bool,            // true si hay MÁS de 10 artículos distintos
-  "num_articulos": int,
-  "tiempo_entrega_dias": int,       // establecido por la entidad contratante
-  "garantia_tecnica": "texto en meses o años, p.ej. '12 MESES O 10.000 KM'",
-  "articulos": [
-    {
-      "nombre": "nombre comercial", "marca": "…", "modelo": "…",
-      "resumen": "60 a 100 palabras tomadas de la web del proveedor/fabricante",
-      "caracteristicas": ["mínimo 7 características generales"],
-      "especificaciones": ["mínimo 10 especificaciones técnicas y eléctricas"],
-      "incluye": ["extras que vienen con el artículo"],
-      "cantidad": int,              // unidades solicitadas en los documentos
-      "requiere_instalacion": bool,
-      "complejidad_instalacion": "baja|media|alta",
-      "mejor_opcion": {
-        "proveedor": "…", "url_producto": "URL real y actual",
-        "url_imagen": "URL directa a la imagen del producto",
-        "precio_unitario": float,   // costo unitario real sin envío/aduana
-        "es_extranjero": bool,
-        "costo_extra_envio_sugerido": float,   // 86–155 USD fuera de Guayaquil
-        "costo_aduana_estimado": float
-      },
-      "alternativas": [             // hasta 3, en orden decreciente de idoneidad
-        {"proveedor": "…", "url": "…", "precio_unitario": float}
-      ]
-    }
-  ]
-}
-"""
+def _clamp(x, lo, hi):
+    return max(lo, min(hi, x))
 
+def _sanitizar_nombre_archivo(nombre: str) -> str:
+    """Solo reemplaza caracteres ilegales en nombres de archivo (conserva acentos)."""
+    return re.sub(r'[\\/:*?"<>|]', "_", str(nombre)).strip()
 
-def analizar_con_ia(rutas_docs: List[Path], registro: Dict[str, Any]) -> dict:
-    """
-    Análisis en DOS pasos (el grounding web y el JSON estricto no se combinan
-    en una sola llamada de forma fiable):
-      1) Investigación con búsqueda web (Google Search grounding) sobre los
-         documentos de contratación y la lista de proveedores de confianza.
-      2) Estructuración del hallazgo a JSON estricto según ESQUEMA_ANALISIS.
-    """
-    from google.genai import types
-    partes = _partes_documentos(rutas_docs)
+def _es_fuera_de_guayaquil(direccion: str) -> bool:
+    return "guayaquil" not in (direccion or "").lower()
 
-    prompt_busqueda = f"""
-Eres un analista de compras públicas de Ecuador. Analiza los documentos de
-contratación adjuntos (código de necesidad {registro['codigo_necesidad']}).
+def _envio_clamp(envio: float, fuera: bool) -> float:
+    """Acota el costo de envío/aduana según la dirección de entrega.
+       Fuera de Guayaquil: [ENVIO_MIN, ENVIO_MAX]; en Guayaquil: [0, ENVIO_MAX]."""
+    if fuera:
+        return _clamp(envio if envio > 0 else ENVIO_MIN, ENVIO_MIN, ENVIO_MAX)
+    return _clamp(envio, 0.0, ENVIO_MAX)
 
-TAREAS:
-1) Identifica CADA artículo de compra DISTINTO (nombre, marca y modelo). Si los
-   documentos no los especifican, propone un producto NUEVO que cumpla las
-   características solicitadas (coincidencia > 70%, idealmente 100%).
-2) Si hay MÁS de {LIMITE_ARTICULOS} artículos distintos, indícalo y no continúes.
-3) Por artículo: al menos 7 características generales, al menos 10
-   especificaciones técnicas/eléctricas y lo que incluye (extras).
-4) Busca en la web cada artículo, PRIMERO en estos proveedores de confianza
-   nacionales: {', '.join(PROVEEDORES_NACIONALES)}
-   luego extranjeros: {', '.join(PROVEEDORES_EXTRANJEROS)}
-   Solo si se agota la lista, propone otro proveedor de Ecuador y, en último
-   caso, uno extranjero. Encuentra hasta 4 opciones de proveedor por artículo.
-5) Elige la MEJOR opción: cumplimiento de requisitos y MENOR costo final. Si el
-   proveedor es extranjero, suma envío hasta Guayaquil (Ecuador), aduanas y
-   logística; con esos extras debe seguir siendo la más barata. Artículos NUEVOS.
-6) Conserva las URLs TAL CUAL las encuentres (actuales y reales), incluida una
-   URL directa de la imagen del producto (del proveedor o del fabricante).
-7) Extrae de los documentos: tiempo de entrega (días) y garantía técnica
-   (meses o años), y la cantidad de unidades por artículo.
-La dirección de entrega es: {registro.get('dirección_entrega', '')}.
-Responde con un informe detallado de tus hallazgos, incluyendo TODAS las URLs.
-"""
-    config1 = types.GenerateContentConfig(temperature=0.2)
-    informe = _llamar_modelo(partes + [types.Part.from_text(text=prompt_busqueda)],
-                             config1, usar_grounding=True)
-
-    prompt_json = f"""
-Convierte el siguiente informe a JSON ESTRICTO con exactamente este esquema
-(sin comentarios, sin texto adicional, sin Markdown):
-{ESQUEMA_ANALISIS}
-
-INFORME:
-{informe}
-"""
-    config2 = types.GenerateContentConfig(temperature=0.0,
-                                          response_mime_type="application/json")
-    texto = _llamar_modelo([types.Part.from_text(text=prompt_json)],
-                           config2, usar_grounding=False)
-    analisis = _extraer_json(texto)
-    log(f"FASE 3 · Análisis IA: {analisis.get('num_articulos', '?')} artículo(s).")
-    return analisis
+def _numero_proforma(id_infima) -> str:
+    """8 dígitos fijos (00100100) + id_infima a la derecha, total 11 dígitos.
+       21 → 00100100021 | 5 → 00100100005 | 1234 → 00100101234."""
+    s = str(id_infima)
+    base = "00100100000"  # 11 chars
+    if len(s) >= len(base):
+        return s[-len(base):]
+    return base[:len(base) - len(s)] + s
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 4 · VERIFICACIÓN / REPARACIÓN DE URLs E IMÁGENES
+#  VERTEX AI / GEMINI  (SDK google-genai)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def verificar_url(url: str, estricto: bool = True) -> bool:
+from google import genai
+from google.genai import types
+
+_GENAI_CLIENT = None
+
+def get_genai_client():
+    """Cliente google-genai sobre Vertex AI (endpoint global)."""
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is not None:
+        return _GENAI_CLIENT
+    from google.oauth2 import service_account
+    creds_path = resolver_credenciales_a_archivo()
+    with open(creds_path, "r", encoding="utf-8") as f:
+        project_id = json.load(f)["project_id"]
+    creds = service_account.Credentials.from_service_account_file(
+        creds_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    _GENAI_CLIENT = genai.Client(
+        vertexai=True, project=project_id, location=VERTEX_LOCATION,
+        credentials=creds, http_options=types.HttpOptions(api_version="v1"),
+    )
+    log(f"Cliente Vertex AI (google-genai) inicializado — proyecto {project_id}, location={VERTEX_LOCATION}", "OK")
+    return _GENAI_CLIENT
+
+def _texto_de_respuesta(resp) -> str:
+    """Extrae texto de la respuesta de google-genai de forma robusta."""
+    try:
+        t = resp.text
+        if t:
+            return t
+    except Exception:
+        pass
+    partes = []
+    for cand in (getattr(resp, "candidates", None) or []):
+        content = getattr(cand, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            if getattr(part, "text", None):
+                partes.append(part.text)
+    return "\n".join(partes)
+
+def generar(client, contents, use_search=False, prefer_complex=True,
+            max_intentos=3, espera_inicial=8) -> str:
     """
-    Comprueba que la URL exista y responda. En modo estricto exige 200 y HTML;
-    en modo laxo acepta 2xx/3xx. Cachea resultados para no repetir peticiones.
+    Llama a Gemini con reintentos ante errores transitorios y fallback de modelo.
+    - prefer_complex=True  → intenta MODEL_COMPLEX y luego MODEL_SIMPLE.
+    - use_search=True      → habilita Google Search (grounding).
+    Devuelve SIEMPRE texto (cadena vacía si no hubo contenido).
     """
-    if not url or not url.startswith("http"):
+    modelos = [MODEL_COMPLEX, MODEL_SIMPLE] if prefer_complex else [MODEL_SIMPLE]
+    cfg = None
+    if use_search:
+        cfg = types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())])
+    ultimo_error = None
+    for modelo in modelos:
+        for intento in range(1, max_intentos + 1):
+            try:
+                resp = client.models.generate_content(model=modelo, contents=contents, config=cfg)
+                return _texto_de_respuesta(resp)
+            except Exception as e:
+                ultimo_error = e
+                msg = str(e).lower()
+                transitorio = any(t in msg for t in
+                                  ["503", "500", "429", "deadline", "unavailable", "rate",
+                                   "exhaust", "quota", "resource", "overloaded"])
+                if intento < max_intentos and transitorio:
+                    espera = espera_inicial * (2 ** (intento - 1))
+                    log(f"  Gemini '{modelo}' error transitorio (intento {intento}/{max_intentos}); "
+                        f"reintentando en {espera}s.", "WARN")
+                    time.sleep(espera)
+                    continue
+                log(f"  Gemini '{modelo}' falló: {str(e)[:160]}", "WARN")
+                break  # pasar al siguiente modelo (fallback)
+    if ultimo_error:
+        raise ultimo_error
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 1 — BASE DE DATOS (MySQL)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def obtener_data_table_1():
+    """Devuelve las ínfimas 'en generacion' con las columnas requeridas (incluye id_infima)."""
+    import mysql.connector
+    log("Conectando a MySQL…")
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT id_infima, codigo_necesidad, entidad_contratante, entidad_contratante_url,
+               direccion_entrega, contacto, CPC, PACdoc, PACweb
+        FROM   infimas
+        WHERE  LOWER(etapa) = 'en generacion'
+    """)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    log(f"Registros 'en generacion' encontrados: {len(rows)}", "OK")
+    for r in rows:
+        log(f"  → id {r['id_infima']} | {r['codigo_necesidad']} | {r['entidad_contratante']}")
+    return rows
+
+def actualizar_etapa_bd(codigo_necesidad):
+    import mysql.connector
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE infimas SET etapa='finalizada' "
+        "WHERE codigo_necesidad=%s AND LOWER(etapa)='en generacion'",
+        (codigo_necesidad,),
+    )
+    filas = cursor.rowcount
+    conn.commit(); cursor.close(); conn.close()
+    if filas:
+        log(f"  BD actualizada: {codigo_necesidad} → 'finalizada'", "OK")
+    else:
+        log(f"  BD: no se actualizó ningún registro para {codigo_necesidad}.", "WARN")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 2 — GOOGLE CLOUD STORAGE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def obtener_cliente_gcs():
+    from google.oauth2 import service_account
+    from google.cloud import storage
+    creds_path = resolver_credenciales_a_archivo()
+    creds = service_account.Credentials.from_service_account_file(
+        creds_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    return storage.Client(credentials=creds, project=creds.project_id)
+
+def listar_docs_necesidad(gcs_client, codigo_necesidad):
+    bucket  = gcs_client.bucket(BUCKET_NAME)
+    prefijo = f"{BUCKET_FOLDER}/{codigo_necesidad}/"
+    blobs   = list(gcs_client.list_blobs(bucket, prefix=prefijo))
+    docs    = [b for b in blobs if b.name.lower().endswith((".doc", ".docx", ".pdf"))]
+    log(f"  Documentos encontrados para {codigo_necesidad}: {len(docs)}")
+    return docs
+
+def descargar_blob_a_tmp(blob):
+    suffix = Path(blob.name).suffix
+    tmp    = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    blob.download_to_filename(tmp.name)
+    return tmp.name
+
+def subir_archivo_a_bucket(gcs_client, local_path, carpeta_destino):
+    bucket    = gcs_client.bucket(BUCKET_NAME)
+    nombre    = Path(local_path).name
+    blob_name = f"{carpeta_destino}/{nombre}"
+    blob      = bucket.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    log(f"  Subido: {blob_name}", "OK")
+    return blob_name
+
+def verificar_blob_en_bucket(gcs_client, blob_name):
+    bucket = gcs_client.bucket(BUCKET_NAME)
+    try:
+        b = bucket.blob(blob_name)
+        b.reload()
+        return b.exists() and (b.size or 0) > 0
+    except Exception as e:
+        log(f"  No se pudo verificar {blob_name}: {e}", "WARN")
         return False
-    clave = f"{url}|{estricto}"
-    if clave in _URL_CACHE:
-        return _URL_CACHE[clave]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 3 — ANÁLISIS DE DOCUMENTOS CON GEMINI
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def docx_a_pdf(docx_path):
+    """Convierte .doc/.docx a PDF con LibreOffice para enviarlo a Gemini como PDF."""
+    import subprocess
+    out_dir = tempfile.mkdtemp()
+    try:
+        res = subprocess.run(
+            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", out_dir, docx_path],
+            capture_output=True, text=True, timeout=120,
+        )
+        if res.returncode != 0:
+            log(f"    LibreOffice error: {res.stderr[:160]}", "WARN")
+            return None
+        pdf_path = Path(out_dir) / (Path(docx_path).stem + ".pdf")
+        if not pdf_path.exists():
+            return None
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf"); tmp.close()
+        shutil.copy2(str(pdf_path), tmp.name)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return tmp.name
+    except FileNotFoundError:
+        log("    LibreOffice no encontrado (soffice).", "WARN")
+        return None
+    except subprocess.TimeoutExpired:
+        log("    Conversión a PDF superó 120s.", "WARN")
+        return None
+    except Exception as e:
+        log(f"    Error al convertir a PDF: {e}", "WARN")
+        return None
+
+def _archivo_a_part_pdf(path_local):
+    """Devuelve un types.Part PDF (convirtiendo .doc/.docx si hace falta)."""
+    suf = Path(path_local).suffix.lower()
+    pdf_path = path_local
+    if suf != ".pdf":
+        pdf_path = docx_a_pdf(path_local)
+        if not pdf_path:
+            return None
+    try:
+        size_mb = Path(pdf_path).stat().st_size / (1024 * 1024)
+        if size_mb > 18:
+            log(f"    PDF muy grande ({size_mb:.1f} MB), omitido.", "WARN")
+            return None
+        with open(pdf_path, "rb") as f:
+            data = f.read()
+        return types.Part.from_bytes(data=data, mime_type="application/pdf")
+    except Exception as e:
+        log(f"    No se pudo preparar PDF: {e}", "WARN")
+        return None
+
+def analizar_documentos(client, archivos_locales, codigo_necesidad):
+    """
+    Envía los documentos del bucket a Gemini 3 y devuelve:
+      {"articulos": [ {nombre_articulo, marca, modelo, cantidad, caracteristicas[],
+                       especificaciones_tecnicas[], especificaciones_electricas[],
+                       incluye[], resumen, funcion_principal} ], "n": <int> }
+    """
+    partes = []
+    for path in archivos_locales:
+        part = _archivo_a_part_pdf(path)
+        if part is not None:
+            partes.append(part)
+            log(f"    Documento cargado: {Path(path).name}")
+        else:
+            log(f"    Documento omitido: {Path(path).name}", "WARN")
+    if not partes:
+        log("No hay documentos válidos para analizar.", "ERR")
+        return None
+
+    prompt = f"""Eres un analista experto en contratación pública del Ecuador (ínfima cuantía).
+Analiza TODOS los documentos adjuntos del código de necesidad: {codigo_necesidad}.
+
+Identifica CADA artículo de compra DISTINTO solicitado (no repitas variantes del mismo
+artículo). Para cada artículo extrae nombre, marca y modelo si se especifican; si NO se
+especifican, deja esos campos vacíos (luego se buscarán en la web). Extrae la CANTIDAD
+solicitada de cada artículo. Sé exhaustivo en características y especificaciones.
+
+Devuelve ÚNICAMENTE un JSON válido (sin markdown, sin texto adicional):
+{{
+  "articulos": [
+    {{
+      "nombre_articulo": "Nombre exacto del artículo solicitado",
+      "marca": "Marca exacta o cadena vacía",
+      "modelo": "Modelo exacto o cadena vacía",
+      "cantidad": 1,
+      "caracteristicas": ["al menos 7 características generales si es posible"],
+      "especificaciones_tecnicas": ["al menos 10 especificaciones técnicas si es posible"],
+      "especificaciones_electricas": ["especificaciones eléctricas o [] si no aplica"],
+      "incluye": ["accesorios/extras que debe incluir o [] si no se indica"],
+      "garantia_meses": 12,
+      "garantia_texto": "12 meses",
+      "resumen": "Descripción de 50 a 80 palabras del artículo solicitado",
+      "funcion_principal": "Para qué sirve / requisito esencial que debe cumplir"
+    }}
+  ]
+}}
+
+REGLAS:
+- Un objeto por cada artículo DISTINTO.
+- La cantidad debe provenir de los documentos (si no se indica, usa 1).
+- No inventes marcas/modelos que el documento no menciona; déjalos vacíos.
+- "garantia_meses": garantía técnica EXIGIDA en los documentos de contratación (pliego,
+  términos de referencia, especificaciones técnicas o anexos) para ESTE artículo, expresada
+  SIEMPRE en MESES (1 año = 12 meses, 2 años = 24 meses, 18 meses = 18…). Si los documentos
+  fijan una garantía general para toda la contratación, aplícala a cada artículo. Si los
+  documentos NO especifican garantía, usa 0 (NO la inventes ni uses la del fabricante).
+- "garantia_texto": la misma garantía en formato legible (p. ej. "12 meses", "2 años"); ""
+  si garantia_meses es 0.
+"""
+    log(f"  Enviando {len(partes)} documento(s) a Gemini para análisis…")
+    texto = generar(client, partes + [prompt], use_search=False, prefer_complex=True)
+    data = _parsear_json_de_respuesta(texto)
+    if not data:
+        log(f"  No se pudo parsear el análisis. Inicio respuesta: {texto[:200]}", "ERR")
+        return None
+    if isinstance(data, list):
+        data = {"articulos": data}
+    articulos = data.get("articulos") or []
+    if not isinstance(articulos, list) or not articulos:
+        log("  El análisis no devolvió artículos.", "ERR")
+        return None
+    # Normalizar mínimos
+    for a in articulos:
+        a.setdefault("marca", ""); a.setdefault("modelo", "")
+        a.setdefault("cantidad", 1)
+        try:
+            a["cantidad"] = max(1, int(round(_num(a.get("cantidad", 1), 1))))
+        except Exception:
+            a["cantidad"] = 1
+        for k in ("caracteristicas", "especificaciones_tecnicas",
+                  "especificaciones_electricas", "incluye"):
+            if not isinstance(a.get(k), list):
+                a[k] = []
+        a["garantia_meses"] = max(0, int(round(_num(a.get("garantia_meses", 0), 0))))
+        a["garantia_texto"] = (a.get("garantia_texto") or "").strip()
+        a.setdefault("resumen", ""); a.setdefault("funcion_principal", "")
+    data["articulos"] = articulos
+    data["n"] = len(articulos)
+    log(f"  Análisis completado: {len(articulos)} artículo(s) distinto(s).", "OK")
+    for i, a in enumerate(articulos, 1):
+        log(f"    {i}. {str(a.get('nombre_articulo',''))[:60]} (x{a.get('cantidad',1)})")
+    return data
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  VALIDACIÓN DE URLS E IMÁGENES + DESCARGA
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def validar_url(url, timeout=10):
+    """True si la URL responde HTTP < 400 (la IA suele inventar enlaces)."""
+    import requests
+    if not url or not isinstance(url, str) or not url.startswith("http"):
+        return False
+    if url in _URL_CACHE:
+        return _URL_CACHE[url]
     ok = False
     try:
-        r = SESION.get(url, timeout=15, allow_redirects=True, stream=True)
-        if estricto:
-            ok = r.status_code == 200
-        else:
-            ok = 200 <= r.status_code < 400
+        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout,
+                         allow_redirects=True, stream=True)
+        ok = r.status_code < 400
         r.close()
     except Exception:
         ok = False
-    _URL_CACHE[clave] = ok
+    _URL_CACHE[url] = ok
     return ok
 
+# Señales de que un enlace NO apunta a una ficha de producto real/completa
+_MARCADORES_NO_ENCONTRADO = [
+    "404", "error 404", "not found", "page not found", "no encontrad",
+    "página no encontrada", "pagina no encontrada", "no existe", "no se encontr",
+    "producto no disponible", "producto no encontrado", "nada que mostrar",
+    "sin resultados", "no hay resultados",
+]
+# Rutas que NUNCA muestran un producto: descartan el enlace de inmediato.
+# OJO: /busqueda, /buscar y /search NO van aquí. En varias tiendas (PrestaShop, etc.)
+# la URL de resultados de búsqueda ES el enlace funcional al producto; se admite solo
+# si su contenido coincide con el producto (se valida por coincidencia de tokens).
+_FRAGMENTOS_RUTA_INVALIDA = [
+    "/404", "/not-found", "/page-not-found", "/error",
+    "/cart", "/carrito", "/checkout",
+]
+_STOPWORDS = {
+    "para", "con", "los", "las", "del", "una", "uno", "por", "que", "the", "and",
+    "color", "negro", "blanco", "talla", "marca", "modelo", "nuevo", "nueva",
+    "producto", "unidad", "unidades", "set", "kit", "pza", "pzas",
+}
 
-def _buscar_url_reemplazo(nombre_producto: str, dominios: List[str]) -> Optional[str]:
+def _verificar_link_producto(url, nombre="", marca="", modelo="",
+                             exigir_contenido=True, timeout=12):
     """
-    Recuperación de links muertos: busca (vía IA con grounding y, como respaldo,
-    DuckDuckGo) una URL viva del producto dentro de los dominios de confianza.
+    Comprueba que 'url' sea un enlace COMPLETO y real a la ficha del producto.
+    Devuelve la URL canónica (tras redirecciones) si la página:
+      • responde 200 siguiendo redirecciones,
+      • no redirige a la raíz del dominio ni a búsqueda/carrito/404,
+      • no es una página de "no encontrado",
+      • (si exigir_contenido) menciona la marca/modelo o varias palabras del nombre.
+    En caso contrario devuelve None.
     """
-    # 1) Con la IA (búsqueda web nativa)
+    import requests
+    if not url or not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        return None
     try:
-        from google.genai import types
-        prompt = (f"Busca en la web una URL ACTUAL y accesible del producto "
-                  f"'{nombre_producto}' preferentemente en estos dominios: "
-                  f"{', '.join(dominios[:15])}. Responde SOLO con la URL.")
-        cfg = types.GenerateContentConfig(temperature=0.0)
-        texto = _llamar_modelo([types.Part.from_text(text=prompt)], cfg, True)
-        m = re.search(r"https?://\S+", texto)
-        if m and verificar_url(m.group(0).rstrip(").,"), estricto=False):
-            return m.group(0).rstrip(").,")
-    except Exception:
-        pass
-    # 2) Con DuckDuckGo, si está instalado
-    if DDGS is not None:
+        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout,
+                         allow_redirects=True, stream=True)
+        status = r.status_code
+        final = r.url or url
+        raw = b""
         try:
-            with DDGS() as ddg:
-                for res in ddg.text(nombre_producto, max_results=10):
-                    url = res.get("href", "")
-                    if any(d in url for d in dominios) and verificar_url(url, False):
-                        return url
+            raw = r.raw.read(300_000, decode_content=True) or b""
         except Exception:
-            pass
-    return None
-
-
-def resolver_url_producto(url: str, nombre_producto: str) -> Optional[str]:
-    """
-    Multi-etapa: verificación estricta → recuperación por búsqueda →
-    verificación laxa. Devuelve una URL viva o None.
-    """
-    if verificar_url(url, estricto=True):
-        return url
-    log(f"FASE 4 · URL caída, intentando recuperar: {url}", "WARN")
-    nueva = _buscar_url_reemplazo(nombre_producto, DOMINIOS_NACIONALES + DOMINIOS_EXTRANJEROS)
-    if nueva:
-        return nueva
-    return url if verificar_url(url, estricto=False) else None
-
-
-def descargar_imagen(url_imagen: str, destino: Path) -> Optional[Path]:
-    """
-    Descarga la imagen del producto y confirma que realmente es una imagen
-    válida (la abre con Pillow). Devuelve la ruta o None si falló.
-    """
-    try:
-        r = SESION.get(url_imagen, timeout=20)
-        if r.status_code != 200 or len(r.content) < 2048:
-            return None
-        from PIL import Image
-        img = Image.open(io.BytesIO(r.content))
-        img.verify()                                        # valida integridad
-        ext = (img.format or "PNG").lower()
-        ruta = destino.with_suffix("." + ("jpg" if ext == "jpeg" else ext))
-        ruta.write_bytes(r.content)
-        return ruta
+            try:
+                raw = next(r.iter_content(300_000), b"") or b""
+            except Exception:
+                raw = b""
+        r.close()
     except Exception:
         return None
 
+    if status != 200:
+        return None
+    pf = urllib.parse.urlparse(final)
+    # Redirigido a la portada (sin ruta NI búsqueda) → enlace incompleto. Una URL de
+    # búsqueda tipo "/?s=texto" tiene ruta "/" pero query con resultados: NO es portada.
+    if pf.path in ("", "/") and not pf.query:
+        return None
+    low_final = final.lower()
+    if any(fr in low_final for fr in _FRAGMENTOS_RUTA_INVALIDA):
+        return None
+    texto = raw.decode("utf-8", errors="ignore").lower()
+    if any(m in texto for m in _MARCADORES_NO_ENCONTRADO):
+        return None
+    if not exigir_contenido:
+        return final
+    # Coincidencia de contenido: marca/modelo, o varias palabras del nombre
+    fuertes = [str(t).lower() for t in (marca, modelo) if t and len(str(t)) >= 3]
+    if any(f in texto for f in fuertes):
+        return final
+    toks = [w for w in re.findall(r"[a-z0-9áéíóúñ]{4,}", (nombre or "").lower())
+            if w not in _STOPWORDS][:6]
+    if not toks:
+        return final
+    aciertos = sum(1 for t in toks if t in texto)
+    return final if aciertos >= max(2, (len(toks) + 1) // 2) else None
 
-def verificar_imagen_con_ia(ruta_imagen: Path, nombre_producto: str) -> bool:
-    """
-    Verificación por VISIÓN: pregunta a Gemini si la imagen corresponde al
-    producto (evita quedarnos con banners/anuncios de la página).
-    """
+def validar_url_imagen(url, timeout=10):
+    """True si la URL devuelve realmente una imagen (Content-Type + tamaño)."""
+    import requests
+    if not url or not isinstance(url, str) or not url.startswith("http") or "localhost" in url:
+        return False
     try:
-        from google.genai import types
-        parte_img = types.Part.from_bytes(data=ruta_imagen.read_bytes(),
-                                          mime_type="image/png"
-                                          if ruta_imagen.suffix == ".png" else "image/jpeg")
-        prompt = (f"¿Esta imagen muestra el producto '{nombre_producto}' "
-                  f"(no un anuncio, banner o logotipo)? Responde SOLO 'SI' o 'NO'.")
-        cfg = types.GenerateContentConfig(temperature=0.0)
-        texto = _llamar_modelo([parte_img, types.Part.from_text(text=prompt)], cfg, False)
-        return "SI" in texto.upper()[:10]
+        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout,
+                         allow_redirects=True, stream=True)
+        if r.status_code >= 400:
+            return False
+        ct = (r.headers.get("Content-Type") or "").lower()
+        if not ct.startswith("image/"):
+            return False
+        chunk = next(r.iter_content(chunk_size=2048), b"")
+        r.close()
+        return len(chunk) >= 512
     except Exception:
-        return True     # ante duda de infraestructura, no bloquear el flujo
+        return False
 
+def fetch_html(url, timeout=15, max_bytes=400_000):
+    import requests
+    try:
+        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout,
+                         allow_redirects=True, stream=True)
+        if r.status_code >= 400:
+            return None
+        chunks, leido = [], 0
+        for chunk in r.iter_content(chunk_size=8192, decode_unicode=False):
+            if not chunk:
+                break
+            chunks.append(chunk)
+            leido += len(chunk)
+            if leido >= max_bytes:
+                break
+        r.close()
+        return b"".join(chunks).decode("utf-8", errors="ignore")
+    except Exception:
+        return None
 
-def obtener_imagen_producto(articulo: dict, carpeta: Path, con_ia: bool) -> Optional[Path]:
-    """
-    Orquesta la obtención de la imagen: descarga desde la URL de la IA,
-    valida por visión y, si falla, busca una imagen alternativa (DDGS).
-    En modo prueba puede venir 'imagen_local' ya lista en el artículo.
-    """
-    if articulo.get("imagen_local"):                        # modo prueba local
-        ruta = Path(articulo["imagen_local"])
-        return ruta if ruta.exists() else None
-    nombre = f"{articulo.get('marca','')} {articulo.get('modelo','')}".strip() \
-             or articulo.get("nombre", "producto")
-    url_img = (articulo.get("mejor_opcion") or {}).get("url_imagen", "")
-    destino = carpeta / re.sub(r"\W+", "_", nombre)[:40]
-    ruta = descargar_imagen(url_img, destino) if url_img else None
-    if ruta and con_ia and not verificar_imagen_con_ia(ruta, nombre):
-        log(f"FASE 4 · Imagen descartada por visión IA: {url_img}", "WARN")
-        ruta = None
-    if ruta is None and DDGS is not None:                   # respaldo de imágenes
+def extraer_imagen_de_html(html_text, url_base):
+    """Extrae la mejor URL de imagen del HTML (og:image, twitter:image, JSON-LD)."""
+    if not html_text:
+        return None
+    patrones_meta = [
+        r'<meta[^>]+property=["\']og:image:secure_url["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image:secure_url["\']',
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']',
+    ]
+    for pat in patrones_meta:
+        m = re.search(pat, html_text, re.IGNORECASE)
+        if m:
+            url = urllib.parse.urljoin(url_base, html.unescape(m.group(1)))
+            if url.startswith("http") and "localhost" not in url:
+                return url
+    for m in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html_text, re.IGNORECASE | re.DOTALL
+    ):
         try:
-            with DDGS() as ddg:
-                for res in ddg.images(nombre, max_results=8):
-                    ruta = descargar_imagen(res.get("image", ""), destino)
-                    if ruta and (not con_ia or verificar_imagen_con_ia(ruta, nombre)):
-                        break
-                    ruta = None
+            data = json.loads(m.group(1).strip())
+            for cand in (data if isinstance(data, list) else [data]):
+                if not isinstance(cand, dict):
+                    continue
+                img = cand.get("image")
+                if isinstance(img, str) and img.startswith("http"):
+                    return img
+                if isinstance(img, list) and img:
+                    p = img[0]
+                    if isinstance(p, str) and p.startswith("http"):
+                        return p
+                    if isinstance(p, dict) and str(p.get("url", "")).startswith("http"):
+                        return p["url"]
         except Exception:
-            ruta = None
+            continue
+    return None
+
+def extraer_imagen_de_pagina(url, timeout=15):
+    """Descarga el HTML de una página de producto y extrae su imagen principal."""
+    if not url:
+        return None
+    html_text = fetch_html(url, timeout=timeout)
+    if not html_text:
+        return None
+    img = extraer_imagen_de_html(html_text, url)
+    if img and validar_url_imagen(img):
+        return img
+    return None
+
+def descargar_imagen_producto(url_imagen):
+    """Descarga una imagen (Referer para CDNs) y la deja como .png/.jpg local."""
+    import requests
+    if not url_imagen or "localhost" in url_imagen:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(url_imagen)
+        referer = f"{parsed.scheme}://{parsed.netloc}/"
+    except Exception:
+        referer = "https://www.google.com/"
+    headers = {**DEFAULT_HEADERS, "Referer": referer,
+               "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"}
+    try:
+        r = requests.get(url_imagen, headers=headers, timeout=20)
+        r.raise_for_status()
+        ct = r.headers.get("content-type", "image/jpeg").lower()
+        if "image" not in ct:
+            return None
+        ext = ".png" if "png" in ct else (".webp" if "webp" in ct else ".jpg")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tmp.write(r.content); tmp.close()
+        # convertir formatos no soportados por python-docx/openpyxl a PNG
+        if ext == ".webp":
+            try:
+                from PIL import Image as PILImage
+                im = PILImage.open(tmp.name).convert("RGB")
+                tmp2 = tempfile.NamedTemporaryFile(delete=False, suffix=".png"); tmp2.close()
+                im.save(tmp2.name, "PNG")
+                os.unlink(tmp.name)
+                return tmp2.name
+            except Exception as e:
+                log(f"  No se pudo convertir webp: {e}", "WARN")
+                os.unlink(tmp.name)
+                return None
+        log(f"  Imagen descargada: {len(r.content)//1024} KB", "OK")
+        return tmp.name
+    except Exception as e:
+        log(f"  No se pudo descargar imagen: {e}", "WARN")
+        return None
+
+def buscar_imagen_ddg(query, nombre_producto=""):
+    """Respaldo: busca una imagen relevante del producto vía DuckDuckGo."""
+    if DDGS is None:
+        return None
+    try:
+        keywords = set(re.findall(r"\b\w{4,}\b", (nombre_producto or query).lower()))
+        with DDGS() as ddgs:
+            resultados = list(ddgs.images(query, region="ec-es", max_results=10, safesearch="off"))
+        # primero, imágenes cuyo título coincide con el producto
+        for r in resultados:
+            img_url = r.get("image", "")
+            title = (r.get("title", "") or "").lower()
+            if img_url and img_url.startswith("http") and any(k in title for k in list(keywords)[:5]):
+                if validar_url_imagen(img_url):
+                    return img_url
+        # si no, la primera válida
+        for r in resultados:
+            img_url = r.get("image", "")
+            if img_url and validar_url_imagen(img_url):
+                return img_url
+    except Exception as e:
+        log(f"  Error buscando imagen (DDG): {e}", "WARN")
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 4 — BÚSQUEDA DE PRODUCTOS (Gemini + Google Search grounding)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _prompt_busqueda_articulo(info, direccion, n_articulos):
+    nac = "\n".join(f"- {u}" for u in PROVEEDORES_NACIONALES)
+    ext = "\n".join(f"- {u}" for u in PROVEEDORES_EXTRANJEROS)
+    return f"""Eres un comprador profesional en Ecuador. Usa Google Search para encontrar UN producto
+REAL y disponible que satisfaga el siguiente requerimiento de contratación pública.
+
+ARTÍCULO SOLICITADO:
+- Nombre: {info.get('nombre_articulo','')}
+- Marca:  {info.get('marca','') or '(no especificada)'}
+- Modelo: {info.get('modelo','') or '(no especificado)'}
+- Cantidad: {info.get('cantidad',1)}
+- Función principal: {info.get('funcion_principal','')}
+- Características requeridas: {json.dumps(info.get('caracteristicas',[]), ensure_ascii=False)}
+- Especificaciones requeridas: {json.dumps(info.get('especificaciones_tecnicas',[]), ensure_ascii=False)}
+- Dirección de entrega: {direccion}
+
+REGLAS DE SELECCIÓN:
+1) El producto debe ser NUEVO y coincidir con lo solicitado (marca/modelo exactos si se
+   especifican; si no, propón un producto que cumpla las características).
+2) Busca PRIMERO en estos proveedores NACIONALES (Ecuador):
+{nac}
+3) Si no lo encuentras en los nacionales, busca en estos proveedores EXTRANJEROS:
+{ext}
+4) Si tras agotar las listas no aparece, propón un proveedor de Ecuador que lo tenga.
+5) Elige la MEJOR opción = la de MENOR precio unitario que cumpla los requisitos. Si la mejor
+   opción es extranjera, considera envío + aduanas hasta Guayaquil; aun con esos costos su
+   total debe ser el menor.
+6) Los enlaces (producto e imagen) DEBEN ser reales, COMPLETOS y accesibles. Copia la URL
+   EXACTA del producto tal como aparece en el navegador, incluyendo identificadores numéricos
+   (SKU/ID), variante y la ruta completa; NO acortes, NO 'limpies' ni inventes el slug. La URL
+   debe abrir DIRECTAMENTE la ficha del producto (no una categoría, búsqueda ni la portada).
+7) La descripción y las características deben provenir de la página del proveedor o del
+   fabricante y coincidir con lo solicitado.
+
+Devuelve ÚNICAMENTE un JSON válido (sin markdown):
+{{
+  "encontrado": true,
+  "nombre": "Nombre comercial del producto",
+  "marca": "Marca",
+  "modelo": "Modelo",
+  "proveedor": "Nombre del proveedor elegido",
+  "url_producto": "https://enlace-real-del-producto",
+  "es_extranjero": false,
+  "precio_unitario_usd": 0.0,
+  "costo_envio_aduana_usd": 0.0,
+  "requiere_instalacion": false,
+  "costo_instalacion_unitario_usd": 0.0,
+  "descripcion": "Resumen de 50 a 80 palabras tomado del proveedor/fabricante",
+  "caracteristicas": ["al menos 7 características generales"],
+  "especificaciones_tecnicas": ["al menos 10 especificaciones técnicas"],
+  "especificaciones_electricas": ["especificaciones eléctricas o []"],
+  "incluye": ["accesorios/extras incluidos o []"],
+  "imagen_url": "https://enlace-real-de-la-imagen",
+  "imagenes_adicionales": ["otras imágenes reales del MISMO producto"],
+  "alternativas": ["url-2da-mejor-opcion", "url-3ra", "url-4ta"]
+}}
+
+- "costo_envio_aduana_usd": costo logístico TOTAL estimado para traer la cantidad solicitada
+  hasta la dirección de entrega (incluye aduana si es extranjero). Para entregas fuera de
+  Guayaquil suele ser de 86 a 155 USD.
+- "costo_instalacion_unitario_usd": mano de obra por unidad si el artículo requiere instalación
+  (entre 60 y 80 USD); 0 si no requiere.
+- "alternativas": hasta 3 URLs reales de las siguientes mejores opciones, en orden decreciente
+  de conveniencia. [] si no hay.
+- Si NO encuentras ningún producto adecuado, devuelve {{"encontrado": false}}.
+"""
+
+def _resolver_imagen(res, nombre):
+    """Devuelve una ruta local de imagen válida usando varios respaldos."""
+    candidatas = []
+    if res.get("imagen_url"):
+        candidatas.append(res["imagen_url"])
+    # imagen extraída de la propia página del producto
+    if res.get("url_producto"):
+        img_pag = extraer_imagen_de_pagina(res["url_producto"])
+        if img_pag:
+            candidatas.append(img_pag)
+    candidatas.extend([u for u in (res.get("imagenes_adicionales") or []) if u])
+    # respaldo final: búsqueda de imágenes
+    query = " ".join(x for x in [res.get("marca", ""), res.get("modelo", ""),
+                                 res.get("nombre", "") or nombre] if x).strip()
+    img_ddg = buscar_imagen_ddg(query, res.get("nombre", "") or nombre)
+    if img_ddg:
+        candidatas.append(img_ddg)
+
+    vistas = set()
+    for url in candidatas:
+        if not url or url in vistas:
+            continue
+        vistas.add(url)
+        if validar_url_imagen(url):
+            local = descargar_imagen_producto(url)
+            if local and Path(local).exists():
+                return local, url
+    return None, ""
+
+# Plantillas de URL de búsqueda interna por tienda. Cubren PrestaShop, WooCommerce/
+# WordPress, Magento y buscadores genéricos. {d}=dominio, {q}=consulta url-encoded.
+_PLANTILLAS_BUSQUEDA = [
+    "https://{d}/busqueda?controller=search&s={q}",                 # PrestaShop
+    "https://{d}/busqueda?order=product.position.desc&s={q}&c=0",    # PrestaShop (variante)
+    "https://{d}/?s={q}&post_type=product",                         # WooCommerce
+    "https://{d}/?s={q}",                                           # WordPress genérico
+    "https://{d}/buscar?q={q}",                                     # genérico
+    "https://{d}/search?q={q}",                                     # genérico
+    "https://{d}/catalogsearch/result/?q={q}",                      # Magento
+]
+
+
+def _consultas_busqueda(res):
+    """Consultas para el buscador del proveedor, a partir de marca/modelo/nombre y del
+       slug propuesto por la IA (que suele describir bien el producto)."""
+    consultas = []
+    base = " ".join(x for x in [res.get("marca", ""), res.get("modelo", ""),
+                                res.get("nombre", "")] if x).strip()
+    if base:
+        consultas.append(base)
+    for u in [res.get("url_producto", "")] + list(res.get("alternativas") or []):
+        if not u:
+            continue
+        try:
+            seg = [s for s in urllib.parse.urlparse(u).path.split("/") if s]
+        except Exception:
+            seg = []
+        if seg:
+            slug = re.sub(r"\.(html?|php|aspx?)$", "", seg[-1])
+            txt  = re.sub(r"[-_]+", " ", slug).strip()
+            if txt and txt.lower() not in (c.lower() for c in consultas):
+                consultas.append(txt)
+    return consultas[:3]
+
+
+def _recuperar_link_en_proveedor(res, timeout=12):
+    """Cuando la URL propuesta no se puede verificar (404, incompleta, redirige a la
+       portada…), RECUPERA un enlace funcional buscando el producto en el PROPIO sitio
+       del proveedor (su buscador interno). Devuelve una URL verificada cuyo contenido
+       coincide con el producto, o None. Resuelve casos como '/producto/<slug>/'
+       inexistente → '/busqueda?s=…'."""
+    nombre = res.get("nombre", "") or ""
+    marca  = res.get("marca", "") or ""
+    modelo = res.get("modelo", "") or ""
+    # Dominios candidatos = los del enlace propuesto y sus alternativas (el proveedor que
+    # la IA quiso usar). Sin duplicar, conservando orden, máximo 2.
+    dominios, vistos = [], set()
+    for u in [res.get("url_producto", "")] + list(res.get("alternativas") or []):
+        d = _dominio(u)
+        if d and d not in vistos:
+            vistos.add(d)
+            dominios.append(d)
+    dominios = dominios[:2]
+    consultas = _consultas_busqueda(res)
+    if not dominios or not consultas:
+        return None
+    for d in dominios:
+        for q in consultas:
+            qenc = urllib.parse.quote_plus(q)
+            for plantilla in _PLANTILLAS_BUSQUEDA:
+                url = plantilla.format(d=d, q=qenc)
+                final = _verificar_link_producto(url, nombre, marca, modelo,
+                                                 exigir_contenido=True, timeout=timeout)
+                if final:
+                    log(f"    Enlace recuperado vía buscador del proveedor ({d}).", "OK")
+                    return final
+    return None
+
+
+def _resolver_url_producto(res):
+    """Devuelve un enlace de producto COMPLETO y verificado (URL canónica tras
+       redirecciones). Prioriza coincidencia de contenido; si nada coincide,
+       acepta el primero que al menos exista; en último caso conserva el propuesto."""
+    nombre = res.get("nombre", "") or ""
+    marca  = res.get("marca", "") or ""
+    modelo = res.get("modelo", "") or ""
+    candidatos = []
+    if res.get("url_producto"):
+        candidatos.append(res["url_producto"])
+    candidatos.extend([u for u in (res.get("alternativas") or []) if u])
+
+    # 1) Verificación estricta: enlace completo + contenido coincidente
+    for u in candidatos:
+        final = _verificar_link_producto(u, nombre, marca, modelo, exigir_contenido=True)
+        if final:
+            if final != u:
+                log("    Enlace canónico resuelto tras redirección.", "INFO")
+            return final
+    # 2) Recuperación: la URL propuesta no existe (404) o está incompleta → buscar el
+    #    producto en el PROPIO sitio del proveedor y devolver un enlace funcional.
+    recuperado = _recuperar_link_en_proveedor(res)
+    if recuperado:
+        return recuperado
+    # 3) Verificación laxa: que al menos exista (200, sin 404/redirección a portada)
+    for u in candidatos:
+        final = _verificar_link_producto(u, nombre, marca, modelo, exigir_contenido=False)
+        if final:
+            log("    Enlace verificado solo por existencia (sin match de contenido).", "WARN")
+            return final
+    # 4) Nada verificable: conservar el propuesto
+    url0 = res.get("url_producto", "") or ""
+    if url0:
+        log("    No se pudo verificar ningún enlace; se conserva el propuesto.", "WARN")
+    return url0
+
+
+def _resolver_url_alternativa(url, res):
+    """Verifica/recupera UNA URL alternativa con la MISMA estrategia que el enlace
+       principal: 1) verificación estricta (existe + contenido coincide), 2) recuperación
+       en el buscador interno del PROPIO proveedor de la alternativa (resuelve el
+       '/producto/<slug>/' inexistente → '/busqueda?s=…'), 3) verificación laxa (que al
+       menos exista). Devuelve un enlace funcional, o '' si no se puede salvar — así no se
+       escriben links muertos en la proforma."""
+    if not url:
+        return ""
+    nombre = res.get("nombre", "") or ""
+    marca  = res.get("marca", "") or ""
+    modelo = res.get("modelo", "") or ""
+    # 1) Verificación estricta: enlace completo + contenido coincidente
+    final = _verificar_link_producto(url, nombre, marca, modelo, exigir_contenido=True)
+    if final:
+        return final
+    # 2) Recuperación en el sitio del proveedor de ESTA alternativa (su buscador interno).
+    #    Se arma un 'res' acotado a este enlace para que los dominios/consultas salgan de él.
+    res_alt = {"nombre": nombre, "marca": marca, "modelo": modelo,
+               "url_producto": url, "alternativas": []}
+    recuperado = _recuperar_link_en_proveedor(res_alt)
+    if recuperado:
+        return recuperado
+    # 3) Verificación laxa: que al menos exista (200, sin 404/redirección a portada)
+    final = _verificar_link_producto(url, nombre, marca, modelo, exigir_contenido=False)
+    if final:
+        return final
+    # 4) No verificable: se descarta para no dejar un link muerto en la alternativa
+    return ""
+
+
+def buscar_articulo(client, info, direccion, n_articulos, descargar_imagenes=True):
+    """
+    Busca el producto para un artículo y devuelve un dict NORMALIZADO con todo lo
+    necesario para la ficha y la proforma (incluye imágenes ya descargadas).
+    """
+    nombre = info.get("nombre_articulo", "")
+    log(f"  Buscando producto: {nombre[:60]} …")
+    texto = generar(client, _prompt_busqueda_articulo(info, direccion, n_articulos),
+                    use_search=True, prefer_complex=True)
+    res = _parsear_json_de_respuesta(texto) or {}
+
+    encontrado = bool(res.get("encontrado", True)) and bool(res.get("nombre") or res.get("url_producto"))
+    qty = max(1, int(info.get("cantidad", 1) or 1))
+
+    # Costos logísticos (con reglas/clamps de la especificación)
+    fuera = _es_fuera_de_guayaquil(direccion)
+    envio_total = _num(res.get("costo_envio_aduana_usd", 0.0))
+    if fuera:
+        envio_total = _clamp(envio_total if envio_total > 0 else ENVIO_MIN, ENVIO_MIN, ENVIO_MAX)
+    else:
+        envio_total = _clamp(envio_total, 0.0, ENVIO_MAX)
+    requiere_inst = bool(res.get("requiere_instalacion", False))
+    inst_unit = _num(res.get("costo_instalacion_unitario_usd", 0.0))
+    inst_unit = _clamp(inst_unit, INSTAL_MIN, INSTAL_MAX) if (requiere_inst and inst_unit > 0) else (
+        _clamp(INSTAL_MIN, INSTAL_MIN, INSTAL_MAX) if requiere_inst else 0.0)
+
+    # Costo agregado UNITARIO:
+    #   - mismo proveedor (A): el envío del pedido se reparte entre todos los artículos
+    #   - distinto proveedor (G, operativo): cada artículo asume su propio envío
+    extra_unit_mismo    = round(envio_total / max(1, n_articulos) / qty + inst_unit, 2)
+    extra_unit_distinto = round(envio_total / qty + inst_unit, 2)
+
+    # Listas; relleno desde el análisis si la búsqueda no las trajo
+    def _lista(clave_busqueda, clave_info):
+        v = res.get(clave_busqueda)
+        if isinstance(v, list) and v:
+            return v
+        return info.get(clave_info, []) or []
+
+    out = {
+        "info": info,
+        "encontrado": encontrado,
+        "nombre": (res.get("nombre") or nombre or "").strip(),
+        "marca": (res.get("marca") or info.get("marca", "") or "").strip(),
+        "modelo": (res.get("modelo") or info.get("modelo", "") or "").strip(),
+        "proveedor": (res.get("proveedor") or "").strip(),
+        "es_extranjero": bool(res.get("es_extranjero", False)),
+        "precio_unitario_usd": round(_num(res.get("precio_unitario_usd", 0.0)), 2),
+        "cantidad": qty,
+        "costo_envio_total_usd": round(envio_total, 2),
+        "costo_instalacion_unitario_usd": round(inst_unit, 2),
+        "extra_unit_mismo_usd": extra_unit_mismo,
+        "extra_unit_distinto_usd": extra_unit_distinto,
+        "descripcion": (res.get("descripcion") or info.get("resumen", "") or "").strip(),
+        "caracteristicas": _lista("caracteristicas", "caracteristicas"),
+        "especificaciones_tecnicas": _lista("especificaciones_tecnicas", "especificaciones_tecnicas"),
+        "especificaciones_electricas": _lista("especificaciones_electricas", "especificaciones_electricas"),
+        "incluye": _lista("incluye", "incluye"),
+        # La garantía técnica proviene de los DOCUMENTOS DE CONTRATACIÓN (análisis en
+        # 'analizar_documentos'), NO de la web del proveedor ni de internet.
+        "garantia_meses": max(0, int(round(_num(info.get("garantia_meses", 0), 0)))),
+        "garantia_texto": (info.get("garantia_texto") or "").strip(),
+        "alternativas": [],  # se verifican/recuperan abajo (igual que el enlace principal)
+        "imagen_local": None,
+        "imagen_url": "",
+        "imagenes_adicionales_local": [],
+    }
+
+    out["url_producto"] = _resolver_url_producto(res)
+    # Usar la URL canónica/verificada también para extraer la imagen de la página.
+    if out["url_producto"]:
+        res["url_producto"] = out["url_producto"]
+
+    # Las URLs alternativas llegan de la IA con el mismo problema de links muertos que el
+    # principal. Se verifican/recuperan una a una (misma estrategia), se descartan las que
+    # no se puedan salvar y se evita repetir el enlace principal.
+    alts_resueltas, vistas = [], set()
+    if out["url_producto"]:
+        vistas.add(out["url_producto"].rstrip("/"))
+    for _u in [a for a in (res.get("alternativas") or []) if a]:
+        _fa = _resolver_url_alternativa(_u, res)
+        if _fa and _fa.rstrip("/") not in vistas:
+            vistas.add(_fa.rstrip("/"))
+            alts_resueltas.append(_fa)
+        if len(alts_resueltas) >= 3:
+            break
+    out["alternativas"] = alts_resueltas
+
+    if descargar_imagenes:
+        img_local, img_url = _resolver_imagen(res, out["nombre"])
+        out["imagen_local"] = img_local
+        out["imagen_url"] = img_url
+        if not img_local:
+            log("    Sin imagen disponible para el producto.", "WARN")
+        # imágenes adicionales para el final de la ficha (máx. 2)
+        for u in (res.get("imagenes_adicionales") or [])[:3]:
+            if u and u != img_url and validar_url_imagen(u):
+                p = descargar_imagen_producto(u)
+                if p:
+                    out["imagenes_adicionales_local"].append(p)
+            if len(out["imagenes_adicionales_local"]) >= 2:
+                break
+
+    estado = "OK" if encontrado else "WARN"
+    log(f"    Producto: {out['nombre'][:55]} | ${out['precio_unitario_usd']:.2f} | "
+        f"{'extranjero' if out['es_extranjero'] else 'nacional'} | "
+        f"{'con imagen' if out['imagen_local'] else 'sin imagen'}", estado)
+    return out
+
+def buscar_todos_los_articulos(client, articulos, direccion, descargar_imagenes=True):
+    n = len(articulos)
+    resultados = []
+    for i, info in enumerate(articulos, 1):
+        log(f"\n  [{i}/{n}] {str(info.get('nombre_articulo',''))[:60]}")
+        try:
+            resultados.append(buscar_articulo(client, info, direccion, n, descargar_imagenes))
+        except Exception as e:
+            log(f"    Error buscando artículo {i}: {e}", "WARN")
+            resultados.append({
+                "info": info, "encontrado": False,
+                "nombre": info.get("nombre_articulo", ""),
+                "marca": info.get("marca", ""), "modelo": info.get("modelo", ""),
+                "proveedor": "", "es_extranjero": False,
+                "precio_unitario_usd": 0.0, "cantidad": max(1, int(info.get("cantidad", 1) or 1)),
+                "costo_envio_total_usd": 0.0, "costo_instalacion_unitario_usd": 0.0,
+                "extra_unit_mismo_usd": 0.0, "extra_unit_distinto_usd": 0.0,
+                "descripcion": info.get("resumen", ""),
+                "caracteristicas": info.get("caracteristicas", []),
+                "especificaciones_tecnicas": info.get("especificaciones_tecnicas", []),
+                "especificaciones_electricas": info.get("especificaciones_electricas", []),
+                "incluye": info.get("incluye", []),
+                "garantia_meses": max(0, int(round(_num(info.get("garantia_meses", 0), 0)))),
+                "garantia_texto": (info.get("garantia_texto") or "").strip(),
+                "alternativas": [], "url_producto": "",
+                "imagen_local": None, "imagen_url": "", "imagenes_adicionales_local": [],
+            })
+    return resultados
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 5 — GENERACIÓN DE LA FICHA TÉCNICA (.docx)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from docx import Document
+from docx.shared import Pt, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+
+
+def _set_fuente(run, nombre="Century Gothic", size=11, bold=False, italic=False, color=None):
+    """Aplica fuente/atributos a un run y fija rFonts (ascii/hAnsi/cs)."""
+    run.font.name = nombre
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.italic = italic
+    if color is not None:
+        run.font.color.rgb = color
+    rpr = run._element.get_or_add_rPr()
+    rfonts = rpr.find(qn("w:rFonts"))
+    if rfonts is None:
+        rfonts = rpr.makeelement(qn("w:rFonts"), {})
+        rpr.insert(0, rfonts)
+    for attr in ("w:ascii", "w:hAnsi", "w:cs"):
+        rfonts.set(qn(attr), nombre)
+
+
+def _add_par(doc, texto="", size=11, bold=False, italic=False, align=None,
+             color=None, space_after=6, space_before=0):
+    p = doc.add_paragraph()
+    if align is not None:
+        p.alignment = align
+    pf = p.paragraph_format
+    pf.space_after = Pt(space_after)
+    pf.space_before = Pt(space_before)
+    if texto:
+        _set_fuente(p.add_run(texto), size=size, bold=bold, italic=italic, color=color)
+    return p
+
+
+def _add_bullet(doc, texto, size=10):
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.left_indent = Pt(18)          # 360 twips
+    pf.first_line_indent = Pt(-18)   # sangría francesa
+    pf.space_after = Pt(2)
+    _set_fuente(p.add_run("•  " + str(texto)), size=size)
+    return p
+
+
+def _add_image_centered(doc, path, width_in=3.3):
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(2)
+        p.paragraph_format.space_after = Pt(6)
+        p.add_run().add_picture(path, width=Inches(width_in))
+        return True
+    except Exception as e:
+        log(f"    No se pudo insertar imagen en la ficha: {e}", "WARN")
+        return False
+
+
+def _abrir_plantilla_docx_limpia():
+    """Clona la plantilla y vacía el cuerpo conservando sectPr (tamaño A4,
+       márgenes, encabezado y pie con membrete, y las fuentes embebidas)."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    tmp.close()
+    shutil.copy(str(TEMPLATE_DOCX), tmp.name)
+    doc = Document(tmp.name)
+    body = doc.element.body
+    sectPr = body.find(qn("w:sectPr"))
+    for child in list(body):
+        if child is not sectPr:
+            body.remove(child)
+    return doc, tmp.name
+
+
+def generar_ficha_tecnica(resultados, codigo, id_infima, directorio):
+    """Genera la ficha técnica .docx (un bloque por artículo) según la especificación."""
+    doc, tmp_base = _abrir_plantilla_docx_limpia()
+    try:
+        for idx, r in enumerate(resultados):
+            nombre = (r.get("nombre") or r.get("info", {}).get("nombre_articulo")
+                      or f"Artículo {idx + 1}").strip()
+            # Título (negrita, centrado) — salto de página antes de cada artículo (salvo el 1.º)
+            p_title = _add_par(doc, nombre, size=14, bold=True,
+                               align=WD_ALIGN_PARAGRAPH.CENTER, space_before=0, space_after=4)
+            if idx > 0:
+                p_title.paragraph_format.page_break_before = True
+
+            # Subtítulo marca/modelo (si existen)
+            mm = " · ".join([x for x in [
+                (f"Marca: {r['marca']}" if r.get("marca") else ""),
+                (f"Modelo: {r['modelo']}" if r.get("modelo") else "")] if x])
+            if mm:
+                _add_par(doc, mm, size=10, italic=True,
+                         align=WD_ALIGN_PARAGRAPH.CENTER, space_after=6)
+
+            # Imagen principal (debajo del título)
+            _add_image_centered(doc, r.get("imagen_local"), width_in=3.3)
+
+            # Resumen / descripción (50-80 palabras), justificado
+            desc = (r.get("descripcion") or "").strip()
+            if desc:
+                _add_par(doc, desc, size=11, align=WD_ALIGN_PARAGRAPH.JUSTIFY,
+                         space_before=6, space_after=8)
+
+            # Secciones con viñetas
+            secciones = [
+                ("Características generales:", r.get("caracteristicas") or []),
+                ("Especificaciones técnicas:", r.get("especificaciones_tecnicas") or []),
+                ("Especificaciones eléctricas:", r.get("especificaciones_electricas") or []),
+                ("Incluye:", r.get("incluye") or []),
+            ]
+            for titulo, items in secciones:
+                items = [str(x).strip() for x in items if str(x).strip()]
+                if not items:
+                    continue
+                _add_par(doc, titulo, size=11, bold=True, space_before=4, space_after=2)
+                for it in items:
+                    _add_bullet(doc, it, size=10)
+
+            # Imágenes adicionales al final del bloque
+            for img in (r.get("imagenes_adicionales_local") or []):
+                _add_image_centered(doc, img, width_in=3.0)
+
+        nombre_archivo = _sanitizar_nombre_archivo(f"{codigo}_Ficha_técnica_{id_infima}.docx")
+        ruta = os.path.join(directorio, nombre_archivo)
+        doc.save(ruta)
+        log(f"  Ficha técnica generada: {nombre_archivo}", "OK")
+        return ruta
+    finally:
+        try:
+            os.remove(tmp_base)
+        except Exception:
+            pass
+
+
+def generar_ficha_limite(codigo, id_infima, directorio):
+    """Ficha con el ÚNICO mensaje rojo cuando se supera el límite de 10 artículos."""
+    doc, tmp_base = _abrir_plantilla_docx_limpia()
+    try:
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_before = Pt(40)
+        _set_fuente(
+            p.add_run("La cantidad de artículos supera el límite permitido de 10 artículos de compra"),
+            nombre="Arial", size=14, bold=True, color=RGBColor(0xFF, 0x00, 0x00),
+        )
+        nombre_archivo = _sanitizar_nombre_archivo(f"{codigo}_Ficha_técnica_{id_infima}.docx")
+        ruta = os.path.join(directorio, nombre_archivo)
+        doc.save(ruta)
+        log(f"  Ficha de límite (> {LIMITE_ARTICULOS} artículos) generada: {nombre_archivo}", "WARN")
+        return ruta
+    finally:
+        try:
+            os.remove(tmp_base)
+        except Exception:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PASO 6 — GENERACIÓN DE LA PROFORMA (.xlsm)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _formatear_contacto(contacto):
+    """Conserva solo nombre + correo/teléfono del contacto."""
+    if not contacto:
+        return ""
+    s = str(contacto).strip()
+    email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", s)
+    phone = re.search(r"(?:\+?593[\s-]?|0)\d[\d\s-]{6,}\d", s)
+    nombre = re.split(r"[\d,;|]|@", s)[0].strip(" -:·\t")
+    partes = []
+    if nombre:
+        partes.append(nombre)
+    if email:
+        partes.append(email.group(0))
+    if phone:
+        partes.append(re.sub(r"\s+", " ", phone.group(0)).strip())
+    return "  ·  ".join(partes) if partes else s
+
+
+def _clave_proveedor(r, idx):
+    """Clave para agrupar por proveedor: nombre normalizado o, en su defecto,
+       el dominio de la URL del producto. Si no hay ninguno, se trata como único."""
+    p = (r.get("proveedor") or "").strip().lower()
+    if p:
+        return p
+    dom = _dominio(r.get("url_producto", ""))
+    return dom if dom else f"__unico_{idx}__"
+
+
+def _calcular_costos_por_proveedor(resultados, direccion):
+    """
+    Decide, por artículo, dónde va el costo extra (envío/aduana + instalación):
+
+      • Proveedor COMPARTIDO (surte a MIN_ARTICULOS_PROVEEDOR_COMPARTIDO+ artículos):
+        el costo extra UNITARIO va en la columna A y se conserva la fórmula de G,
+        de modo que el costo del proveedor queda DISTRIBUIDO (promediado) entre
+        todos sus productos. El envío del proveedor se consolida (un solo envío)
+        y se reparte entre la cantidad total de unidades del grupo.
+
+      • Proveedor ÚNICO (no coincide con ningún otro): el costo extra UNITARIO se
+        escribe directamente en G (se suma directo al costo final de ese producto)
+        y la columna A queda vacía.
+
+    Devuelve una lista paralela a 'resultados' con {compartido, A, G}.
+    """
+    from collections import defaultdict
+
+    fuera = _es_fuera_de_guayaquil(direccion)
+    grupos = defaultdict(list)
+    for i, r in enumerate(resultados):
+        grupos[_clave_proveedor(r, i)].append(i)
+
+    salida = [None] * len(resultados)
+    for indices in grupos.values():
+        compartido = len(indices) >= MIN_ARTICULOS_PROVEEDOR_COMPARTIDO
+        if compartido:
+            # Un solo envío consolidado por proveedor (estimado más alto del grupo).
+            envios = [_num(resultados[i].get("costo_envio_total_usd", 0.0)) for i in indices]
+            envio_grupo = _envio_clamp(max(envios) if envios else 0.0, fuera)
+            q_grupo = sum(max(1, int(resultados[i].get("cantidad", 1) or 1)) for i in indices)
+            envio_unit = envio_grupo / max(1, q_grupo)
+            for i in indices:
+                inst = _num(resultados[i].get("costo_instalacion_unitario_usd", 0.0))
+                salida[i] = {"compartido": True, "A": round(envio_unit + inst, 2),
+                             "G": None, "grupo_indices": list(indices)}
+        else:
+            i = indices[0]
+            qty = max(1, int(resultados[i].get("cantidad", 1) or 1))
+            envio = _envio_clamp(_num(resultados[i].get("costo_envio_total_usd", 0.0)), fuera)
+            inst = _num(resultados[i].get("costo_instalacion_unitario_usd", 0.0))
+            salida[i] = {"compartido": False, "A": None,
+                         "G": round(envio / qty + inst, 2), "grupo_indices": [i]}
+    return salida
+
+
+# --- Reinyección del botón "Imprimir PDF" (autoforma + macro) -------------------
+# openpyxl regenera el dibujo de la hoja al guardar y descarta las autoformas
+# (xdr:sp), por lo que el botón con la macro Imprimir_PDF se pierde. Lo recuperamos
+# copiando su bloque desde la plantilla al dibujo del .xlsm generado.
+
+def _extraer_anchor_boton_pdf(plantilla_xlsm):
+    import zipfile, re
+    try:
+        with zipfile.ZipFile(plantilla_xlsm, "r") as z:
+            for n in z.namelist():
+                if re.match(r"xl/drawings/drawing\d+\.xml$", n):
+                    xml = z.read(n).decode("utf-8", errors="ignore")
+                    if not re.search(r"<xdr:sp[\s>/]", xml):
+                        continue
+                    anchors = re.findall(r"<xdr:twoCellAnchor.*?</xdr:twoCellAnchor>", xml, re.S)
+                    # Solo las anclas que contienen una AUTOFORMA (<xdr:sp ...>), no <xdr:spPr>
+                    bloques = [a for a in anchors if re.search(r"<xdr:sp[\s>/]", a)]
+                    if bloques:
+                        return "".join(bloques)
+    except Exception as e:
+        log(f"    No se pudo leer el botón de la plantilla: {e}", "WARN")
+    return None
+
+def _drawing_de_hoja(zf, nombre_hoja="Cotización"):
+    import re
+    try:
+        wb = zf.read("xl/workbook.xml").decode("utf-8", errors="ignore")
+        m = re.search(r'<sheet[^>]*name="' + re.escape(nombre_hoja) + r'[^"]*"[^>]*r:id="([^"]+)"', wb)
+        if not m:
+            return None
+        rid = m.group(1)
+        rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8", errors="ignore")
+        m2 = re.search(r'<Relationship[^>]*Id="' + re.escape(rid) + r'"[^>]*Target="([^"]+)"', rels)
+        if not m2:
+            return None
+        sheet_target = m2.group(1).split("/")[-1]            # sheetN.xml
+        sheet_rels = f"xl/worksheets/_rels/{sheet_target}.rels"
+        if sheet_rels not in zf.namelist():
+            return None
+        r = zf.read(sheet_rels).decode("utf-8", errors="ignore")
+        m3 = re.search(r'<Relationship[^>]*Type="[^"]*/drawing"[^>]*Target="([^"]+)"', r)
+        if not m3:
+            return None
+        return "xl/drawings/" + m3.group(1).split("/")[-1]
+    except Exception:
+        return None
+
+def _inyectar_boton_pdf(ruta_xlsm, plantilla_xlsm):
+    """Reinyecta la autoforma del botón 'Imprimir PDF' (con su macro) en el dibujo
+       de la hoja Cotización del .xlsm generado, adaptando el estilo de namespaces
+       (openpyxl usa namespace por defecto; la plantilla usa prefijo xdr:)."""
+    import zipfile, re
+    bloque = _extraer_anchor_boton_pdf(plantilla_xlsm)
+    if not bloque:
+        return False
+    try:
+        with zipfile.ZipFile(ruta_xlsm, "r") as z:
+            nombres = z.namelist()
+            destino = _drawing_de_hoja(z, "Cotización")
+            if not destino or destino not in nombres:
+                draws = [n for n in nombres if re.match(r"xl/drawings/drawing\d+\.xml$", n)]
+                destino = draws[0] if draws else None
+            if not destino:
+                return False
+            contenido = {n: z.read(n) for n in nombres}
+        draw_xml = contenido[destino].decode("utf-8", errors="ignore")
+        if "Imprimir_PDF" in draw_xml:
+            return True   # el botón ya está presente
+
+        usa_prefijo = ("<xdr:wsDr" in draw_xml) or ("</xdr:wsDr>" in draw_xml)
+        if usa_prefijo:
+            cierre = "</xdr:wsDr>"
+            bloque_norm = bloque                      # conserva los prefijos xdr:
+        else:
+            cierre = "</wsDr>"
+            bloque_norm = bloque.replace("xdr:", "")  # estilo namespace por defecto
+            cabecera = draw_xml.split(">", 1)[0]
+            if "xmlns:a=" not in cabecera:            # asegurar el namespace 'a'
+                draw_xml = re.sub(
+                    r"(<wsDr\b[^>]*?)>",
+                    r'\1 xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">',
+                    draw_xml, count=1)
+        if cierre not in draw_xml:
+            return False
+        draw_xml = draw_xml.replace(cierre, bloque_norm + cierre)
+        contenido[destino] = draw_xml.encode("utf-8")
+        tmp = ruta_xlsm + ".tmp"
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+            for n in nombres:
+                z.writestr(n, contenido[n])
+        os.replace(tmp, ruta_xlsm)
+        return True
+    except Exception as e:
+        log(f"    No se pudo reinyectar el botón PDF: {e}", "WARN")
+        return False
+
+
+def _formatear_garantia(meses) -> str:
+    """Convierte un número de MESES en texto de garantía ('12 MESES', '1 AÑO',
+       '2 AÑOS'…). Devuelve '' si la garantía no es válida (<= 0)."""
+    try:
+        m = int(round(_num(meses, 0)))
+    except Exception:
+        m = 0
+    if m <= 0:
+        return ""
+    if m % 12 == 0:
+        a = m // 12
+        return f"{a} AÑO" if a == 1 else f"{a} AÑOS"
+    return f"{m} MES" if m == 1 else f"{m} MESES"
+
+
+def _garantia_para_proforma(resultados) -> str:
+    """Garantía técnica ÚNICA para la celda I12. La hoja tiene un solo campo de
+       garantía, pero puede haber varios artículos: se usa la MENOR garantía (en
+       meses) entre los productos con garantía válida — la cobertura mínima común a
+       TODOS los artículos. Devuelve '' si ningún producto reporta garantía."""
+    meses = []
+    for r in (resultados or []):
+        m = int(round(_num(r.get("garantia_meses", 0), 0)))
+        if m > 0:
+            meses.append(m)
+    return _formatear_garantia(min(meses)) if meses else ""
+
+
+def generar_proforma(registro, resultados, directorio, id_infima):
+    """Genera la proforma .xlsm modificando ÚNICAMENTE las celdas indicadas por la
+       especificación, respetando la estructura de la plantilla (sin insertar/borrar
+       filas, sin renombrar hojas)."""
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+    from openpyxl.drawing.image import Image as XLImage
+
+    codigo    = registro.get("codigo_necesidad", "")
+    entidad   = (registro.get("entidad_contratante") or "").upper()
+    ent_url   = registro.get("entidad_contratante_url") or ""
+    direccion = registro.get("direccion_entrega") or ""
+    contacto  = _formatear_contacto(registro.get("contacto") or "")
+    # Datos de la ínfima (tabla 'infimas') para la proforma:
+    #   • CPC    → hoja "Cotización", col. B en cada línea de artículo (B16:B25)
+    #   • PACdoc → hoja "Costos", celda G8 (se omite si es 0)
+    #   • PACweb → hoja "Costos", celda H8 (se omite si es 0)
+    _cpc_raw = registro.get("CPC")
+    cpc      = _cpc_raw if (_cpc_raw is not None and str(_cpc_raw).strip() != "") else None
+    pacdoc   = _num(registro.get("PACdoc"), 0.0)
+    pacweb   = _num(registro.get("PACweb"), 0.0)
+
+    nombre_archivo = _sanitizar_nombre_archivo(f"{codigo}_Proforma_{id_infima}.xlsm")
+    ruta = os.path.join(directorio, nombre_archivo)
+    shutil.copy(str(TEMPLATE_XLSX), ruta)
+
+    wb = load_workbook(ruta, keep_vba=True)
+    ws_cot    = wb["Cotización"]     # ← nombre EXACTO de la hoja (sin espacio final)
+    ws_costos = wb["Costos"]
+
+    def escribir_celda(ws, ref, valor):
+        try:
+            for mr in ws.merged_cells.ranges:
+                if ref in mr:
+                    ws[f"{get_column_letter(mr.min_col)}{mr.min_row}"].value = valor
+                    return
+            ws[ref].value = valor
+        except Exception as e:
+            log(f"    Error escribiendo en {ref}: {e}", "WARN")
+
+    n = len(resultados)
+
+    # ── HOJA "Cotización" ───────────────────────────────────────────────
+    log("  Llenando hoja de Cotización…")
+    escribir_celda(ws_cot, "B8",  entidad)
+    escribir_celda(ws_cot, "B9",  str(codigo)[4:17])      # caracteres 5-17 del código
+    escribir_celda(ws_cot, "B10", direccion)
+    escribir_celda(ws_cot, "B11", contacto)
+    escribir_celda(ws_cot, "D12", codigo)                 # celda de VALOR de la fila 12
+    escribir_celda(ws_cot, "I3",  _numero_proforma(id_infima))
+    escribir_celda(ws_cot, "I8",  datetime.date.today().strftime("%d/%m/%Y"))
+    garantia_txt = _garantia_para_proforma(resultados)        # garantía técnica → I12
+    if garantia_txt:
+        escribir_celda(ws_cot, "I12", garantia_txt)
+
+    FILA_COT_INI = 16
+    # Filas activas (16 .. 15+n)
+    for i, r in enumerate(resultados):
+        fila = FILA_COT_INI + i
+        ws_cot.row_dimensions[fila].height = 220
+        nombre_full = " ".join([x for x in [r.get("nombre", ""), r.get("marca", ""),
+                                            r.get("modelo", "")] if x]).strip()
+        escribir_celda(ws_cot, f"C{fila}", nombre_full)
+        if cpc is not None:
+            escribir_celda(ws_cot, f"B{fila}", cpc)           # CPC (mismo para todos los artículos)
+        escribir_celda(ws_cot, f"G{fila}", r.get("cantidad", 1))
+        img_path = r.get("imagen_local")
+        if img_path and os.path.exists(img_path):
+            try:
+                xi = XLImage(img_path)
+                target_h = 140
+                if xi.height:
+                    ratio = target_h / float(xi.height)
+                    xi.height = target_h
+                    xi.width = max(40, int(xi.width * ratio))
+                xi.anchor = f"E{fila}"
+                ws_cot.add_image(xi)
+            except Exception as e:
+                log(f"    No se pudo anclar imagen en proforma (fila {fila}): {e}", "WARN")
+
+    # Filas de producto sobrantes (16+n .. 25): dejar en blanco
+    for fila in range(FILA_COT_INI + n, 26):
+        ws_cot[f"A{fila}"].value = None      # número de ítem (fórmula)
+        escribir_celda(ws_cot, f"B{fila}", None)   # CPC sobrante
+        escribir_celda(ws_cot, f"C{fila}", None)
+        ws_cot[f"F{fila}"].value = None      # 'U'
+        escribir_celda(ws_cot, f"G{fila}", None)
+        ws_cot.row_dimensions[fila].height = 15
+
+    # Fila 15 (muestra vestigial de la plantilla): neutralizar por completo
+    # (vía escribir_celda para respetar las celdas combinadas, p. ej. C15:E15)
+    for col in ("A", "B", "C", "D", "E", "F", "G", "H", "I"):
+        escribir_celda(ws_cot, f"{col}15", None)
+    ws_cot.row_dimensions[15].height = 15
+
+    # ── HOJA "Costos" ───────────────────────────────────────────────────
+    log("  Llenando hoja de Costos…")
+    escribir_celda(ws_costos, "C7", ent_url)
+    # PAC referencial del proceso (se omite la celda si el valor es 0):
+    if pacdoc > 0:
+        escribir_celda(ws_costos, "G8", round(pacdoc, 2))     # PACdoc
+    if pacweb > 0:
+        escribir_celda(ws_costos, "H8", round(pacweb, 2))     # PACweb
+
+    # Clasificación del costo extra por proveedor:
+    #   • COMPARTIDO (2+ artículos): costo extra → columna A; en G se escribe una fórmula
+    #     que promedia las A del grupo y divide ÚNICAMENTE entre la cantidad de productos
+    #     del MISMO proveedor (distribución estricta por proveedor).
+    #   • ÚNICO: costo extra → se SOBRESCRIBE en G de esa fila; A se deja vacía.
+    costos_prov = _calcular_costos_por_proveedor(resultados, direccion)
+    hay_compartidos = any(c["compartido"] for c in costos_prov)
+
+    FILA_COS_INI = 15
+    # Filas activas (15 .. 14+n) — Cotización 16+i ↔ Costos 15+i
+    for i, r in enumerate(resultados):
+        fila = FILA_COS_INI + i
+        escribir_celda(ws_costos, f"C{fila}", r.get("url_producto", ""))            # link mejor opción
+        ws_costos[f"E{fila}"].value = round(_num(r.get("precio_unitario_usd", 0.0)), 2)  # costo unitario
+        c = costos_prov[i]
+        if c["compartido"]:
+            ws_costos[f"A{fila}"].value = c["A"]                       # costo extra → columna A
+            filas_grupo = [FILA_COS_INI + j for j in c["grupo_indices"]]
+            m = len(filas_grupo)
+            celdas = ",".join(f"A{f}" for f in filas_grupo)
+            # G = promedio de las A del grupo ÷ nº de productos del proveedor (estricto)
+            ws_costos[f"G{fila}"].value = f"=IF(F{fila}>0,AVERAGE({celdas})/{m},0)"
+        else:
+            ws_costos[f"A{fila}"].value = None                          # A vacía
+            ws_costos[f"G{fila}"].value = c["G"]                        # costo extra directo (estático)
+
+    # Filas de costo sobrantes (15+n .. 24): limpiar la muestra de la columna A
+    for fila in range(FILA_COS_INI + n, 25):
+        ws_costos[f"A{fila}"].value = None
+
+    # Si NINGÚN proveedor es compartido, A15:A24 queda vacía y A25=AVERAGE(A15:A24)
+    # daría #DIV/0!. Se coloca un 0 (oculto por el formato ';;;') en A15 para
+    # mantener la fórmula válida sin alterar ningún cálculo.
+    if not hay_compartidos:
+        ws_costos["A15"].value = 0
+
+    # Alternativas (top-3 decrecientes) para los productos 1, 2 y 3
+    bloques_alt = {0: [15, 16, 17], 1: [19, 20, 21], 2: [23, 24, 25]}
+    for idx_prod, filas_alt in bloques_alt.items():
+        if idx_prod < n:
+            alts = resultados[idx_prod].get("alternativas") or []
+            for k, fila_alt in enumerate(filas_alt):
+                escribir_celda(ws_costos, f"J{fila_alt}", alts[k] if k < len(alts) else None)
+
+    wb.save(ruta)
+    # Reinsertar el botón "Imprimir PDF" (autoforma + macro) que openpyxl descarta.
+    if _inyectar_boton_pdf(ruta, str(TEMPLATE_XLSX)):
+        log("  Botón 'Imprimir PDF' reinsertado en la proforma.", "OK")
+    else:
+        log("  Botón 'Imprimir PDF' no reinsertado (la proforma queda sin botón).", "WARN")
+    log(f"  Proforma generada: {nombre_archivo}", "OK")
     return ruta
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 5 · FICHA TÉCNICA .docx  (plantilla corporativa: Century Gothic 12,
-#            encabezado y pie de página se conservan intactos)
+#  ORQUESTADOR PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-FUENTE_FICHA = "Century Gothic"
-TAM_FICHA    = 12       # puntos (la plantilla usa sz=24 medios puntos)
+def main():
+    inicio = time.time()
+    print("\n" + "=" * 70)
+    print("  PROYECTO NEXUS — GENERADOR DE FICHAS Y PROFORMAS (V3)")
+    print("=" * 70)
 
-
-def _limpiar_cuerpo_docx(doc) -> None:
-    """
-    Vacía el cuerpo del documento PERO conserva la sección final (sectPr):
-    así se mantienen tamaño de página, márgenes, encabezado y pie originales.
-    """
-    from docx.oxml.ns import qn
-    cuerpo = doc.element.body
-    for hijo in list(cuerpo):
-        if hijo.tag != qn("w:sectPr"):
-            cuerpo.remove(hijo)
-
-
-def _parrafo(doc, texto: str, negrita=False, fuente=FUENTE_FICHA, tam=TAM_FICHA,
-             color=None, centrado=False):
-    """Añade un párrafo con la tipografía de la plantilla."""
-    from docx.shared import Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    p = doc.add_paragraph()
-    if centrado:
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run(texto)
-    run.bold = negrita
-    run.font.name = fuente
-    run.font.size = Pt(tam)
-    if color:
-        run.font.color.rgb = RGBColor(*color)
-    return p
-
-
-def _vinetas(doc, items: List[str]) -> None:
-    """
-    Lista con viñetas usando el estilo 'List Bullet' de la plantilla; si el
-    estilo no existe (KeyError latente conocido), usa un fallback con '• '.
-    """
-    from docx.shared import Pt
-    for texto in items:
-        try:
-            p = doc.add_paragraph(style="List Bullet")
-            run = p.add_run(str(texto))
-        except KeyError:                                    # fallback seguro
-            p = doc.add_paragraph()
-            run = p.add_run("• " + str(texto))
-        run.font.name = FUENTE_FICHA
-        run.font.size = Pt(TAM_FICHA)
-
-
-def generar_ficha_docx(analisis: dict, imagenes: Dict[int, Optional[Path]],
-                       ruta_salida: Path) -> Path:
-    """
-    Genera la ficha técnica siguiendo el lineamiento de la plantilla:
-    título en negrita (nombre del artículo) → imagen → resumen (60–100
-    palabras) → Características → Especificaciones técnicas → Incluye →
-    Anexos (imágenes adicionales). Un bloque por artículo, mismo docx.
-    Si excede el límite de artículos, SOLO escribe el mensaje en rojo.
-    """
-    import docx
-    from docx.shared import Inches
-    doc = docx.Document(str(TEMPLATE_DOCX))                 # hereda encabezado/pie
-    _limpiar_cuerpo_docx(doc)
-
-    if analisis.get("excede_limite") or analisis.get("num_articulos", 0) > LIMITE_ARTICULOS:
-        # Regla del límite: mensaje único en rojo, Arial bold 14 — nada más.
-        _parrafo(doc, MENSAJE_LIMITE, negrita=True, fuente="Arial", tam=14,
-                 color=(255, 0, 0))
-        doc.save(str(ruta_salida))
-        log(f"FASE 5 · Ficha con mensaje de límite generada: {ruta_salida.name}")
-        return ruta_salida
-
-    articulos = analisis.get("articulos", [])
-    for i, art in enumerate(articulos):
-        titulo = " ".join(x for x in (art.get("nombre"), art.get("marca"),
-                                      art.get("modelo")) if x)
-        # El nombre puede ya contener marca/modelo; evita duplicarlos
-        if art.get("marca") and art["marca"].lower() in (art.get("nombre") or "").lower():
-            titulo = art.get("nombre", titulo)
-        _parrafo(doc, titulo, negrita=True)
-
-        ruta_img = imagenes.get(i)
-        if ruta_img and ruta_img.exists():                  # imagen bajo el título
-            doc.add_picture(str(ruta_img), width=Inches(4.3))
-            doc.paragraphs[-1].alignment = 1                # centrada
-
-        if art.get("resumen"):
-            _parrafo(doc, art["resumen"])
-
-        if art.get("caracteristicas"):
-            _parrafo(doc, "Características:", negrita=True)
-            _vinetas(doc, art["caracteristicas"])
-        if art.get("especificaciones"):
-            _parrafo(doc, "Especificaciones técnicas:", negrita=True)
-            _vinetas(doc, art["especificaciones"])
-        if art.get("incluye"):
-            _parrafo(doc, "Incluye:", negrita=True)
-            _vinetas(doc, art["incluye"])
-
-        # Anexos: imágenes adicionales del mismo producto (si existen)
-        extras = art.get("imagenes_anexos") or []
-        rutas_extras = [Path(p) for p in extras if Path(p).exists()]
-        if rutas_extras:
-            _parrafo(doc, "Anexos", negrita=True)
-            for rp in rutas_extras:
-                doc.add_picture(str(rp), width=Inches(3.5))
-                doc.paragraphs[-1].alignment = 1
-        if i < len(articulos) - 1:
-            doc.add_page_break()                            # un artículo por bloque
-
-    doc.save(str(ruta_salida))
-    log(f"FASE 5 · Ficha técnica generada: {ruta_salida.name}")
-    return ruta_salida
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  FASE 6 · PROFORMA .xlsm  (openpyxl keep_vba + reinyección del botón PDF)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _numero_proforma(id_infima: Any) -> str:
-    """
-    '00100100###': 8 dígitos fijos + id_infima en 3 posiciones. Si el id tiene
-    más de 3 dígitos consume los últimos dígitos fijos; si tiene menos, se
-    rellena con ceros. El resultado SIEMPRE mide 11 caracteres.
-    Ej.: id 21 → 00100100021 · id 1234 → 00100101234
-    """
-    base, sid = "00100100", str(id_infima)
-    if len(sid) <= 3:
-        return base + sid.zfill(3)
-    return (base + "0" * 3)[: 11 - len(sid)] + sid
-
-
-def _contacto_resumido(contacto: str) -> str:
-    """
-    Del campo 'contacto' toma SOLO el nombre del encargado y su correo o su
-    teléfono (lo primero que aparezca).
-    """
-    contacto = (contacto or "").strip()
-    correo = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", contacto)
-    telefono = re.search(r"(?:\+?593|0)?\s?\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}", contacto)
-    # El "nombre" es lo que queda antes del primer dato de contacto…
-    corte = min([m.start() for m in (correo, telefono) if m] or [len(contacto)])
-    previo = contacto[:corte]
-    # …y de ese texto se toma SOLO el primer segmento (descarta cargo, área, etc.)
-    nombre = re.split(r"\s[-–|·]\s|,|;", previo)[0].strip(" -–,;:")
-    dato = correo.group(0) if correo else (telefono.group(0) if telefono else "")
-    return f"{nombre} - {dato}".strip(" -") if dato else nombre
-
-
-def _clamp(v: float, lo: float, hi: float) -> float:
-    """Limita un valor al rango [lo, hi] (rangos de negocio para extras)."""
+    # 0) Clientes
     try:
-        return max(lo, min(hi, float(v)))
-    except Exception:
-        return lo
+        client = get_genai_client()
+    except Exception as e:
+        log(f"No se pudo inicializar Vertex AI/Gemini: {e}", "ERR")
+        traceback.print_exc()
+        return
+    try:
+        gcs = obtener_cliente_gcs()
+    except Exception as e:
+        log(f"No se pudo inicializar el cliente de GCS: {e}", "ERR")
+        traceback.print_exc()
+        return
 
+    # 1) data_table_1
+    try:
+        registros = obtener_data_table_1()
+    except Exception as e:
+        log(f"No se pudo leer la base de datos: {e}", "ERR")
+        traceback.print_exc()
+        return
+    if not registros:
+        log("No hay ínfimas 'en generacion'. Nada que procesar.", "OK")
+        return
 
-def _costos_extras(analisis: dict, direccion_entrega: str) -> Dict[int, dict]:
-    """
-    Calcula los costos extras por artículo y los agrupa por proveedor:
-      · Envío 86–155 USD si la entrega es fuera de Guayaquil (según distancia).
-      · Instalación 60–80 USD por artículo que la requiera.
-      · Proveedor COMPARTIDO (≥2 artículos): el total del proveedor se reparte
-        entre sus artículos (columna A + fórmula en G con denominador propio).
-      · Proveedor ÚNICO: el costo extra va DIRECTO en la columna G.
-    Devuelve {índice_artículo: {"extra": USD, "grupo": dominio, "k": tamaño}}.
-    """
-    fuera_gye = "guayaquil" not in (direccion_entrega or "").lower()
-    articulos = analisis.get("articulos", [])
-    grupos: Dict[str, List[int]] = {}
-    for i, art in enumerate(articulos):
-        dom = _dominio((art.get("mejor_opcion") or {}).get("url_producto", "")) or f"prov{i}"
-        grupos.setdefault(dom, []).append(i)
+    total = len(registros)
+    resumen = {"ok": 0, "limite": 0, "error": 0}
 
-    resultado: Dict[int, dict] = {}
-    for i, art in enumerate(articulos):
-        mejor = art.get("mejor_opcion") or {}
-        extra = 0.0
-        if fuera_gye:                                       # envío fuera de GYE
-            extra += _clamp(mejor.get("costo_extra_envio_sugerido", ENVIO_MIN),
-                            ENVIO_MIN, ENVIO_MAX)
-        if mejor.get("es_extranjero"):                      # aduana / logística
-            extra += max(0.0, float(mejor.get("costo_aduana_estimado", 0) or 0))
-        if art.get("requiere_instalacion"):                 # mano de obra
-            mapa = {"baja": INSTAL_MIN, "media": (INSTAL_MIN + INSTAL_MAX) / 2,
-                    "alta": INSTAL_MAX}
-            extra += mapa.get(str(art.get("complejidad_instalacion", "baja")).lower(),
-                              INSTAL_MIN)
-        dom = _dominio(mejor.get("url_producto", "")) or f"prov{i}"
-        resultado[i] = {"extra": round(extra, 2), "grupo": dom,
-                        "k": len(grupos[dom])}
-    return resultado
+    for n_reg, registro in enumerate(registros, 1):
+        codigo    = registro.get("codigo_necesidad", "")
+        id_infima = registro.get("id_infima", "")
+        direccion = registro.get("direccion_entrega") or ""
+        paso(n_reg, total, f"Código {codigo}  (id_infima {id_infima})")
 
-
-def generar_proforma_xlsm(analisis: dict, registro: Dict[str, Any],
-                          imagenes: Dict[int, Optional[Path]],
-                          ruta_salida: Path) -> Path:
-    """
-    Rellena la plantilla xlsm SIN tocar nada más que lo indicado:
-      Hoja 'Cotización': B8, B9, B10, B11, B16.., D12, I3, I8, I10, I12,
-                         C16.. (nombre + imagen), G16.. (cantidades).
-      Hoja 'Costos'    : C7, C15.., E15.., A15.., G15.., J (alternativas).
-    Las celdas de artículos sobrantes se vacían y sus filas se ocultan (alto 0)
-    y las fórmulas globales (SUM/IVA/Total) siguen funcionando sin alterarse.
-    El botón 'Imprimir PDF' se reinyecta en un post-proceso (openpyxl lo
-    descarta al guardar).
-    """
-    import openpyxl
-    wb = openpyxl.load_workbook(str(TEMPLATE_XLSX), keep_vba=True)
-    ws_cot, ws_cst = wb["Cotización"], wb["Costos"]
-    articulos = analisis.get("articulos", [])
-    n = len(articulos)
-
-    # ── Hoja "Cotización" · cabecera ─────────────────────────────────────────
-    ws_cot["B8"]  = str(registro.get("entidad_contratante", "")).upper()
-    ws_cot["B9"]  = str(registro.get("codigo_necesidad", ""))[4:17]   # chars 5–17
-    ws_cot["B10"] = registro.get("dirección_entrega", "")
-    ws_cot["B11"] = _contacto_resumido(registro.get("contacto", ""))
-    ws_cot["D12"] = registro.get("codigo_necesidad", "")
-    ws_cot["I3"]  = _numero_proforma(registro.get("id_infima", ""))
-    ws_cot["I8"]  = datetime.datetime.now()                 # formato dd/mm/aaaa de la celda
-    ws_cot["I8"].number_format = "dd/mm/yyyy"
-    if analisis.get("tiempo_entrega_dias"):
-        ws_cot["I10"] = f"{int(analisis['tiempo_entrega_dias'])} DÍAS"
-    if analisis.get("garantia_tecnica"):
-        ws_cot["I12"] = str(analisis["garantia_tecnica"]).upper()
-
-    # ── Hoja "Cotización" · artículos (filas 16..25 ↔ Costos 15..24) ─────────
-    for i, art in enumerate(articulos):
-        fila = 16 + i
-        ws_cot[f"B{fila}"] = registro.get("CPC", "")        # mismo CPC para todos
-        nombre = " ".join(x for x in (art.get("nombre"), art.get("marca"),
-                                      art.get("modelo")) if x)
-        if art.get("marca") and art["marca"].lower() in (art.get("nombre") or "").lower():
-            nombre = art.get("nombre", nombre)
-        ws_cot[f"C{fila}"] = nombre                         # C:E combinadas (ancla C)
-        ws_cot[f"G{fila}"] = int(art.get("cantidad", 1))
-        ws_cot.row_dimensions[fila].height = ALTURA_FILA_ARTICULO
-
-    # Filas de artículos SOBRANTES: se vacían sus celdas y se ocultan (alto 0).
-    # Así el SUM(I15:I25), el IVA y el Total del formato siguen intactos.
-    for fila in range(16 + n, 26):
-        for col in ("A", "B", "C", "F", "G", "H", "I"):
-            ws_cot[f"{col}{fila}"] = None
-        ws_cot.row_dimensions[fila].height = 0
-        ws_cot.row_dimensions[fila].hidden = True
-
-    # ── Hoja "Costos" ────────────────────────────────────────────────────────
-    ws_cst["C7"] = registro.get("entidad_contratante_url", "")
-    extras = _costos_extras(analisis, registro.get("dirección_entrega", ""))
-    for i, art in enumerate(articulos):
-        fila = 15 + i
-        mejor = art.get("mejor_opcion") or {}
-        ws_cst[f"C{fila}"] = mejor.get("url_producto", "")   # URL exacta de la mejor opción
-        ws_cst[f"E{fila}"] = float(mejor.get("precio_unitario", 0) or 0)
-        info = extras[i]
-        if info["k"] >= 2:
-            # Proveedor compartido: total del proveedor en A y reparto en G
-            # con DENOMINADOR PROPIO del proveedor (no el global del formato).
-            ws_cst[f"A{fila}"] = info["extra"] * info["k"]
-            ws_cst[f"G{fila}"] = f"=A{fila}/{info['k']}"
-        else:
-            # Proveedor único: costo extra DIRECTO en G (se documenta en A=0).
-            ws_cst[f"A{fila}"] = 0
-            ws_cst[f"G{fila}"] = info["extra"]
-
-    # Alternativas por artículo: bloques de 4 filas → art.1: J15..J17,
-    # art.2: J19..J21, art.3: J23..J25, … (mismo patrón del formato).
-    for i, art in enumerate(articulos):
-        base = 15 + 4 * i
-        alts = (art.get("alternativas") or [])[:3]          # máx. 3, decreciente
-        for j, alt in enumerate(alts):
-            ws_cst[f"J{base + j}"] = alt.get("url", "")
-
-    wb.save(str(ruta_salida))
-    _postprocesar_proforma(ruta_salida, articulos, imagenes)
-    log(f"FASE 6 · Proforma generada: {ruta_salida.name}")
-    return ruta_salida
-
-
-# ── Post-proceso ZIP: reinyecta logos + botón "Imprimir PDF" + imágenes ──────
-_NS_XDR = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
-_EMU_POR_PX = 9525
-
-
-def _anchor_imagen_producto(indice_art: int, rid: str, ruta_img: Path) -> str:
-    """
-    Construye el XML <xdr:oneCellAnchor> para pegar la imagen del producto en
-    la celda C{16+índice} (columna C = índice 2; fila Excel 16 = índice 15),
-    ajustada a la altura recomendada de la fila (220 pt ≈ 293 px).
-    """
-    from PIL import Image
-    with Image.open(ruta_img) as im:
-        w, h = im.size
-    alto_px = 265                                           # deja margen en la fila
-    ancho_px = int(w * alto_px / h)
-    if ancho_px > 430:                                      # no desbordar C:E
-        ancho_px = 430
-        alto_px = int(h * ancho_px / w)
-    fila0 = 15 + indice_art                                 # 0-based (art.1 → 15)
-    return (
-        f'<xdr:oneCellAnchor>'
-        f'<xdr:from><xdr:col>2</xdr:col><xdr:colOff>1350000</xdr:colOff>'
-        f'<xdr:row>{fila0}</xdr:row><xdr:rowOff>190500</xdr:rowOff></xdr:from>'
-        f'<xdr:ext cx="{ancho_px * _EMU_POR_PX}" cy="{alto_px * _EMU_POR_PX}"/>'
-        f'<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="{100 + indice_art}" '
-        f'name="Producto {indice_art + 1}"/><xdr:cNvPicPr>'
-        f'<a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>'
-        f'<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/'
-        f'officeDocument/2006/relationships" r:embed="{rid}"/>'
-        f'<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>'
-        f'<xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>'
-        f'</xdr:pic><xdr:clientData/></xdr:oneCellAnchor>'
-    )
-
-
-def _postprocesar_proforma(ruta_xlsm: Path, articulos: List[dict],
-                           imagenes: Dict[int, Optional[Path]]) -> None:
-    """
-    openpyxl descarta al guardar los dibujos existentes (logos y la autoforma
-    xdr:sp del botón 'Imprimir PDF'). Este post-proceso reabre el .xlsm como
-    ZIP y:
-      1) Restaura drawing1.xml + sus rels + media de la PLANTILLA (logos+botón).
-      2) Añade las imágenes de producto ancladas en C16.. con rels nuevos.
-      3) Re-vincula el dibujo en sheet1.xml y sus relationships.
-      4) Asegura los tipos de contenido (png / drawing) en [Content_Types].xml.
-    Soporta XML con prefijo 'xdr:' o con namespace por defecto.
-    """
-    # ── Lee las piezas necesarias de la plantilla original ───────────────────
-    with zipfile.ZipFile(str(TEMPLATE_XLSX)) as ztpl:
-        drawing_tpl = ztpl.read("xl/drawings/drawing1.xml").decode("utf-8")
-        rels_tpl    = ztpl.read("xl/drawings/_rels/drawing1.xml.rels").decode("utf-8")
-        media_tpl   = {n: ztpl.read(n) for n in ztpl.namelist()
-                       if n.startswith("xl/media/")}
-
-    # ── Inserta anclas de imágenes de producto en el drawing de la plantilla ─
-    nuevos_rels, nuevas_medias = [], {}
-    anclas = []
-    for i, _art in enumerate(articulos):
-        ruta_img = imagenes.get(i)
-        if not ruta_img or not Path(ruta_img).exists():
-            continue
-        rid = f"rIdProd{i + 1}"
-        nombre_media = f"xl/media/imageProd{i + 1}{Path(ruta_img).suffix or '.png'}"
-        nuevas_medias[nombre_media] = Path(ruta_img).read_bytes()
-        nuevos_rels.append(
-            f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/'
-            f'officeDocument/2006/relationships/image" '
-            f'Target="../media/{Path(nombre_media).name}"/>')
-        anclas.append(_anchor_imagen_producto(i, rid, Path(ruta_img)))
-
-    # Cierre del drawing con o sin prefijo (plantillas heterogéneas)
-    cierre = "</xdr:wsDr>" if "</xdr:wsDr>" in drawing_tpl else "</wsDr>"
-    drawing_final = drawing_tpl.replace(cierre, "".join(anclas) + cierre)
-    rels_final = rels_tpl.replace("</Relationships>",
-                                  "".join(nuevos_rels) + "</Relationships>")
-
-    # ── Reescribe el ZIP del xlsm generado ───────────────────────────────────
-    tmp = ruta_xlsm.with_suffix(".tmp.xlsm")
-    with zipfile.ZipFile(str(ruta_xlsm)) as zin, \
-         zipfile.ZipFile(str(tmp), "w", zipfile.ZIP_DEFLATED) as zout:
-        rid_drawing = "rIdDraw1"
-        for item in zin.namelist():
-            data = zin.read(item)
-            if item == "xl/worksheets/sheet1.xml":
-                texto = data.decode("utf-8")
-                if "<drawing " not in texto:                # re-vincula el dibujo
-                    texto = texto.replace(
-                        "</worksheet>",
-                        f'<drawing xmlns:r="http://schemas.openxmlformats.org/'
-                        f'officeDocument/2006/relationships" r:id="{rid_drawing}"/>'
-                        f"</worksheet>")
-                data = texto.encode("utf-8")
-            elif item == "xl/worksheets/_rels/sheet1.xml.rels":
-                texto = data.decode("utf-8")
-                if "drawings/drawing1.xml" not in texto:
-                    texto = texto.replace(
-                        "</Relationships>",
-                        f'<Relationship Id="{rid_drawing}" Type="http://schemas.'
-                        f'openxmlformats.org/officeDocument/2006/relationships/'
-                        f'drawing" Target="../drawings/drawing1.xml"/></Relationships>')
-                data = texto.encode("utf-8")
-            elif item == "[Content_Types].xml":
-                texto = data.decode("utf-8")
-                if 'Extension="png"' not in texto:
-                    texto = texto.replace("</Types>",
-                        '<Default Extension="png" ContentType="image/png"/></Types>')
-                if 'Extension="jpg"' not in texto and any(
-                        m.endswith((".jpg", ".jpeg")) for m in nuevas_medias):
-                    texto = texto.replace("</Types>",
-                        '<Default Extension="jpg" ContentType="image/jpeg"/></Types>')
-                if "/xl/drawings/drawing1.xml" not in texto:
-                    texto = texto.replace("</Types>",
-                        '<Override PartName="/xl/drawings/drawing1.xml" ContentType='
-                        '"application/vnd.openxmlformats-officedocument.drawing+xml"/>'
-                        "</Types>")
-                data = texto.encode("utf-8")
-            elif item == "xl/drawings/drawing1.xml":
-                continue                                    # se reescribe abajo
-            elif item == "xl/drawings/_rels/drawing1.xml.rels":
+        tmp_dir = tempfile.mkdtemp(prefix=f"nexus_{id_infima}_")
+        descargas = []
+        try:
+            # a) Documentos del bucket
+            docs = listar_docs_necesidad(gcs, codigo)
+            if not docs:
+                log(f"  Sin documentos en el bucket para {codigo}. Se omite.", "WARN")
+                resumen["error"] += 1
                 continue
-            elif item.startswith("xl/media/"):
-                continue                                    # media se reescribe
-            zout.writestr(item, data)
-        # Piezas restauradas / nuevas
-        zout.writestr("xl/drawings/drawing1.xml", drawing_final)
-        zout.writestr("xl/drawings/_rels/drawing1.xml.rels", rels_final)
-        for nombre, contenido in {**media_tpl, **nuevas_medias}.items():
-            zout.writestr(nombre, contenido)
-    shutil.move(str(tmp), str(ruta_xlsm))
-    log("FASE 6 · Botón 'Imprimir PDF', logos e imágenes reinyectados.")
+            locales = []
+            for b in docs:
+                lp = descargar_blob_a_tmp(b)
+                if lp:
+                    locales.append(lp)
+                    descargas.append(lp)
 
+            # b) Análisis con Gemini
+            analisis = analizar_documentos(client, locales, codigo)
+            if not analisis:
+                log(f"  No se pudo analizar la documentación de {codigo}. Se omite.", "ERR")
+                resumen["error"] += 1
+                continue
+            n_art = analisis["n"]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  PROCESAMIENTO DE UN CÓDIGO DE NECESIDAD (orquesta las fases 2–7)
-# ═══════════════════════════════════════════════════════════════════════════════
+            # c) Regla del límite de artículos (> 10)
+            if n_art > LIMITE_ARTICULOS:
+                log(f"  {n_art} artículos (> {LIMITE_ARTICULOS}). Ficha de límite, sin proforma.", "WARN")
+                ruta_ficha = generar_ficha_limite(codigo, id_infima, tmp_dir)
+                blob_ficha = subir_archivo_a_bucket(gcs, ruta_ficha, CARPETA_FICHAS)
+                if verificar_blob_en_bucket(gcs, blob_ficha):
+                    actualizar_etapa_bd(codigo)
+                    resumen["limite"] += 1
+                else:
+                    log(f"  No se verificó la ficha de límite en GCS para {codigo}.", "WARN")
+                    resumen["error"] += 1
+                continue
 
-def procesar_codigo(registro: Dict[str, Any], bucket, carpeta_trabajo: Path,
-                    crono: Cronometro, estadisticas: dict,
-                    analisis_previo: Optional[dict] = None,
-                    modo_local: bool = False,
-                    docs_locales: Optional[List[Path]] = None,
-                    salida_local: Optional[Path] = None) -> None:
-    """
-    Ejecuta el pipeline completo para UN código de necesidad. En modo prueba
-    local no toca ni GCS ni MySQL y puede recibir un análisis simulado.
-    """
-    codigo, id_infima = registro["codigo_necesidad"], registro["id_infima"]
-    log(f"╔═ Procesando {codigo} (id_infima={id_infima}) " + "═" * 20)
-    carpeta = carpeta_trabajo / re.sub(r"\W+", "_", str(codigo))
-    carpeta.mkdir(parents=True, exist_ok=True)
+            # d) Búsqueda de productos reales (grounding)
+            resultados = buscar_todos_los_articulos(client, analisis["articulos"], direccion)
 
-    # FASE 2 · documentos de contratación
-    crono.iniciar(f"FASE 2 · Documentos [{codigo}]")
-    docs = docs_locales if modo_local else \
-        descargar_documentos_contratacion(bucket, codigo, carpeta / "docs")
-    crono.detener()
-    if not docs:
-        log(f"{codigo}: sin documentos de contratación; se omite.", "WARN")
-        estadisticas["errores"] += 1
-        return
+            # e) Ficha técnica → GCS
+            ruta_ficha = generar_ficha_tecnica(resultados, codigo, id_infima, tmp_dir)
+            blob_ficha = subir_archivo_a_bucket(gcs, ruta_ficha, CARPETA_FICHAS)
 
-    # FASE 3 · análisis con IA (o análisis simulado en pruebas)
-    crono.iniciar(f"FASE 3 · Análisis IA [{codigo}]")
-    analisis = analisis_previo or analizar_con_ia(docs, registro)
-    crono.detener()
+            # f) Proforma → GCS
+            ruta_prof = generar_proforma(registro, resultados, tmp_dir, id_infima)
+            blob_prof = subir_archivo_a_bucket(gcs, ruta_prof, CARPETA_PROFORMAS)
 
-    excede = analisis.get("excede_limite") or \
-             analisis.get("num_articulos", 0) > LIMITE_ARTICULOS
+            # g) Verificación y actualización de etapa
+            ok_ficha = verificar_blob_en_bucket(gcs, blob_ficha)
+            ok_prof  = verificar_blob_en_bucket(gcs, blob_prof)
+            if ok_ficha and ok_prof:
+                actualizar_etapa_bd(codigo)
+                resumen["ok"] += 1
+                log(f"  ✔ {codigo} procesado correctamente.", "OK")
+            else:
+                log(f"  Verificación incompleta en GCS (ficha={ok_ficha}, proforma={ok_prof}). "
+                    f"No se marca 'finalizada'.", "WARN")
+                resumen["error"] += 1
 
-    # FASE 4 · verificación de URLs e imágenes (solo si no excede el límite)
-    imagenes: Dict[int, Optional[Path]] = {}
-    if not excede:
-        crono.iniciar(f"FASE 4 · URLs e imágenes [{codigo}]")
-        for i, art in enumerate(analisis.get("articulos", [])):
-            mejor = art.get("mejor_opcion") or {}
-            nombre = f"{art.get('marca','')} {art.get('modelo','')}".strip()
-            if not modo_local:                              # en la nube: verificar/reparar
-                url_ok = resolver_url_producto(mejor.get("url_producto", ""), nombre)
-                if url_ok:
-                    mejor["url_producto"] = url_ok
-                alts_ok = []
-                for alt in (art.get("alternativas") or []):
-                    if verificar_url(alt.get("url", ""), estricto=False):
-                        alts_ok.append(alt)
-                art["alternativas"] = alts_ok[:3]
-            imagenes[i] = obtener_imagen_producto(art, carpeta,
-                                                  con_ia=not modo_local)
-            estado = "OK" if imagenes[i] else "SIN IMAGEN"
-            log(f"FASE 4 · Artículo {i + 1}: imagen {estado}.")
-        crono.detener()
+        except Exception as e:
+            log(f"  Error procesando {codigo}: {e}", "ERR")
+            traceback.print_exc()
+            resumen["error"] += 1
+        finally:
+            for f in descargas:
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # FASE 5 · ficha técnica
-    crono.iniciar(f"FASE 5 · Ficha técnica [{codigo}]")
-    nombre_ficha = f"{codigo}_Ficha_técnica_{id_infima}.docx"
-    ruta_ficha = (salida_local or carpeta) / nombre_ficha
-    generar_ficha_docx(analisis, imagenes, ruta_ficha)
-    if not modo_local:
-        subir_a_gcs(bucket, ruta_ficha, CARPETA_FICHAS)
-    crono.detener()
-    estadisticas["fichas"] += 1
-
-    # FASE 6 · proforma (solo dentro del límite)
-    if excede:
-        log(f"{codigo}: > {LIMITE_ARTICULOS} artículos → SIN proforma.", "WARN")
-        estadisticas["omitidas_limite"] += 1
-    else:
-        crono.iniciar(f"FASE 6 · Proforma [{codigo}]")
-        nombre_prof = f"{codigo}_Proforma_{id_infima}.xlsm"
-        ruta_prof = (salida_local or carpeta) / nombre_prof
-        generar_proforma_xlsm(analisis, registro, imagenes, ruta_prof)
-        if not modo_local:
-            subir_a_gcs(bucket, ruta_prof, CARPETA_PROFORMAS)
-        crono.detener()
-        estadisticas["proformas"] += 1
-
-    # FASE 7 · etapa → finalizada
-    if not modo_local:
-        crono.iniciar(f"FASE 7 · BD finalizada [{codigo}]")
-        marcar_finalizada(id_infima)
-        crono.detener()
-    estadisticas["procesados"] += 1
-    log(f"╚═ {codigo} completado " + "═" * 34)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  RESÚMENES
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def imprimir_resumen_final(estadisticas: dict, crono: Cronometro) -> None:
-    """Resumen final con los resultados principales de la corrida."""
-    crono.resumen()
-    print("\n" + "═" * 70)
-    print(" RESUMEN FINAL DE RESULTADOS")
-    print("═" * 70)
-    print(f"   Códigos de necesidad procesados : {estadisticas['procesados']}")
-    print(f"   Fichas técnicas generadas       : {estadisticas['fichas']}")
-    print(f"   Proformas generadas             : {estadisticas['proformas']}")
-    print(f"   Omitidas por límite de artículos: {estadisticas['omitidas_limite']}")
-    print(f"   Errores / omisiones             : {estadisticas['errores']}")
-    print("═" * 70 + "\n")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  MAIN · producción y modo de prueba local
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def main_produccion() -> None:
-    """Flujo completo contra MySQL + GCS + Vertex AI."""
-    crono = Cronometro()
-    stats = {"procesados": 0, "fichas": 0, "proformas": 0,
-             "omitidas_limite": 0, "errores": 0}
-    log("═══ 5_Preforms_generator · MODO PRODUCCIÓN ═══")
-
-    crono.iniciar("FASE 1 · Lectura de data_table_1 (MySQL)")
-    data_table_1 = obtener_data_table_1()
-    crono.detener()
-    if not data_table_1:
-        log("No hay ínfimas en 'en generacion'; nada que hacer.")
-        imprimir_resumen_final(stats, crono)
-        return
-
-    bucket = cliente_gcs().bucket(BUCKET_NAME)
-    with tempfile.TemporaryDirectory(prefix="nexus5_") as tmp:
-        carpeta = Path(tmp)
-        for registro in data_table_1:
-            try:
-                procesar_codigo(registro, bucket, carpeta, crono, stats)
-            except Exception as e:                          # aísla fallos por código
-                stats["errores"] += 1
-                log(f"ERROR en {registro.get('codigo_necesidad')}: {e}", "ERROR")
-                traceback.print_exc()
-    imprimir_resumen_final(stats, crono)
-
-
-def main_test_local(ruta_pdf: Path, ruta_mock: Optional[Path],
-                    dir_salida: Path) -> None:
-    """
-    Prueba de punta a punta SIN nube: usa un PDF local como documento de
-    contratación y (si existe) un JSON simulado con 'registro' y 'analisis'.
-    Si no hay JSON pero sí credenciales de Vertex, llama a la IA de verdad.
-    """
-    crono = Cronometro()
-    stats = {"procesados": 0, "fichas": 0, "proformas": 0,
-             "omitidas_limite": 0, "errores": 0}
-    log("═══ 5_Preforms_generator · MODO PRUEBA LOCAL ═══")
-
-    mock = json.loads(ruta_mock.read_text(encoding="utf-8")) if ruta_mock else {}
-    registro = mock.get("registro") or {
-        "codigo_necesidad": "NIC-0000000000000-2026-00001",
-        "entidad_contratante": "Entidad de prueba",
-        "entidad_contratante_url": "https://example.com/",
-        "dirección_entrega": "Quito, Ecuador",
-        "id_infima": 1, "CPC": "000000000", "contacto": "N/N",
-    }
-    analisis = mock.get("analisis")                          # None ⇒ IA real
-    dir_salida.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory(prefix="nexus5_test_") as tmp:
-        procesar_codigo(registro, bucket=None, carpeta_trabajo=Path(tmp),
-                        crono=crono, estadisticas=stats,
-                        analisis_previo=analisis, modo_local=True,
-                        docs_locales=[ruta_pdf], salida_local=dir_salida)
-    imprimir_resumen_final(stats, crono)
+    dur = time.time() - inicio
+    print("\n" + "=" * 70)
+    log(f"PROCESO FINALIZADO en {dur:.1f}s — OK: {resumen['ok']} | "
+        f"Límite: {resumen['limite']} | Errores: {resumen['error']}", "OK")
+    print("=" * 70 + "\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generador de fichas y proformas NEXUS")
-    parser.add_argument("--test-local", metavar="PDF",
-                        help="Ruta a un documento de contratación local (modo prueba)")
-    parser.add_argument("--mock-json", metavar="JSON",
-                        help="JSON con 'registro' y 'analisis' simulados (opcional)")
-    parser.add_argument("--salida", metavar="DIR", default="salida_test",
-                        help="Directorio de salida en modo prueba (def: salida_test)")
-    args = parser.parse_args()
-
-    inicio_total = time.perf_counter()
-    if args.test_local:
-        main_test_local(Path(args.test_local),
-                        Path(args.mock_json) if args.mock_json else None,
-                        Path(args.salida))
-    else:
-        main_produccion()
-    log(f"Ejecución total del script: {time.perf_counter() - inicio_total:.2f} s")
+    main()
