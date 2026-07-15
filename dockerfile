@@ -50,4 +50,5 @@ COPY . .
 
 RUN chromium --version && chromedriver --version
 
-CMD ["python", "main_Recoleccion.py"]
+#CMD ["python", "main_Recoleccion.py"]
+CMD ["uvicorn", "main_api:app", "--host", "0.0.0.0", "--port", "8080"]
