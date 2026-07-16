@@ -537,7 +537,9 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown, sin texto adicional):
       "resumen": "Descripción de 50 a 80 palabras del artículo solicitado",
       "funcion_principal": "Para qué sirve / requisito esencial que debe cumplir"
     }}
-  ]
+  ],
+  "tiempo_entrega_dias": 30,
+  "tiempo_entrega_texto": "30 días"
 }}
 
 REGLAS:
@@ -551,6 +553,16 @@ REGLAS:
   documentos NO especifican garantía, usa 0 (NO la inventes ni uses la del fabricante).
 - "garantia_texto": la misma garantía en formato legible (p. ej. "12 meses", "2 años"); ""
   si garantia_meses es 0.
+- "tiempo_entrega_dias": PLAZO DE ENTREGA que la ENTIDAD CONTRATANTE exige en los
+  documentos de contratación (pliego, términos de referencia, especificaciones o
+  condiciones) para que el proveedor ENTREGUE el bien a la entidad, expresado SIEMPRE en
+  DÍAS. Es el tiempo máximo de entrega del producto y NO tiene relación con la garantía.
+  Convierte a días si el plazo viene en otra unidad (1 semana = 7 días, 1 mes = 30 días).
+  Si el documento indica "días hábiles"/"laborables" o "días calendario/término", usa
+  igualmente ese número de días. Si los documentos NO especifican un plazo de entrega,
+  usa 0 (NO lo inventes).
+- "tiempo_entrega_texto": el mismo plazo en formato legible tal como aparece (p. ej.
+  "30 días", "15 días hábiles"); "" si tiempo_entrega_dias es 0.
 """
     log(f"  Enviando {len(partes)} documento(s) a Gemini para análisis…")
     texto = generar(client, partes + [prompt], use_search=False, prefer_complex=True)
@@ -581,6 +593,9 @@ REGLAS:
         a.setdefault("resumen", ""); a.setdefault("funcion_principal", "")
     data["articulos"] = articulos
     data["n"] = len(articulos)
+    # Tiempo de entrega EXIGIDO por la entidad (dato del proceso, no por artículo).
+    data["tiempo_entrega_dias"] = max(0, int(round(_num(data.get("tiempo_entrega_dias", 0), 0))))
+    data["tiempo_entrega_texto"] = (data.get("tiempo_entrega_texto") or "").strip()
     log(f"  Análisis completado: {len(articulos)} artículo(s) distinto(s).", "OK")
     for i, a in enumerate(articulos, 1):
         log(f"    {i}. {str(a.get('nombre_articulo',''))[:60]} (x{a.get('cantidad',1)})")
@@ -1574,6 +1589,18 @@ def _formatear_garantia(meses) -> str:
     return f"{m} MES" if m == 1 else f"{m} MESES"
 
 
+def _formatear_tiempo_entrega(dias) -> str:
+    """Convierte un número de DÍAS en texto para la celda I10 ('30 DÍAS', '1 DÍA').
+       Devuelve '' si el plazo no es válido (<= 0)."""
+    try:
+        d = int(round(_num(dias, 0)))
+    except Exception:
+        d = 0
+    if d <= 0:
+        return ""
+    return f"{d} DÍA" if d == 1 else f"{d} DÍAS"
+
+
 def _garantia_para_proforma(resultados) -> str:
     """Garantía técnica ÚNICA para la celda I12. La hoja tiene un solo campo de
        garantía, pero puede haber varios artículos: se usa la MENOR garantía (en
@@ -1638,6 +1665,11 @@ def generar_proforma(registro, resultados, directorio, id_infima):
     escribir_celda(ws_cot, "D12", codigo)                 # celda de VALOR de la fila 12
     escribir_celda(ws_cot, "I3",  _numero_proforma(id_infima))
     escribir_celda(ws_cot, "I8",  datetime.date.today().strftime("%d/%m/%Y"))
+    # Tiempo de entrega EXIGIDO por la entidad contratante (de los documentos) → I10 (días)
+    dias_entrega = int(round(_num(registro.get("tiempo_entrega_dias", 0), 0)))
+    entrega_txt = _formatear_tiempo_entrega(dias_entrega)
+    if entrega_txt:
+        escribir_celda(ws_cot, "I10", entrega_txt)
     garantia_txt = _garantia_para_proforma(resultados)        # garantía técnica → I12
     if garantia_txt:
         escribir_celda(ws_cot, "I12", garantia_txt)
@@ -1812,6 +1844,10 @@ def main():
                 resumen["error"] += 1
                 continue
             n_art = analisis["n"]
+            # El plazo de entrega vive en el análisis (dato del proceso); se pasa a la
+            # proforma a través del registro sin alterar la firma de generar_proforma.
+            registro["tiempo_entrega_dias"]  = analisis.get("tiempo_entrega_dias", 0)
+            registro["tiempo_entrega_texto"] = analisis.get("tiempo_entrega_texto", "")
 
             # c) Regla del límite de artículos (> 10)
             if n_art > LIMITE_ARTICULOS:
