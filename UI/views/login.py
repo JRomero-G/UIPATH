@@ -204,7 +204,7 @@ class LoginUI(BaseWindow):
         PASSWORD = self.pwd.text().strip()
 
         if not USUARIO or not PASSWORD:
-            ClassicMsgBox.warning(self, "Error", "Debe ingresar usuario y contraseña.")
+            ClassicMsgBox.warning("Error", "Debe ingresar usuario y contraseña.")
             return
 
         try:

@@ -1,8 +1,8 @@
 ; instalador.iss
 #define AppName "Gestorex"
-#define AppVersion "1.2.2"
+#define AppVersion "1.2.3"
 #define AppPublisher "Nexus"
-#define AppURL "https://gestorex-desarrollo.onrender.com/"
+#define AppURL "https://importadora-cruz-966268191098.europe-west1.run.app/"
 #define AppExeName "run.exe"
 
 [Setup]
@@ -16,7 +16,7 @@ AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=D:\WEB\UIPATH\instalador_output
-OutputBaseFilename=Installer_Gestorex_v1.2.2
+OutputBaseFilename=Installer_Gestorex_v1.2.3
 SetupIconFile=D:\WEB\UIPATH\UI\assets\Logo_app.ico
 Compression=lzma
 SolidCompression=yes
