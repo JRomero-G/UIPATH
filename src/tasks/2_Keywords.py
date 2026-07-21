@@ -54,7 +54,7 @@ MYSQL_CONFIG = {
 # - Capacidades de "pensamiento" (thinking) para mayor precisión
 # - Disponibilidad en us-central1
 # - Precio competitivo
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 # ALTERNATIVAS:
 # GEMINI_MODEL = "gemini-2.5-pro"  # Para máxima precisión (más costoso)
