@@ -241,6 +241,33 @@ def obtener_suma_cantidades(html_content):
     return suma if suma > 0 else None
 
 
+def extraer_cpc(html_content):
+    """
+    Extrae el código CPC de la tabla de artículos.
+    El CPC se ubica en la segunda columna (índice 1), inmediatamente
+    después del número de artículo "No." (índice 0). Es idéntico para
+    todos los artículos de la necesidad, por lo que se toma el de la
+    primera fila de datos.
+    Se retorna como cadena de dígitos (no como entero) para preservar
+    posibles ceros iniciales, ya que la columna CPC es VARCHAR.
+    Retorna None si no se encuentra.
+    """
+    tabla, _ = encontrar_tabla_cantidad(html_content)
+    if not tabla:
+        return None
+
+    for fila in tabla.find_all("tr")[1:]:
+        celdas = fila.find_all(["td", "th"])
+        if len(celdas) < 2:
+            continue
+        # Segunda columna = CPC (serie de dígitos consecutivos, 9-10 dígitos)
+        texto = celdas[1].get_text(strip=True)
+        match = re.search(r"\d{9,}", texto)
+        if match:
+            return match.group()
+    return None
+
+
 def actualizar_etapa(codigo_necesidad, nueva_etapa):
     """
     Actualiza la etapa de una ínfima en la base de datos.
@@ -259,6 +286,27 @@ def actualizar_etapa(codigo_necesidad, nueva_etapa):
         return True
     except Exception as e:
         print(f"    [DB] Error actualizando etapa: {e}")
+        return False
+
+
+def actualizar_cpc(codigo_necesidad, cpc):
+    """
+    Guarda el código CPC (cadena de dígitos) de una ínfima en la columna
+    CPC (VARCHAR) de la tabla infimas.
+    """
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE infimas SET CPC = %s WHERE codigo_necesidad = %s",
+            (cpc, codigo_necesidad),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"    [DB] Error actualizando CPC: {e}")
         return False
 
 
@@ -406,7 +454,12 @@ def fase_clasificacion():
             
             # Extraer suma de cantidades
             suma = obtener_suma_cantidades(r.text)
-            
+
+            # Extraer y guardar CPC (idéntico para todos los artículos)
+            cpc = extraer_cpc(r.text)
+            if cpc is not None and actualizar_cpc(codigo, cpc):
+                print(f"  ⓘ CPC: {cpc}")
+
             if suma is None:
                 print(f"  ⚠ Sin tabla de cantidades - OMITIDO")
                 sin_datos += 1

@@ -298,17 +298,20 @@ def obtener_infimas_con_pac():
             - codigo_necesidad
             - descripcion_objeto_compra
             - entidad_contratante
+            - CPC (código numérico en varchar, usado para la coincidencia exacta en el portal)
             - V_Total (inicializado en 0.0)
     
     Nota:
         Solo obtiene registros con PACdoc >= 0 (No se encontró PAC en los documentos y en los que sí,
                                                 se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
+        El campo CPC es el código de la necesidad actual y se usará para localizar
+        la línea correcta dentro de la tabla del portal (coincidencia al 100%).
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante
+        SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante, CPC
         FROM infimas 
         WHERE PACdoc >= 0 AND PACweb IS NULL
     """)
@@ -833,11 +836,14 @@ def buscar_vtotal_en_portal(df_infimas):
         for idx, row in df_infimas.iterrows():
             entidad = row['entidad_contratante']
             descripcion = row['descripcion_objeto_compra']
+            # CPC de la necesidad actual (varchar numérico). Se usa para localizar
+            # la línea correcta en la tabla del portal por coincidencia exacta.
+            cpc = '' if pd.isna(row.get('CPC')) else str(row.get('CPC')).strip()
             
             print(f"   Buscando: {row['codigo_necesidad']} - {entidad}")
             
-            # Buscar V_Total en portal
-            vtotal = buscar_para_entidad(driver, entidad, descripcion)
+            # Buscar V_Total en portal (coincidencia por CPC; descripción solo como comprobación)
+            vtotal = buscar_para_entidad(driver, entidad, descripcion, cpc)
             
             if vtotal > 0:
                 df_infimas.at[idx, 'V_Total'] = vtotal
@@ -853,14 +859,16 @@ def buscar_vtotal_en_portal(df_infimas):
     
     return df_infimas
 
-def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
+def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo, cpc_objetivo):
     """
     Busca V_Total en portal de compras públicas para una entidad específica.
     
     Args:
         driver: WebDriver de Selenium
         entidad_contratante (str): Nombre de la entidad
-        descripcion_objetivo (str): Descripción del objeto de compra
+        descripcion_objetivo (str): Descripción del objeto de compra (solo comprobación)
+        cpc_objetivo (str): CPC de la necesidad; debe coincidir al 100% en la tabla
+                            del portal para confirmar la línea correcta
     
     Returns:
         float: V_Total encontrado, o 0.0 si no se encuentra
@@ -1151,10 +1159,11 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                         continue
                     
                     # ========================================================
-                    # Buscar coincidencia de descripción y extraer V_Total
+                    # Localizar la línea por CPC y extraer V_Total
+                    # (la descripción se usa solo como comprobación)
                     # ========================================================
-                    print(f"         🔎 Buscando coincidencia de descripción...")
-                    vtotal = buscar_coincidencia_descripcion_por_clase(tabla_pac, descripcion_objetivo)
+                    print(f"         🔎 Localizando línea por CPC (descripción como comprobación)...")
+                    vtotal = buscar_coincidencia_descripcion_por_clase(tabla_pac, descripcion_objetivo, cpc_objetivo)
                     
                     if vtotal > 0:
                         print(f"      ✅ V_Total encontrado: ${vtotal:,.2f}")
@@ -1182,154 +1191,174 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
         traceback.print_exc()
         return 0.0
 
-def buscar_coincidencia_descripcion_por_clase(tabla, descripcion_objetivo):
+def buscar_coincidencia_descripcion_por_clase(tabla, descripcion_objetivo, cpc_objetivo):
     """
-    Busca coincidencia de descripción en tabla PAC y extrae V_Total.
-    
+    Localiza la línea correcta en la tabla PAC mediante COINCIDENCIA EXACTA de CPC
+    y extrae su V_Total. La descripción se usa SOLO como comprobación.
+
     Args:
         tabla: Elemento WebElement de Selenium (tabla PAC)
-        descripcion_objetivo (str): Descripción a buscar
-    
+        descripcion_objetivo (str): Descripción del objeto de compra (SOLO comprobación)
+        cpc_objetivo (str): CPC de la necesidad actual; debe coincidir al 100% en la
+                            tabla del portal para confirmar la línea correcta
+
     Returns:
-        float: V_Total de la fila con mejor coincidencia, o 0.0 si no hay match
-    
+        float: V_Total de la fila cuyo CPC coincide exactamente, o 0.0 si no se
+               encuentra ninguna fila con ese CPC.
+
     Algoritmo:
-        1. Extrae palabras clave de descripción objetivo (ignora artículos)
-        2. Para cada fila de la tabla:
-           - Extrae descripción (columna 10) y V_Total (columna 14)
-           - Calcula % de coincidencia de palabras
-           - Guarda mejor coincidencia
-        3. Si encuentra >= 30% coincidencia con V_Total > 0, retorna
-        4. Si no, retorna mejor coincidencia encontrada
-    
+        1. Normaliza el CPC objetivo (solo dígitos) para una comparación robusta al 100%.
+        2. Busca en la tabla la fila cuyo CPC (columna [2]) coincide exactamente.
+           - Si no aparece en la columna [2], hace un barrido por las demás columnas
+             de cada fila como respaldo (la posición del CPC puede variar en el portal).
+        3. Al encontrar la fila por CPC, extrae el V_Total (columna [14]) de esa misma
+           fila: ese es el valor definitivo del PACweb.
+        4. Comprueba la descripción (columna [10]) SOLO de forma informativa:
+           - Si la descripción NO coincide ni al 30%, lo notifica en la terminal,
+             pero igualmente retorna el V_Total de la coincidencia exacta de CPC.
+
     Estructura de tabla:
         [0]=Nro, [1]=Partida, [2]=CPC, ..., [10]=Descripción, ..., [14]=V.Total
         (Total: 17 columnas)
-    
-    Umbrales:
-        - 30%: Umbral mínimo de aceptación (flexible para textos cortos)
-        - Retorna inmediatamente si encuentra >= 30% con valor > 0
     """
     try:
         # Buscar solo filas con clases de datos (filaElemento1 o filaElemento2)
         filas_datos = tabla.find_elements(
-            By.XPATH, 
+            By.XPATH,
             ".//tr[@class='filaElemento1' or @class='filaElemento2']"
         )
-        
+
         print(f"            📊 Analizando {len(filas_datos)} filas de datos")
-        
+
         if len(filas_datos) == 0:
             print(f"            ⚠ No se encontraron filas con clase filaElemento1/filaElemento2")
             return 0.0
-        
-        # Preparar descripción objetivo (limpiar y extraer palabras clave)
-        desc_limpia = descripcion_objetivo.lower().strip()
+
+        # ── Normalizar CPC objetivo (solo dígitos → coincidencia al 100%) ──
+        cpc_objetivo_str = "" if cpc_objetivo is None else str(cpc_objetivo).strip()
+        cpc_objetivo_norm = re.sub(r'\D', '', cpc_objetivo_str)
+
+        if not cpc_objetivo_norm:
+            print(f"            ⚠ CPC objetivo vacío o inválido; no se puede localizar la línea por CPC")
+            return 0.0
+
+        print(f"            🔑 CPC objetivo: '{cpc_objetivo_str}' (normalizado: '{cpc_objetivo_norm}')")
+
+        # ── Preparar descripción objetivo (SOLO para comprobación posterior) ──
+        desc_limpia = descripcion_objetivo.lower().strip() if descripcion_objetivo else ""
         # Palabras a ignorar (artículos, preposiciones)
         palabras_ignorar = {'de', 'del', 'la', 'el', 'los', 'las', 'para', 'con', 'en', 'y', 'a', 'un', 'una', 'por', 'sobre', 'que'}
         # Filtrar palabras > 2 caracteres y no ignoradas
         palabras_objetivo = [p for p in desc_limpia.split() if p not in palabras_ignorar and len(p) > 2]
-        
-        print(f"            🔍 Palabras clave: {' '.join(palabras_objetivo[:7])}")
-        
-        # Variables para tracking de mejor coincidencia
-        mejor_coincidencia = 0
-        mejor_vtotal = 0.0
-        mejor_desc = ""
-        mejor_fila_num = 0
-        
-        # Analizar cada fila de datos
+
+        # ── Localizar la fila por coincidencia EXACTA de CPC ──
+        celdas_match = None      # Celdas de la fila encontrada
+        col_cpc_detectada = 2    # Columna por defecto del CPC (según estructura)
+
+        # Tier 1: columna documentada del CPC ([2])
         for idx, fila in enumerate(filas_datos, 1):
             try:
                 celdas = fila.find_elements(By.TAG_NAME, "td")
-                
+
                 # Debug: mostrar columnas de primera fila
                 if idx == 1:
                     print(f"            📊 Fila tiene {len(celdas)} columnas")
-                
-                # Verificar que tenga estructura de 17 columnas
+
+                # Verificar que tenga estructura mínima esperada (>= 15 columnas)
                 if len(celdas) < 15:
                     if idx == 1:
                         print(f"            ⚠ Estructura inesperada ({len(celdas)} columnas)")
                     continue
-                
-                # Extraer datos de columnas específicas
-                # [10] = Descripción del objeto de compra
-                # [14] = V. Total (valor total)
-                desc_fila = celdas[10].text.lower().strip()
-                vtotal_texto = celdas[14].text.strip()
-                
+
                 # Debug: mostrar primera fila como ejemplo
                 if idx == 1:
                     print(f"            📝 Ejemplo fila 1:")
-                    print(f"               Desc[10]: '{desc_fila[:70]}'")
-                    print(f"               V.Total[14]: '{vtotal_texto}'")
-                
-                # Extraer palabras clave de descripción de la fila
-                palabras_fila = [p for p in desc_fila.split() if p not in palabras_ignorar and len(p) > 2]
-                
-                # Calcular coincidencias (substring matching)
-                if not palabras_objetivo or not palabras_fila:
-                    continue
-                
-                # Contar cuántas palabras objetivo están en palabras de fila
-                # (usa substring matching: "adquisicion" match "adquisiciones")
-                coincidencias = sum(1 for p_obj in palabras_objetivo 
-                                    if any(p_obj in p_fila or p_fila in p_obj
-                                    for p_fila in palabras_fila))
-                
-                # Calcular porcentaje de coincidencia
-                porcentaje = (coincidencias / len(palabras_objetivo)) * 100
-                
-                # Guardar mejor coincidencia
-                if porcentaje > mejor_coincidencia:
-                    mejor_coincidencia = porcentaje
-                    mejor_desc = desc_fila[:60]
-                    mejor_fila_num = idx
-                    
-                    # Intentar extraer V_Total
-                    try:
-                        # Limpiar formato ($, comas, USD)
-                        vtotal_limpio = vtotal_texto.replace(',', '').replace('$', '').replace('USD', '').strip()
-                        # Ignorar valores 0.0000
-                        if vtotal_limpio and vtotal_limpio != '0.0000':
-                            vtotal = float(vtotal_limpio)
-                            if vtotal > 0:
-                                mejor_vtotal = vtotal
-                                # Mostrar coincidencias >= 30%
-                                if porcentaje >= 30:
-                                    print(f"            💡 Fila {idx}: {porcentaje:.0f}% coincidencia - ${vtotal:,.2f}")
-                    except ValueError as e:
-                        if idx == 1:
-                            print(f"            ⚠ Error convirtiendo '{vtotal_texto}': {e}")
-                        continue
-                
-                # Si encontramos >= 30% con valor válido, retornar inmediatamente
-                if porcentaje >= 30 and mejor_vtotal > 0:
-                    print(f"            ✅ Coincidencia aceptada: {porcentaje:.0f}%")
-                    print(f"            ✅ V_Total: ${mejor_vtotal:,.2f}")
-                    return mejor_vtotal
-            
+                    print(f"               CPC[2]: '{celdas[2].text.strip()}'")
+                    print(f"               Desc[10]: '{celdas[10].text.lower().strip()[:70]}'")
+                    print(f"               V.Total[14]: '{celdas[14].text.strip()}'")
+
+                # Comparar CPC de la fila (columna 2) contra el objetivo (normalizado)
+                cpc_fila_norm = re.sub(r'\D', '', celdas[2].text.strip())
+                if cpc_fila_norm and cpc_fila_norm == cpc_objetivo_norm:
+                    celdas_match = celdas
+                    col_cpc_detectada = 2
+                    print(f"            ✅ CPC coincidente (columna 2) en fila {idx}: '{celdas[2].text.strip()}'")
+                    break
+
             except Exception as e:
                 # Solo mostrar errores en primeras filas (evitar spam)
                 if idx <= 2:
                     print(f"            ⚠ Error fila {idx}: {str(e)[:50]}")
                 continue
-        
-        # Si no encontró >= 30%, reportar mejor resultado
-        if mejor_coincidencia > 0:
-            print(f"            💡 Mejor coincidencia: Fila {mejor_fila_num} - {mejor_coincidencia:.0f}%")
-            print(f"               '{mejor_desc}'")
-            if mejor_vtotal > 0:
-                print(f"            ✅ Usando V_Total: ${mejor_vtotal:,.2f}")
-                return mejor_vtotal
-            else:
-                print(f"            ⚠ Mejor coincidencia no tiene V_Total válido")
+
+        # Tier 2 (respaldo): el CPC puede estar en otra columna → barrer todas
+        if celdas_match is None:
+            print(f"            🔎 CPC no hallado en la columna 2; barriendo el resto de columnas...")
+            for idx, fila in enumerate(filas_datos, 1):
+                try:
+                    celdas = fila.find_elements(By.TAG_NAME, "td")
+                    if len(celdas) < 15:
+                        continue
+                    for col, celda in enumerate(celdas):
+                        celda_norm = re.sub(r'\D', '', celda.text.strip())
+                        # Exigir longitud >= 4 para evitar falsos positivos (Nro, cantidades)
+                        if len(celda_norm) >= 4 and celda_norm == cpc_objetivo_norm:
+                            celdas_match = celdas
+                            col_cpc_detectada = col
+                            print(f"            ✅ CPC coincidente (columna {col}) en fila {idx}: '{celda.text.strip()}'")
+                            break
+                    if celdas_match is not None:
+                        break
+                except Exception:
+                    continue
+
+        # ── Si no se encontró ninguna fila con CPC coincidente ──
+        if celdas_match is None:
+            print(f"            ❌ No se encontró ninguna fila con CPC '{cpc_objetivo_str}' en la tabla")
+            return 0.0
+
+        # ── Extraer V_Total de la fila con CPC coincidente (columna [14]) ──
+        vtotal = 0.0
+        vtotal_texto = celdas_match[14].text.strip()
+        try:
+            # Limpiar formato ($, comas, USD)
+            vtotal_limpio = vtotal_texto.replace(',', '').replace('$', '').replace('USD', '').strip()
+            # Ignorar valores 0.0000
+            if vtotal_limpio and vtotal_limpio != '0.0000':
+                vtotal = float(vtotal_limpio)
+        except ValueError as e:
+            print(f"            ⚠ Error convirtiendo V_Total '{vtotal_texto}': {e}")
+            vtotal = 0.0
+
+        # ── Comprobación de descripción (SOLO informativa, columna [10]) ──
+        desc_fila = celdas_match[10].text.lower().strip()
+        palabras_fila = [p for p in desc_fila.split() if p not in palabras_ignorar and len(p) > 2]
+
+        if palabras_objetivo and palabras_fila:
+            # Substring matching: "adquisicion" coincide con "adquisiciones"
+            coincidencias = sum(1 for p_obj in palabras_objetivo
+                                if any(p_obj in p_fila or p_fila in p_obj
+                                       for p_fila in palabras_fila))
+            porcentaje_desc = (coincidencias / len(palabras_objetivo)) * 100
         else:
-            print(f"            ❌ Sin coincidencias encontradas")
-        
-        return 0.0
-        
+            porcentaje_desc = 0
+
+        if porcentaje_desc >= 30:
+            print(f"            ✔ Comprobación de descripción: {porcentaje_desc:.0f}% (coincide)")
+        else:
+            print(f"            ⚠ ADVERTENCIA: la descripción NO coincide ni al 30% (coincidencia: {porcentaje_desc:.0f}%).")
+            print(f"               Se conserva el V_Total por COINCIDENCIA EXACTA de CPC.")
+            print(f"               Desc objetivo : '{desc_limpia[:70]}'")
+            print(f"               Desc en portal: '{desc_fila[:70]}'")
+
+        # ── Resultado: V_Total de la línea identificada por CPC ──
+        if vtotal > 0:
+            print(f"            ✅ V_Total (por CPC): ${vtotal:,.2f}")
+        else:
+            print(f"            ⚠ La fila con CPC coincidente no tiene V_Total válido (se retorna 0.0)")
+
+        return vtotal
+
     except Exception as e:
         print(f"            ✗ Error general: {str(e)[:80]}")
         import traceback
