@@ -1,6 +1,6 @@
 ; instalador.iss
 #define AppName "Gestorex"
-#define AppVersion "1.2.4"
+#define AppVersion "1.2.5"
 #define AppPublisher "Nexus"
 #define AppURL "https://importadora-cruz-966268191098.europe-west1.run.app/"
 #define AppExeName "run.exe"
