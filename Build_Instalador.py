@@ -40,7 +40,8 @@ print(" Compilando con PyInstaller...")
 os.system("pyinstaller run.spec")
 
 # ── 4. Copiar .env ──
-os.system("copy .env dist\\.env")
+import shutil
+shutil.copy(".env", "dist/.env")
 print("✅ .env copiado a dist/")
 
 # ── 5. Compilar Inno Setup ──
