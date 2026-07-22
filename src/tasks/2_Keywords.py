@@ -74,8 +74,8 @@ def obtener_ruta_credenciales():
             temp.write(credentials_json)
             return temp.name, True  # ← flag para limpieza
 
-    if Global.GEMINI_CREDENTIALS:
-        return Global.GEMINI_CREDENTIALS, False
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI, False
 
     raise Exception("No se encontraron credenciales")
 

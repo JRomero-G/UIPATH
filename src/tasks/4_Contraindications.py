@@ -69,7 +69,7 @@ MYSQL_CONFIG = {
 }
 
 # Rutas de archivos y buckets de Google Cloud
-GEMINI_CREDENTIALS_PATH = Global.GEMINI_CREDENTIALS
+CREDENTIALS_GEMINI_PATH = Global.CREDENTIALS_GEMINI
 BUCKET_NAME = Global.BUCKET_NAME
 CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
