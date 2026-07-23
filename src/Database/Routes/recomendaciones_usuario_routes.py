@@ -101,9 +101,9 @@ def Obtener_infimas_finalizadas_empleados(db: Session = Depends(get_db), current
 
 # ruta para infimas asignadas en etapa enviada
 @router.get("/admin/obtener-infimas-enviadas-de-empleados")
-def Obtener_infimas_enviadas_empleados(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
+def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session = Depends(get_db), current_user: Usuario = Depends(usuario_actual)):
         return {
-        "data": Obtener_infimas_enviadas_empleados(db)
+        "data": obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db)
     }
 
 @router.get("/admin/obtener-infimas-asignadas")
