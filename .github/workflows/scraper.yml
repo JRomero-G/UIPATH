@@ -4,9 +4,9 @@ name: Scraper de Gestorex Recoleccion
 on:
   schedule:
     # Horario Ecuador (UTC-5)
-    # 8am (13 UTC), 11am (16 UTC), 2pm (19 UTC)
-    # 8am, 11am, 2pm Ecuador
-    - cron: '0 13,16,19 * * 1-5'   
+    # 8:30am, 9:30am, 10:30am, 11:30am, 12:30pm, 1:30pm, 2:30pm, 3:30pm, 4:30pm
+    # (13:30, 14:30, 15:30, 16:30, 17:30, 18:30, 19:30, 20:30, 21:30 UTC)
+    - cron: '30 13-21 * * 1-5'   
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
         run: |
           pip install -r requirements.txt
       
-      - name: Ejecutar scraper
+      - name: Ejecutar Recoleccion
         run: python main_Recoleccion.py
         env:
           DB_HOST: ${{ secrets.DB_HOST }}
