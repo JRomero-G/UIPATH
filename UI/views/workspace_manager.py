@@ -489,7 +489,8 @@ class WorkspaceManagerUI(BaseWindow):
         if current_widget == self.page_asignaciones:
             self.cargar_datos_asignaciones()
         elif current_widget == self.page_reportes:
-            self.cargar_datos_reportes()
+            url_inicial =f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+            self.cargar_datos_reportes(url_inicial)
         elif current_widget == self.page_rechazadas:
             self.cargar_datos_rechazadas()
 
