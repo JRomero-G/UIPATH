@@ -152,7 +152,7 @@ def obtener_infimas():
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT * FROM infimas
-        WHERE etapa = 'ingresada'
+        WHERE etapa = 'ingresada' AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -198,7 +198,7 @@ def actualizar_etapa(df, resultados):
             UPDATE infimas
             SET etapa = %s,
                 actualizado_en = NOW()
-            WHERE id_infima = %s
+            WHERE id_infima = %s AND etapa != 'en generacion' AND etapa != 'finalizada'
         """,
             (etapa, row["id_infima"]),
         )
@@ -289,6 +289,8 @@ def obtener_seleccionadas_para_revision():
         WHERE etapa = 'seleccionada'
           AND PACdoc >= 0
           AND PACweb >= 0
+          AND etapa != 'en generacion'
+          AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -315,7 +317,7 @@ def marcar_no_seleccionada_por_codigo(codigo_necesidad):
         UPDATE infimas
         SET etapa = %s,
             actualizado_en = NOW()
-        WHERE codigo_necesidad = %s
+        WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'
         """,
         ("no seleccionada", codigo_necesidad),
     )

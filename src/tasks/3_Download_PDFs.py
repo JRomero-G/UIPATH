@@ -144,7 +144,7 @@ def obtener_datos_preseleccionados():
 
         cursor.execute(
             "SELECT codigo_necesidad, entidad_contratante_url "
-            "FROM infimas WHERE etapa = 'preseleccionada' "
+            "FROM infimas WHERE etapa = 'preseleccionada'  AND etapa != 'en generacion' "
             "ORDER BY codigo_necesidad"
         )
 
@@ -168,7 +168,9 @@ def obtener_datos_seleccionados():
 
         cursor.execute(
             "SELECT codigo_necesidad, entidad_contratante_url "
-            "FROM infimas WHERE etapa = 'seleccionada' "
+            "FROM infimas WHERE etapa = 'seleccionada'"
+            "AND etapa != 'en generacion' "
+            "AND etapa != 'finalizada' "
             "AND entidad_contratante_url IS NOT NULL "
             "AND entidad_contratante_url != ''"
             "AND PACdoc IS NULL" 
@@ -277,7 +279,7 @@ def actualizar_etapa(codigo_necesidad, nueva_etapa):
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s",
+            "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'",
             (nueva_etapa, codigo_necesidad),
         )
         conn.commit()
@@ -298,7 +300,7 @@ def actualizar_cpc(codigo_necesidad, cpc):
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE infimas SET CPC = %s WHERE codigo_necesidad = %s",
+            "UPDATE infimas SET CPC = %s WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'",
             (cpc, codigo_necesidad),
         )
         conn.commit()
