@@ -87,10 +87,9 @@ PROVEEDORES_NACIONALES = [
     "https://miamihome-ec.com/",
 ]
 PROVEEDORES_EXTRANJEROS = [
-    "https://www.amazon.com/", "https://www.mercadolibre.com.mx/", "https://www.mercadolibre.com.co/",
-    "https://www.mercadolibre.com.ar/", "https://www.mercadolibre.cl/", "https://www.mercadolibre.com.pe/",
+    "https://www.amazon.com/",
     "https://www.ebay.com/", "https://www.walmart.com/", "https://www.bestbuy.com/",
-    "https://www.homedepot.com/", "https://www.costco.com/",
+    "https://www.homedepot.com/", "https://www.costco.com/","https://www.alibaba.com/"
 ]
 
 def _dominio(url):
@@ -516,9 +515,12 @@ def analizar_documentos(client, archivos_locales, codigo_necesidad):
 Analiza TODOS los documentos adjuntos del código de necesidad: {codigo_necesidad}.
 
 Identifica CADA artículo de compra DISTINTO solicitado (no repitas variantes del mismo
-artículo). Para cada artículo extrae nombre, marca y modelo si se especifican; si NO se
-especifican, deja esos campos vacíos (luego se buscarán en la web). Extrae la CANTIDAD
-solicitada de cada artículo. Sé exhaustivo en características y especificaciones.
+artículo). Los documentos de contratación NO suelen indicar marca, modelo ni nombre
+comercial del artículo (la normativa de contratación pública lo prohíbe): ese NO es el dato
+a buscar. El criterio principal para identificar cada artículo son sus características y
+especificaciones, así que sé EXHAUSTIVO al extraerlas. Solo si, de forma excepcional, el
+documento SÍ menciona marca y/o modelo, regístralos; si no, deja esos campos vacíos. Extrae
+también la CANTIDAD solicitada de cada artículo.
 
 Devuelve ÚNICAMENTE un JSON válido (sin markdown, sin texto adicional):
 {{
@@ -870,8 +872,6 @@ REAL y disponible que satisfaga el siguiente requerimiento de contratación púb
 
 ARTÍCULO SOLICITADO:
 - Nombre: {info.get('nombre_articulo','')}
-- Marca:  {info.get('marca','') or '(no especificada)'}
-- Modelo: {info.get('modelo','') or '(no especificado)'}
 - Cantidad: {info.get('cantidad',1)}
 - Función principal: {info.get('funcion_principal','')}
 - Características requeridas: {json.dumps(info.get('caracteristicas',[]), ensure_ascii=False)}
@@ -879,21 +879,29 @@ ARTÍCULO SOLICITADO:
 - Dirección de entrega: {direccion}
 
 REGLAS DE SELECCIÓN:
-1) El producto debe ser NUEVO y coincidir con lo solicitado (marca/modelo exactos si se
-   especifican; si no, propón un producto que cumpla las características).
-2) Busca PRIMERO en estos proveedores NACIONALES (Ecuador):
+1) Los documentos de contratación pública NO especifican marca, modelo ni nombre comercial
+   (la normativa lo prohíbe); NO busques por marca/modelo. Busca por CARACTERÍSTICAS: el
+   producto debe cumplir TODAS las características y especificaciones requeridas arriba. En
+   muchos casos una combinación de características es propia y exclusiva de una marca/modelo
+   puntual; si solo un producto la cumple, esa es la opción correcta aunque su marca no se
+   haya pedido explícitamente.
+2) El producto debe ser NUEVO. Quedan EXCLUIDOS los productos usados, reacondicionados/
+   "refurbished", de segunda mano, de exhibición o con desperfectos: NUNCA deben aparecer en
+   la ficha técnica ni en la proforma. Si la opción de menor precio resulta ser usada,
+   descártala y continúa evaluando la siguiente que sea nueva.
+3) Busca PRIMERO en estos proveedores NACIONALES (Ecuador):
 {nac}
-3) Si no lo encuentras en los nacionales, busca en estos proveedores EXTRANJEROS:
+4) Si no lo encuentras en los nacionales, busca en estos proveedores EXTRANJEROS:
 {ext}
-4) Si tras agotar las listas no aparece, propón un proveedor de Ecuador que lo tenga.
-5) Elige la MEJOR opción = la de MENOR precio unitario que cumpla los requisitos. Si la mejor
+5) Si tras agotar las listas no aparece, propón un proveedor de Ecuador que lo tenga.
+6) Elige la MEJOR opción = la de MENOR precio unitario que cumpla los requisitos. Si la mejor
    opción es extranjera, considera envío + aduanas hasta Guayaquil; aun con esos costos su
    total debe ser el menor.
-6) Los enlaces (producto e imagen) DEBEN ser reales, COMPLETOS y accesibles. Copia la URL
+7) Los enlaces (producto e imagen) DEBEN ser reales, COMPLETOS y accesibles. Copia la URL
    EXACTA del producto tal como aparece en el navegador, incluyendo identificadores numéricos
    (SKU/ID), variante y la ruta completa; NO acortes, NO 'limpies' ni inventes el slug. La URL
    debe abrir DIRECTAMENTE la ficha del producto (no una categoría, búsqueda ni la portada).
-7) La descripción y las características deben provenir de la página del proveedor o del
+8) La descripción y las características deben provenir de la página del proveedor o del
    fabricante y coincidir con lo solicitado.
 
 Devuelve ÚNICAMENTE un JSON válido (sin markdown):
@@ -919,14 +927,17 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown):
   "alternativas": ["url-2da-mejor-opcion", "url-3ra", "url-4ta"]
 }}
 
+- "marca" / "modelo": los del producto que ENCUENTRES (para informar en la ficha/proforma);
+  no eran un criterio de búsqueda.
 - "costo_envio_aduana_usd": costo logístico TOTAL estimado para traer la cantidad solicitada
   hasta la dirección de entrega (incluye aduana si es extranjero). Para entregas fuera de
   Guayaquil suele ser de 86 a 155 USD.
 - "costo_instalacion_unitario_usd": mano de obra por unidad si el artículo requiere instalación
   (entre 60 y 80 USD); 0 si no requiere.
-- "alternativas": hasta 3 URLs reales de las siguientes mejores opciones, en orden decreciente
-  de conveniencia. [] si no hay.
-- Si NO encuentras ningún producto adecuado, devuelve {{"encontrado": false}}.
+- "alternativas": hasta 3 URLs reales de las siguientes mejores opciones, TODAS nuevas (nunca
+  usadas/reacondicionadas), en orden decreciente de conveniencia. [] si no hay.
+- Si NO encuentras ningún producto NUEVO que cumpla las características, devuelve
+  {{"encontrado": false}}.
 """
 
 def _resolver_imagen(res, nombre):
