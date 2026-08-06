@@ -258,6 +258,7 @@ class WorkspaceUserREUI(BaseWindow):
                     break
 
         except RuntimeError as e:
+            print(f"[ERROR] {e}")
             ClassicMsgBox.warning("Archivos no disponibles", str(e))
         except Exception as e:
             ClassicMsgBox.critical(

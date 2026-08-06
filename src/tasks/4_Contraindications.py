@@ -35,6 +35,18 @@ from pathlib import Path
 import platform
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from threading import Thread
+import queue
+import tempfile
+
+# Para procesar archivos DOCX (extraer texto)
+try:
+    from docx import Document
+    DOCX_DISPONIBLE = True
+except ImportError:
+    DOCX_DISPONIBLE = False
+    print("⚠ WARNING: python-docx no está instalado. Archivos .docx no podrán procesarse.")
+    print("  Instalar con: pip install python-docx")
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -51,87 +63,161 @@ MYSQL_CONFIG = {
     "user": Global.DB_USER,
     "password": Global.DB_PASSWORD,
     "database": Global.DATABASE,
+    "use_pure": True,              # ← Usa implementación Python pura
+    "connect_timeout": 30,         # ← Timeout de conexión
+    "connection_timeout": 60, 
 }
 
 # Rutas de archivos y buckets de Google Cloud
-GEMINI_CREDENTIALS_PATH = Global.CREDENTIALS_GEMINI
+CREDENTIALS_GEMINI_PATH = Global.CREDENTIALS_GEMINI
 BUCKET_NAME = Global.BUCKET_NAME
 CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
 # =========================
 # 2. INICIALIZACIÓN
 # =========================
-
 def obtener_ruta_credenciales():
     """
-    Retorna una ruta válida al archivo de credenciales.
-    Compatible con:
-    - Render (JSON en variable)
-    - Local (archivo físico)
+    Retorna (ruta, es_temporal).
+    El llamador debe hacer os.remove(ruta) si es_temporal=True.
     """
-
-    # PRODUCCIÓN (Render)
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
-
     if credentials_json:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w"
+        ) as temp:
             temp.write(credentials_json)
-            return temp.name
+            return temp.name, True  # ← flag para limpieza
 
-    # LOCAL
     if Global.CREDENTIALS_GEMINI:
-        return Global.CREDENTIALS_GEMINI
+        return Global.CREDENTIALS_GEMINI, False
 
-    raise Exception("No se encontraron credenciales de Gemini")
+    raise Exception("No se encontraron credenciales")
 
 def inicializar_servicios():
-    """
-    Inicializa los servicios de Google Cloud (VertexAI y Storage).
-    
-    Returns:
-        tuple: (model, bucket)
-            - model: Modelo generativo de VertexAI para análisis de documentos
-            - bucket: Cliente de Google Cloud Storage para acceder a documentos
-    
-    Raises:
-        Exception: Si falla la autenticación o inicialización de servicios
-    """
     global BUCKET_NAME
-    
-    ruta_credencial = obtener_ruta_credenciales()
+    ruta_credencial, es_temp = obtener_ruta_credenciales()
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            ruta_credencial
+        )
+        with open(ruta_credencial, 'r') as f:
+            creds_data = json.load(f)
+            project_id = creds_data.get('project_id')
 
-    # Cargar credenciales desde archivo JSON
-    credentials = service_account.Credentials.from_service_account_file(
-        ruta_credencial
-    )
-    
-    # Extraer project_id del archivo de credenciales
-    with open(ruta_credencial, 'r') as f:
-        creds_data = json.load(f)
-        project_id = creds_data.get('project_id')
-    
-    if not project_id:
-        raise Exception("No se encontró project_id en credenciales")
+        if not project_id:
+            raise Exception("No se encontró project_id en credenciales")
 
+        vertexai.init(
+            project=project_id,
+            credentials=credentials,
+            location="us-central1"
+        )
+        storage_client = storage.Client(
+            project=project_id,
+            credentials=credentials
+        )
+        model = GenerativeModel("gemini-2.5-flash")
+        bucket = storage_client.bucket(BUCKET_NAME)
+        return model, ruta_credencial, bucket
+    finally:
+        if es_temp:
+            try:
+                os.remove(ruta_credencial)
+            except Exception:
+                pass
 
-    # Inicializar VertexAI en región us-east4 (mejor disponibilidad)
-    vertexai.init(
-        project=project_id,
-        credentials=credentials,
-        location="us-central1"
-    )
+def _extraer_texto_docx_worker(blob_path, result_queue,credentials_path):
+    """
+    Worker interno para extraer texto de DOCX.
+    Ejecuta en thread separado para permitir timeout.
+    """
+    try:
+        # Descargar y procesar
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
+            # Usar blob directamente si ya está en scope, sino crear cliente
+            #storage_client = storage.Client()
+            # Usar credenciales explícitas
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path
+            )
+            storage_client = storage.Client(credentials=credentials)
+            bucket = storage_client.bucket(BUCKET_NAME)
+            blob = bucket.blob(blob_path)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
+                blob.download_to_filename(temp_file.name)
+                temp_path = temp_file.name
+        
+        # Extraer texto
+        doc = Document(temp_path)
+        texto = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
+        
+        # Limpiar
+        os.remove(temp_path)
+        
+        # Enviar resultado
+        result_queue.put(('success', texto if texto.strip() else None))
+        
+    except Exception as e:
+        result_queue.put(('error', str(e)))
+
+def extraer_texto_docx(blob, credentials_path, timeout=60):
+    """
+    Extrae texto de un archivo DOCX desde Google Cloud Storage con timeout.
     
-    # Inicializar cliente de Cloud Storage
-    storage_client = storage.Client(
-        project=project_id,
-        credentials=credentials
-    )
+    Args:
+        blob: Objeto blob de GCS que apunta a un archivo .docx
+        credentials_path: Ruta al archivo de credenciales
+        timeout: Tiempo máximo en segundos (default: 60)
+        
+    Returns:
+        str: Texto extraído del documento, o None si hay error o timeout
+    """
+    if not DOCX_DISPONIBLE:
+        print(f"      ⚠ python-docx no disponible, omitiendo {blob.name.split('/')[-1]}")
+        return None
     
-    # Usar modelo Gemini 2.5 Pro (más potente para análisis de documentos)
-    model = GenerativeModel("gemini-2.0-flash")
-    bucket = storage_client.bucket(BUCKET_NAME)
+    nombre_archivo = blob.name.split('/')[-1]
     
-    return model, bucket
+    try:
+        # Crear queue para recibir resultado del thread
+        result_queue = queue.Queue()
+        
+        # Ejecutar extracción en thread separado
+        worker = Thread(
+            target=_extraer_texto_docx_worker,
+            args=(blob.name, result_queue, credentials_path)
+        )
+        worker.daemon = True
+        worker.start()
+        
+        # Esperar resultado con timeout
+        worker.join(timeout=timeout)
+        
+        # Verificar si el thread terminó
+        if worker.is_alive():
+            # Timeout - el thread sigue ejecutando
+            print(f"      ⏱ TIMEOUT ({timeout}s): {nombre_archivo} - omitiendo archivo")
+            return None
+        
+        # Thread terminó - obtener resultado
+        try:
+            status, resultado = result_queue.get_nowait()
+            
+            if status == 'success':
+                return resultado
+            else:
+                print(f"      ✗ Error al procesar DOCX: {resultado}")
+                return None
+                
+        except queue.Empty:
+            print(f"      ✗ Error: No se recibió resultado de {nombre_archivo}")
+            return None
+        
+    except Exception as e:
+        print(f"      ✗ Error general al extraer texto de DOCX: {e}")
+        return None
 
 # =========================
 # 3. FUNCIONES BASE DE DATOS
@@ -178,9 +264,9 @@ def obtener_contraindicaciones_con_peso():
     df = pd.DataFrame(datos)
     return df
 
-def obtener_codigos_preseleccionados():
+def obtener_codigos_seleccionados():
     """
-    Obtiene códigos de necesidad con etapa 'seleccionada' con PACweb y PACdoc en NULL.
+    Obtiene códigos de necesidad con etapa 'seleccionada' con PACdoc en NULL.
     
     Returns:
         list: Lista de códigos de necesidad (ej: 'nic-1234567890001-2026-00001')
@@ -193,8 +279,8 @@ def obtener_codigos_preseleccionados():
     cursor.execute("""
         SELECT codigo_necesidad 
         FROM infimas 
-        WHERE etapa = 'seleccionada' 
-        AND (PACweb IS NULL AND PACdoc IS NULL)
+        WHERE etapa = 'seleccionada' AND etapa != 'en generacion' AND etapa != 'finalizada'
+        AND PACdoc IS NULL
     """)
     filas = cursor.fetchall()
     cursor.close()
@@ -205,26 +291,29 @@ def obtener_codigos_preseleccionados():
 
 def obtener_infimas_con_pac():
     """
-    Obtiene ínfimas con PACdoc >= 0 para validación de PAC en portal web.
+    Obtiene ínfimas con PACdoc >= 0 para validación de PACweb en portal web.
     
     Returns:
         DataFrame: DataFrame con columnas:
             - codigo_necesidad
             - descripcion_objeto_compra
             - entidad_contratante
+            - CPC (código numérico en varchar, usado para la coincidencia exacta en el portal)
             - V_Total (inicializado en 0.0)
     
     Nota:
         Solo obtiene registros con PACdoc >= 0 (No se encontró PAC en los documentos y en los que sí,
                                                 se comparará el PAC de documentos con el PAC web)
         El campo V_Total se llenará después con web scraping
+        El campo CPC es el código de la necesidad actual y se usará para localizar
+        la línea correcta dentro de la tabla del portal (coincidencia al 100%).
     """
     conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante
+        SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante, CPC
         FROM infimas 
-        WHERE PACdoc >= 0 AND PACweb IS NULL
+        WHERE PACdoc >= 0 AND PACweb IS NULL AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -264,40 +353,53 @@ def actualizar_pac_en_bd(codigos_pac_dict):
 def actualizar_pac_desde_vtotal(df_infimas):
     """
     Actualiza PACweb con valores de V_Total obtenidos del portal web.
-    También cambia la etapa a 'seleccionada' para códigos con PACweb > 0.
-    
-    Args:
-        df_infimas (DataFrame): DataFrame con columnas codigo_necesidad y V_Total
-    
-    Lógica:
-        1. Actualiza PACweb = V_Total donde V_Total > 0
-        2. Cambia etapa = 'seleccionada' para todos los PAC > 0 como paso intermedio
     """
-    conn = mysql.connector.connect(**MYSQL_CONFIG)
-    cursor = conn.cursor()
+    # Configuración con timeouts más altos
+    config = MYSQL_CONFIG.copy()
+    config.update({
+        'connect_timeout': 30,      # Tiempo para establecer conexión
+        'connection_timeout': 60,   # Timeout general
+        'pool_size': 1,              # Pool pequeño para desarrollo
+        'use_pure': True,            # Usar implementación pura de Python (más compatible)
+    })
     
-    # Actualizar PAC con valores V_Total del portal
-    for _, row in df_infimas.iterrows():
-        if row['V_Total'] >= 0:
+    conn = None
+    cursor = None
+    try:
+        conn = mysql.connector.connect(**config)
+        cursor = conn.cursor()
+        
+        # Actualizar PAC con valores V_Total del portal
+        for _, row in df_infimas.iterrows():
+            if row['V_Total'] >= 0:
+                cursor.execute("""
+                    UPDATE infimas 
+                    SET PACweb = %s,
+                        actualizado_en = NOW()
+                    WHERE codigo_necesidad = %s
+                """, (row['V_Total'], row['codigo_necesidad']))
+        
+        # Cambiar etapa a 'recomendada'
+        for _, row in df_infimas.iterrows():
             cursor.execute("""
                 UPDATE infimas 
-                SET PACweb = %s,
+                SET etapa = 'recomendada',
                     actualizado_en = NOW()
-                WHERE codigo_necesidad = %s
-            """, (row['V_Total'], row['codigo_necesidad']))
-    
-    # Cambiar etapa a 'recomendada' para todas las ínfimas nuevas preseleccionadas y filtradas por cantidad de artículos
-    for _, row in df_infimas.iterrows():
-        cursor.execute("""
-            UPDATE infimas 
-            SET etapa = 'recomendada',
-                actualizado_en = NOW()
-            WHERE codigo_necesidad = %s AND (PACdoc > 0 OR PACweb >0)
-        """, (row['codigo_necesidad']))
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+                WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >= 0) AND etapa != 'en generacion' AND etapa != 'finalizada'
+            """, (row['codigo_necesidad'],))
+        
+        conn.commit()
+        
+    except mysql.connector.Error as err:
+        print(f"Error en actualizar_pac_desde_vtotal: {err}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
 
 def obtener_codigos_pac_mayores_cero():
     """
@@ -314,7 +416,7 @@ def obtener_codigos_pac_mayores_cero():
     cursor.execute("""
         SELECT codigo_necesidad, PACdoc, PACweb
         FROM infimas 
-        WHERE etapa = 'recomendada'
+        WHERE etapa = 'recomendada' AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -362,7 +464,7 @@ def actualizar_peso_en_bd(codigo_necesidad, peso, contraindicaciones_encontradas
 # 4. FUNCIONES DE BUCKET/IA
 # =========================
 
-def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
+def buscar_pac_en_documentos(bucket, codigo_necesidad, model, credentials_path):
     """
     Busca el PAC (presupuesto) en documentos del bucket usando IA de Google Gemini.
     
@@ -370,7 +472,7 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
         bucket: Cliente de Google Cloud Storage
         codigo_necesidad (str): Código de la ínfima
         model: Modelo generativo de VertexAI
-    
+        credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     Returns:
         float: Valor del PAC encontrado, o 0.0 si no se encuentra
     
@@ -409,6 +511,16 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
             print(f"      📄 PDF agregado: {blob.name.split('/')[-1]}")
 
+        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
+        elif nombre_lower.endswith('.docx'):
+            print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
+            texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
+            if texto_docx:
+                documentos_contenido.append(texto_docx)
+                print(f"      ✅ DOCX procesado exitosamente")
+            else:
+                print(f"      ⚠ DOCX omitido (error o timeout) - continuando con otros archivos")
+
         # Procesar TXTs (descargar y enviar contenido)
         elif nombre_lower.endswith('.txt'):
             try:
@@ -418,10 +530,13 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model):
             except UnicodeDecodeError:
                 print(f"      ⚠ TXT - No se pudo decodificar: {blob.name.split('/')[-1]}")
         
-        # .doc/.docx no soportados (omitir)
-        elif nombre_lower.endswith(('.doc', '.docx')):
-            print(f"      ⚠ Archivo .doc/.docx detectado (omitido): {blob.name.split('/')[-1]}") 
+        # .doc (formato antiguo) no soportado por Gemini - omitir
+        elif nombre_lower.endswith('.doc'):
+            print(f"      ⚠ Archivo .doc (formato antiguo) detectado (omitido): {blob.name.split('/')[-1]}") 
 
+    # Resumen de documentos procesados
+    print(f"      📊 Total de documentos procesados: {len(documentos_contenido)}")
+    
     if not documentos_contenido:
         print(f"   ⚠ No se pudo procesar ningún documento para {codigo_necesidad}")
         return 0.0
@@ -476,7 +591,7 @@ Tu respuesta (solo el número):"""
                 "temperature": 0.1,  # Baja temperatura = más determinístico
                 "top_p": 0.8,
                 "top_k": 20,
-                "max_output_tokens": 100,  # Solo necesitamos un número
+                "max_output_tokens": 500,  # Solo necesitamos un número
             }
             
             # Llamada a IA
@@ -526,7 +641,7 @@ Tu respuesta (solo el número):"""
     
     return 0.0
 
-def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model):
+def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model,credentials_path):
     """
     Busca contraindicaciones mencionadas en documentos usando IA.
     
@@ -535,6 +650,7 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         codigo_necesidad (str): Código de la ínfima
         contraindicaciones_list (list): Lista de contraindicaciones a buscar
         model: Modelo generativo de VertexAI
+        credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     
     Returns:
         list: Lista de contraindicaciones encontradas en los documentos
@@ -564,8 +680,18 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
             documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
 
-        # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC/DOCX ──────────
-        elif blob.name.lower().endswith(('.txt', '.doc', '.docx')):
+        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
+        elif blob.name.lower().endswith('.docx'):
+            print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
+            texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
+            if texto_docx:
+                documentos_contenido.append(texto_docx)
+                print(f"      ✅ DOCX procesado exitosamente")
+            else:
+                print(f"      ⚠ DOCX omitido (error o timeout) - continuando con otros archivos")
+
+        # ── CORRECCIÓN: manejo robusto de encoding para TXT/DOC ──────────
+        elif blob.name.lower().endswith(('.txt', '.doc')):
             try:
                 contenido = blob.download_as_text(encoding='utf-8')
                 documentos_contenido.append(contenido)
@@ -579,24 +705,43 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
                     print(f"      ✗ No se pudo decodificar archivo: {blob.name.split('/')[-1]} - {e}")
         # ──────────────────────────────────────────────────────────────────────
     
+    # Resumen de documentos procesados
+    print(f"      📊 Total de documentos procesados: {len(documentos_contenido)}")
+    
     if not documentos_contenido:
+        print(f"   ⚠ No se pudo procesar ningún documento para {codigo_necesidad}")
         return []
     
-    # Prompt para búsqueda de contraindicaciones
+    # Prompt para búsqueda SEMÁNTICA de contraindicaciones (no solo coincidencias exactas)
     contraindicaciones_str = ", ".join(contraindicaciones_list)
     prompt = f"""
 Analiza los documentos proporcionados del código de necesidad {codigo_necesidad}.
 
-Busca si aparecen mencionadas alguna de estas contraindicaciones:
+Tu tarea es identificar si el proceso de contratación descrito tiene características que coincidan CON EL SIGNIFICADO, 
+CONCEPTO O IMPLICACIÓN de alguna de estas contraindicaciones:
+
 {contraindicaciones_str}
 
-Responde ÚNICAMENTE con un array JSON de las contraindicaciones que SÍ encontraste mencionadas.
+IMPORTANTE - BÚSQUEDA SEMÁNTICA:
+No busques solo las palabras exactas. Busca también:
+- Sinónimos o términos relacionados
+- Conceptos similares o equivalentes  
+- Frases que impliquen lo mismo
+- Descripciones que indiquen actividades relacionadas
+
+Ejemplos de búsqueda semántica:
+- Si la contraindicación es "Soporte técnico", también detecta: "asistencia técnica", "mantenimiento técnico", "apoyo tecnológico", "servicio técnico"
+- Si es "Capacitación", también detecta: "entrenamiento", "formación", "curso", "taller", "adiestramiento"
+- Si es "Adquisición de software", también detecta: "compra de programa", "licencias de software", "sistema informático", "aplicación"
+- Si es "Consultoría", también detecta: "asesoría", "asesoramiento", "servicios profesionales especializados"
+
+Responde ÚNICAMENTE con un array JSON de las contraindicaciones que encontraste (usando el nombre EXACTO de la lista original).
 Si no encuentras ninguna, responde: []
 
 Ejemplo de respuesta:
-["contraindicacion1", "contraindicacion2"]
+["Certificados de buena práctica", "Procesos con registro sanitario"]
 
-NO incluyas explicaciones, solo el array JSON.
+NO incluyas explicaciones, solo el array JSON con los nombres exactos de las contraindicaciones encontradas.
 """
 
     try:
@@ -619,36 +764,50 @@ NO incluyas explicaciones, solo el array JSON.
 # =========================
 # 5. WEB SCRAPING
 # =========================
-
 def get_driver():
     chrome_options = Options()
+    
+    # Configuración común
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=800,600")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--window-size=1280,720")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    
     if platform.system() == "Linux":
-        # Docker en Render: Chromium instalado vía apt
-        chrome_options.add_argument("--headless=new")
-        chrome_options.binary_location = "/usr/bin/chromium"
-        driver = webdriver.Chrome(
-            service=Service("/usr/bin/chromedriver"),
-            options=chrome_options
+        # Configuración para Linux (Render/GitHub Actions)
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--disable-setuid-sandbox")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        
+        temp_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+        
+        service = Service(
+            "/usr/bin/chromedriver",
+            service_args=['--verbose', '--log-path=/tmp/chromedriver.log']
         )
+        
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
     else:
-        # Windows local
+        # Configuración para Windows (desarrollo local)
+        from webdriver_manager.chrome import ChromeDriverManager
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
+        # Opcional: minimizar ventana en Windows
         try:
             driver.minimize_window()
         except:
             pass
-
+    
+    driver.set_page_load_timeout(180)
     return driver
 
 def buscar_vtotal_en_portal(df_infimas):
@@ -677,11 +836,14 @@ def buscar_vtotal_en_portal(df_infimas):
         for idx, row in df_infimas.iterrows():
             entidad = row['entidad_contratante']
             descripcion = row['descripcion_objeto_compra']
+            # CPC de la necesidad actual (varchar numérico). Se usa para localizar
+            # la línea correcta en la tabla del portal por coincidencia exacta.
+            cpc = '' if pd.isna(row.get('CPC')) else str(row.get('CPC')).strip()
             
             print(f"   Buscando: {row['codigo_necesidad']} - {entidad}")
             
-            # Buscar V_Total en portal
-            vtotal = buscar_para_entidad(driver, entidad, descripcion)
+            # Buscar V_Total en portal (coincidencia por CPC; descripción solo como comprobación)
+            vtotal = buscar_para_entidad(driver, entidad, descripcion, cpc)
             
             if vtotal > 0:
                 df_infimas.at[idx, 'V_Total'] = vtotal
@@ -697,14 +859,16 @@ def buscar_vtotal_en_portal(df_infimas):
     
     return df_infimas
 
-def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
+def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo, cpc_objetivo):
     """
     Busca V_Total en portal de compras públicas para una entidad específica.
     
     Args:
         driver: WebDriver de Selenium
         entidad_contratante (str): Nombre de la entidad
-        descripcion_objetivo (str): Descripción del objeto de compra
+        descripcion_objetivo (str): Descripción del objeto de compra (solo comprobación)
+        cpc_objetivo (str): CPC de la necesidad; debe coincidir al 100% en la tabla
+                            del portal para confirmar la línea correcta
     
     Returns:
         float: V_Total encontrado, o 0.0 si no se encuentra
@@ -995,10 +1159,11 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
                         continue
                     
                     # ========================================================
-                    # Buscar coincidencia de descripción y extraer V_Total
+                    # Localizar la línea por CPC y extraer V_Total
+                    # (la descripción se usa solo como comprobación)
                     # ========================================================
-                    print(f"         🔎 Buscando coincidencia de descripción...")
-                    vtotal = buscar_coincidencia_descripcion_por_clase(tabla_pac, descripcion_objetivo)
+                    print(f"         🔎 Localizando línea por CPC (descripción como comprobación)...")
+                    vtotal = buscar_coincidencia_descripcion_por_clase(tabla_pac, descripcion_objetivo, cpc_objetivo)
                     
                     if vtotal > 0:
                         print(f"      ✅ V_Total encontrado: ${vtotal:,.2f}")
@@ -1026,154 +1191,174 @@ def buscar_para_entidad(driver, entidad_contratante, descripcion_objetivo):
         traceback.print_exc()
         return 0.0
 
-def buscar_coincidencia_descripcion_por_clase(tabla, descripcion_objetivo):
+def buscar_coincidencia_descripcion_por_clase(tabla, descripcion_objetivo, cpc_objetivo):
     """
-    Busca coincidencia de descripción en tabla PAC y extrae V_Total.
-    
+    Localiza la línea correcta en la tabla PAC mediante COINCIDENCIA EXACTA de CPC
+    y extrae su V_Total. La descripción se usa SOLO como comprobación.
+
     Args:
         tabla: Elemento WebElement de Selenium (tabla PAC)
-        descripcion_objetivo (str): Descripción a buscar
-    
+        descripcion_objetivo (str): Descripción del objeto de compra (SOLO comprobación)
+        cpc_objetivo (str): CPC de la necesidad actual; debe coincidir al 100% en la
+                            tabla del portal para confirmar la línea correcta
+
     Returns:
-        float: V_Total de la fila con mejor coincidencia, o 0.0 si no hay match
-    
+        float: V_Total de la fila cuyo CPC coincide exactamente, o 0.0 si no se
+               encuentra ninguna fila con ese CPC.
+
     Algoritmo:
-        1. Extrae palabras clave de descripción objetivo (ignora artículos)
-        2. Para cada fila de la tabla:
-           - Extrae descripción (columna 10) y V_Total (columna 14)
-           - Calcula % de coincidencia de palabras
-           - Guarda mejor coincidencia
-        3. Si encuentra >= 30% coincidencia con V_Total > 0, retorna
-        4. Si no, retorna mejor coincidencia encontrada
-    
+        1. Normaliza el CPC objetivo (solo dígitos) para una comparación robusta al 100%.
+        2. Busca en la tabla la fila cuyo CPC (columna [2]) coincide exactamente.
+           - Si no aparece en la columna [2], hace un barrido por las demás columnas
+             de cada fila como respaldo (la posición del CPC puede variar en el portal).
+        3. Al encontrar la fila por CPC, extrae el V_Total (columna [14]) de esa misma
+           fila: ese es el valor definitivo del PACweb.
+        4. Comprueba la descripción (columna [10]) SOLO de forma informativa:
+           - Si la descripción NO coincide ni al 30%, lo notifica en la terminal,
+             pero igualmente retorna el V_Total de la coincidencia exacta de CPC.
+
     Estructura de tabla:
         [0]=Nro, [1]=Partida, [2]=CPC, ..., [10]=Descripción, ..., [14]=V.Total
         (Total: 17 columnas)
-    
-    Umbrales:
-        - 30%: Umbral mínimo de aceptación (flexible para textos cortos)
-        - Retorna inmediatamente si encuentra >= 30% con valor > 0
     """
     try:
         # Buscar solo filas con clases de datos (filaElemento1 o filaElemento2)
         filas_datos = tabla.find_elements(
-            By.XPATH, 
+            By.XPATH,
             ".//tr[@class='filaElemento1' or @class='filaElemento2']"
         )
-        
+
         print(f"            📊 Analizando {len(filas_datos)} filas de datos")
-        
+
         if len(filas_datos) == 0:
             print(f"            ⚠ No se encontraron filas con clase filaElemento1/filaElemento2")
             return 0.0
-        
-        # Preparar descripción objetivo (limpiar y extraer palabras clave)
-        desc_limpia = descripcion_objetivo.lower().strip()
+
+        # ── Normalizar CPC objetivo (solo dígitos → coincidencia al 100%) ──
+        cpc_objetivo_str = "" if cpc_objetivo is None else str(cpc_objetivo).strip()
+        cpc_objetivo_norm = re.sub(r'\D', '', cpc_objetivo_str)
+
+        if not cpc_objetivo_norm:
+            print(f"            ⚠ CPC objetivo vacío o inválido; no se puede localizar la línea por CPC")
+            return 0.0
+
+        print(f"            🔑 CPC objetivo: '{cpc_objetivo_str}' (normalizado: '{cpc_objetivo_norm}')")
+
+        # ── Preparar descripción objetivo (SOLO para comprobación posterior) ──
+        desc_limpia = descripcion_objetivo.lower().strip() if descripcion_objetivo else ""
         # Palabras a ignorar (artículos, preposiciones)
         palabras_ignorar = {'de', 'del', 'la', 'el', 'los', 'las', 'para', 'con', 'en', 'y', 'a', 'un', 'una', 'por', 'sobre', 'que'}
         # Filtrar palabras > 2 caracteres y no ignoradas
         palabras_objetivo = [p for p in desc_limpia.split() if p not in palabras_ignorar and len(p) > 2]
-        
-        print(f"            🔍 Palabras clave: {' '.join(palabras_objetivo[:7])}")
-        
-        # Variables para tracking de mejor coincidencia
-        mejor_coincidencia = 0
-        mejor_vtotal = 0.0
-        mejor_desc = ""
-        mejor_fila_num = 0
-        
-        # Analizar cada fila de datos
+
+        # ── Localizar la fila por coincidencia EXACTA de CPC ──
+        celdas_match = None      # Celdas de la fila encontrada
+        col_cpc_detectada = 2    # Columna por defecto del CPC (según estructura)
+
+        # Tier 1: columna documentada del CPC ([2])
         for idx, fila in enumerate(filas_datos, 1):
             try:
                 celdas = fila.find_elements(By.TAG_NAME, "td")
-                
+
                 # Debug: mostrar columnas de primera fila
                 if idx == 1:
                     print(f"            📊 Fila tiene {len(celdas)} columnas")
-                
-                # Verificar que tenga estructura de 17 columnas
+
+                # Verificar que tenga estructura mínima esperada (>= 15 columnas)
                 if len(celdas) < 15:
                     if idx == 1:
                         print(f"            ⚠ Estructura inesperada ({len(celdas)} columnas)")
                     continue
-                
-                # Extraer datos de columnas específicas
-                # [10] = Descripción del objeto de compra
-                # [14] = V. Total (valor total)
-                desc_fila = celdas[10].text.lower().strip()
-                vtotal_texto = celdas[14].text.strip()
-                
+
                 # Debug: mostrar primera fila como ejemplo
                 if idx == 1:
                     print(f"            📝 Ejemplo fila 1:")
-                    print(f"               Desc[10]: '{desc_fila[:70]}'")
-                    print(f"               V.Total[14]: '{vtotal_texto}'")
-                
-                # Extraer palabras clave de descripción de la fila
-                palabras_fila = [p for p in desc_fila.split() if p not in palabras_ignorar and len(p) > 2]
-                
-                # Calcular coincidencias (substring matching)
-                if not palabras_objetivo or not palabras_fila:
-                    continue
-                
-                # Contar cuántas palabras objetivo están en palabras de fila
-                # (usa substring matching: "adquisicion" match "adquisiciones")
-                coincidencias = sum(1 for p_obj in palabras_objetivo 
-                                    if any(p_obj in p_fila or p_fila in p_obj
-                                    for p_fila in palabras_fila))
-                
-                # Calcular porcentaje de coincidencia
-                porcentaje = (coincidencias / len(palabras_objetivo)) * 100
-                
-                # Guardar mejor coincidencia
-                if porcentaje > mejor_coincidencia:
-                    mejor_coincidencia = porcentaje
-                    mejor_desc = desc_fila[:60]
-                    mejor_fila_num = idx
-                    
-                    # Intentar extraer V_Total
-                    try:
-                        # Limpiar formato ($, comas, USD)
-                        vtotal_limpio = vtotal_texto.replace(',', '').replace('$', '').replace('USD', '').strip()
-                        # Ignorar valores 0.0000
-                        if vtotal_limpio and vtotal_limpio != '0.0000':
-                            vtotal = float(vtotal_limpio)
-                            if vtotal > 0:
-                                mejor_vtotal = vtotal
-                                # Mostrar coincidencias >= 30%
-                                if porcentaje >= 30:
-                                    print(f"            💡 Fila {idx}: {porcentaje:.0f}% coincidencia - ${vtotal:,.2f}")
-                    except ValueError as e:
-                        if idx == 1:
-                            print(f"            ⚠ Error convirtiendo '{vtotal_texto}': {e}")
-                        continue
-                
-                # Si encontramos >= 30% con valor válido, retornar inmediatamente
-                if porcentaje >= 30 and mejor_vtotal > 0:
-                    print(f"            ✅ Coincidencia aceptada: {porcentaje:.0f}%")
-                    print(f"            ✅ V_Total: ${mejor_vtotal:,.2f}")
-                    return mejor_vtotal
-            
+                    print(f"               CPC[2]: '{celdas[2].text.strip()}'")
+                    print(f"               Desc[10]: '{celdas[10].text.lower().strip()[:70]}'")
+                    print(f"               V.Total[14]: '{celdas[14].text.strip()}'")
+
+                # Comparar CPC de la fila (columna 2) contra el objetivo (normalizado)
+                cpc_fila_norm = re.sub(r'\D', '', celdas[2].text.strip())
+                if cpc_fila_norm and cpc_fila_norm == cpc_objetivo_norm:
+                    celdas_match = celdas
+                    col_cpc_detectada = 2
+                    print(f"            ✅ CPC coincidente (columna 2) en fila {idx}: '{celdas[2].text.strip()}'")
+                    break
+
             except Exception as e:
                 # Solo mostrar errores en primeras filas (evitar spam)
                 if idx <= 2:
                     print(f"            ⚠ Error fila {idx}: {str(e)[:50]}")
                 continue
-        
-        # Si no encontró >= 30%, reportar mejor resultado
-        if mejor_coincidencia > 0:
-            print(f"            💡 Mejor coincidencia: Fila {mejor_fila_num} - {mejor_coincidencia:.0f}%")
-            print(f"               '{mejor_desc}'")
-            if mejor_vtotal > 0:
-                print(f"            ✅ Usando V_Total: ${mejor_vtotal:,.2f}")
-                return mejor_vtotal
-            else:
-                print(f"            ⚠ Mejor coincidencia no tiene V_Total válido")
+
+        # Tier 2 (respaldo): el CPC puede estar en otra columna → barrer todas
+        if celdas_match is None:
+            print(f"            🔎 CPC no hallado en la columna 2; barriendo el resto de columnas...")
+            for idx, fila in enumerate(filas_datos, 1):
+                try:
+                    celdas = fila.find_elements(By.TAG_NAME, "td")
+                    if len(celdas) < 15:
+                        continue
+                    for col, celda in enumerate(celdas):
+                        celda_norm = re.sub(r'\D', '', celda.text.strip())
+                        # Exigir longitud >= 4 para evitar falsos positivos (Nro, cantidades)
+                        if len(celda_norm) >= 4 and celda_norm == cpc_objetivo_norm:
+                            celdas_match = celdas
+                            col_cpc_detectada = col
+                            print(f"            ✅ CPC coincidente (columna {col}) en fila {idx}: '{celda.text.strip()}'")
+                            break
+                    if celdas_match is not None:
+                        break
+                except Exception:
+                    continue
+
+        # ── Si no se encontró ninguna fila con CPC coincidente ──
+        if celdas_match is None:
+            print(f"            ❌ No se encontró ninguna fila con CPC '{cpc_objetivo_str}' en la tabla")
+            return 0.0
+
+        # ── Extraer V_Total de la fila con CPC coincidente (columna [14]) ──
+        vtotal = 0.0
+        vtotal_texto = celdas_match[14].text.strip()
+        try:
+            # Limpiar formato ($, comas, USD)
+            vtotal_limpio = vtotal_texto.replace(',', '').replace('$', '').replace('USD', '').strip()
+            # Ignorar valores 0.0000
+            if vtotal_limpio and vtotal_limpio != '0.0000':
+                vtotal = float(vtotal_limpio)
+        except ValueError as e:
+            print(f"            ⚠ Error convirtiendo V_Total '{vtotal_texto}': {e}")
+            vtotal = 0.0
+
+        # ── Comprobación de descripción (SOLO informativa, columna [10]) ──
+        desc_fila = celdas_match[10].text.lower().strip()
+        palabras_fila = [p for p in desc_fila.split() if p not in palabras_ignorar and len(p) > 2]
+
+        if palabras_objetivo and palabras_fila:
+            # Substring matching: "adquisicion" coincide con "adquisiciones"
+            coincidencias = sum(1 for p_obj in palabras_objetivo
+                                if any(p_obj in p_fila or p_fila in p_obj
+                                       for p_fila in palabras_fila))
+            porcentaje_desc = (coincidencias / len(palabras_objetivo)) * 100
         else:
-            print(f"            ❌ Sin coincidencias encontradas")
-        
-        return 0.0
-        
+            porcentaje_desc = 0
+
+        if porcentaje_desc >= 30:
+            print(f"            ✔ Comprobación de descripción: {porcentaje_desc:.0f}% (coincide)")
+        else:
+            print(f"            ⚠ ADVERTENCIA: la descripción NO coincide ni al 30% (coincidencia: {porcentaje_desc:.0f}%).")
+            print(f"               Se conserva el V_Total por COINCIDENCIA EXACTA de CPC.")
+            print(f"               Desc objetivo : '{desc_limpia[:70]}'")
+            print(f"               Desc en portal: '{desc_fila[:70]}'")
+
+        # ── Resultado: V_Total de la línea identificada por CPC ──
+        if vtotal > 0:
+            print(f"            ✅ V_Total (por CPC): ${vtotal:,.2f}")
+        else:
+            print(f"            ⚠ La fila con CPC coincidente no tiene V_Total válido (se retorna 0.0)")
+
+        return vtotal
+
     except Exception as e:
         print(f"            ✗ Error general: {str(e)[:80]}")
         import traceback
@@ -1269,7 +1454,7 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             UPDATE infimas
             SET etapa = 'seleccionada',
                 actualizado_en = NOW()
-            WHERE PACdoc > 0 OR PACweb > 0
+            WHERE etapa != 'en generacion' AND etapa != 'finalizada' AND (PACdoc >= 0 OR PACweb >= 0) 
         """)
         filas_etapa = cursor.rowcount
 
@@ -1284,6 +1469,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             WHERE e.Peso_total IS NOT NULL 
             AND e.Peso_total >= 0 
             AND e.Peso_total <= 0.20
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_1 = cursor.rowcount
 
@@ -1294,6 +1481,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             SET i.nivel_de_oportunidad = 'nivel 2',
                 i.actualizado_en = NOW()
             WHERE e.Peso_total > 0.20 AND e.Peso_total <= 0.50
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_2 = cursor.rowcount
 
@@ -1304,6 +1493,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             SET i.nivel_de_oportunidad = 'nivel 3',
                 i.actualizado_en = NOW()
             WHERE e.Peso_total > 0.50 AND e.Peso_total <= 1.00
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_3 = cursor.rowcount
 
@@ -1371,14 +1562,14 @@ def main():
     # PASO 3: Códigos seleccionados
     # ========================================================
     print("\n[2] Obteniendo códigos seleccionados...")
-    codigos_preseleccionados = obtener_codigos_preseleccionados()
+    codigos_preseleccionados = obtener_codigos_seleccionados()
     print(f"   ✓ {len(codigos_preseleccionados)} códigos encontrados")
     
     # ========================================================
     # PASO 4-6: Buscar PAC en documentos con IA
     # ========================================================
     print("\n[3] Inicializando servicios Google Cloud...")
-    model, bucket = inicializar_servicios()
+    model, ruta_credencial, bucket = inicializar_servicios()
     print("   ✓ Servicios inicializados")
     
     print("\n[4] Buscando PAC en documentos...")
@@ -1386,7 +1577,7 @@ def main():
 
     for i, codigo in enumerate(codigos_preseleccionados, 1):
         print(f"   [{i}/{len(codigos_preseleccionados)}] {codigo}")
-        pac = buscar_pac_en_documentos(bucket, codigo, model)
+        pac = buscar_pac_en_documentos(bucket, codigo, model, ruta_credencial)
         codigos_pac_dict[codigo] = pac
 
         if pac > 0:
@@ -1396,7 +1587,7 @@ def main():
         
         # Delay entre códigos para evitar rate limits de Google Cloud
         if i < len(codigos_preseleccionados):
-            tiempo_espera = 60
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash: permite 6 req/min)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
     
@@ -1435,7 +1626,7 @@ def main():
     for i, codigo in enumerate(codigos_pac_positivos.keys(), 1):
         print(f"   [{i}/{len(codigos_pac_positivos)}] {codigo}")
         contraindicaciones_encontradas = buscar_contraindicaciones_en_documentos(
-            bucket, codigo, contraindicaciones_list, model
+            bucket, codigo, contraindicaciones_list, model, ruta_credencial
         )
         contraindicaciones_por_codigo[codigo] = contraindicaciones_encontradas
         
@@ -1446,7 +1637,7 @@ def main():
     
         # Delay entre códigos
         if i < len(codigos_pac_positivos):
-            tiempo_espera = 60
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
 

@@ -1,0 +1,48 @@
+#RECOLECTOR DE INFIMAS 
+name: Scraper de Gestorex Recoleccion
+
+on:
+  schedule:
+    # Horario Ecuador (UTC-5)
+    # 8:00am, 8:40am, 9:20am, ..., 5:20pm, 6:00pm
+    # (13:00, 13:40, 14:20, ..., 22:20, 23:00 UTC)
+    - cron: '0 13,15,17,19,21,23 * * 1-5'   # minutos 00 en horas pares (13,15,...,23)
+    - cron: '20 14,16,18,20,22 * * 1-5'     # minutos 20 en horas impares (14,16,...,22)
+    - cron: '40 13,15,17,19,21 * * 1-5'     # minutos 40 en horas pares (13,15,...,21)
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+      
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Instalar Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium chromium-driver
+      
+      - name: Instalar dependencias Python
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Ejecutar Recoleccion
+        run: python main_Recoleccion.py
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DATABASE: ${{ secrets.DATABASE }}
+          CREDENTIALS_GEMINI: ${{ secrets.CREDENTIALS_GEMINI }}
+          RENDER_CRENDENTIALS_JSON: ${{ secrets.RENDER_CRENDENTIALS_JSON }}
+          BUCKET_NAME: ${{ secrets.BUCKET_NAME }}
+          TMPDIR: /tmp
+          TMP: /tmp
+          PYTHONUNBUFFERED: 1

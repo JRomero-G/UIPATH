@@ -12,7 +12,8 @@ from src.Database.Controllers.infima_controller import (
     actualizar_infimas_a_enviadas,
     eliminar_infima_permanentemente,
     obtener_infimas_rechazadas,
-    obtener_evaluacion_de_infimas_por_codigo
+    obtener_evaluacion_de_infimas_por_codigo,
+    actualizar_infimas_no_seleccionada
 )
 
 from src.Database.Models.usuarios_model import Usuario
@@ -67,6 +68,12 @@ def analizar_infimas(db: Session = Depends(get_db),id_infima = int):
 @router.patch("/enviar-infimas/{id_infima}")
 def enviar_infimas(db: Session = Depends(get_db),id_infima = int):
     resultado = actualizar_infimas_a_enviadas(db,id_infima)
+    return resultado
+
+# ==================== Actualzar infimas a no seleccionada ===============================
+@router.patch("/no-seleccionada/{id_infima}")
+def no_seleccionada_infimas(db: Session = Depends(get_db),id_infima = int):
+    resultado = actualizar_infimas_no_seleccionada(db,id_infima)
     return resultado
 
 

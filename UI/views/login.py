@@ -204,7 +204,7 @@ class LoginUI(BaseWindow):
         PASSWORD = self.pwd.text().strip()
 
         if not USUARIO or not PASSWORD:
-            ClassicMsgBox.warning(self, "Error", "Debe ingresar usuario y contraseña.")
+            ClassicMsgBox.warning("Error", "Debe ingresar usuario y contraseña.")
             return
 
         try:
@@ -215,7 +215,7 @@ class LoginUI(BaseWindow):
                     "Accept": "application/json",
                     "Content-Type": "application/json",
                 },
-                timeout=20,
+                timeout=40,
             )
 
             if response.status_code == 200:

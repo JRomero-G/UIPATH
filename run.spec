@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath('.'))
 from src.Config.version import CURRENT_VERSION
 
-block_cipher = None  # ← agregar esta línea
+block_cipher = None  
 
 a = Analysis(
     ['run.py'],

@@ -161,11 +161,25 @@ def obtener_infimas_recomendadas_asignadas_del_usuario(db: Session,usuario_id: i
         db.query(Infima)
         .join(RecomendacionesUsuario)
         .filter(RecomendacionesUsuario.usuario_id == usuario_id
-        ,Infima.etapa != "en generacion")
-        .order_by(Infima.fecha_publicacion.desc())
-        .limit(20)
+        ,Infima.etapa != "en generacion",Infima.etapa != "no seleccionada", Infima.etapa != "enviada", Infima.etapa != "finalizada")
+        .order_by(Infima.nivel_de_oportunidad.asc()) # Ordenadas ahora por nivel de oportunidad
+        #.limit(20)
         .all()
     )
+
+
+# Devuelve las ínfimas asignadas a un usuario específico 
+def obtener_infimas_recomendadas_asignadas_del_usuario2(db: Session,usuario_id: int):
+    return (
+        db.query(Infima)
+        .join(RecomendacionesUsuario)
+        .filter(RecomendacionesUsuario.usuario_id == usuario_id
+        ,Infima.etapa != "en generacion",Infima.etapa != "no seleccionada", Infima.etapa != "enviada", Infima.etapa != "finalizada")
+        .order_by(Infima.fecha_publicacion.desc())
+        #.limit(20)
+        .all()
+    )
+
 
 def obtener_infimas_recomendadas_asignadas_finalizadas_del_usuario(db: Session,usuario_id: int):
     return (
@@ -272,7 +286,7 @@ def obtener_infimas_asignadas_enviadas_y_a_que_usuarios(db: Session, etapa: str 
     ]
 
 
-# ETAPAS EN GENERACION Y FINALIZADAS
+# ETAPAS EN GENERACION, SELECCIONADAS Y FINALIZADAS
 def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
     
     resultado = (    db.query(
@@ -290,13 +304,16 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
         .filter(
             or_(
                 Infima.etapa == "en generacion",
-                Infima.etapa == "finalizada"
+                Infima.etapa == "finalizada",
+                Infima.etapa == "seleccionada"
             )
         )
         # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+    etapas_en_bd = db.query(Infima.etapa).filter(Infima.id_infima.in_(db.query(RecomendacionesUsuario.id_infima))).distinct().all()
+    print("Etapas en BD con asignaciones:", [e[0] for e in etapas_en_bd])
     
     if resultado:
         print("Campos consultados Rechazadas: ",resultado[0]._fields)
@@ -314,7 +331,7 @@ def obtener_infimas_asignadas_y_a_que_usuarios(db: Session):
         for r in resultado
     ]
 
-# ETAPAS EN GENERACION Y FINALIZADAS Con filtros
+# ETAPAS EN GENERACION, SELECCIONADAS Y FINALIZADAS Con filtros
 def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: int):
     
     resultado = (    db.query(
@@ -333,17 +350,20 @@ def obtener_infimas_asignadas_y_a_que_usuarios_filtro(db: Session,id_usuario: in
             Usuario.id_usuario == id_usuario,
             or_(
                 Infima.etapa == "en generacion",
-                Infima.etapa == "finalizada"
+                Infima.etapa == "finalizada",
+                Infima.etapa == "seleccionada"
             )
         )
         # Ordenamos por fecha limite de proformas (las mas proximas a vencer)
         .order_by(Infima.fecha_limite_proformas.asc())
         .all()
     )
+    etapas_en_bd = db.query(Infima.etapa).filter(Infima.id_infima.in_(db.query(RecomendacionesUsuario.id_infima))).distinct().all()
+    print("Etapas de las infimas filtradas y asignadas a ",Usuario.usuario ,"  en BD:", [e[0] for e in etapas_en_bd])
     
     if resultado:
-        print("Campos consultados Rechazadas: ",resultado[0]._fields)
-    
+        print("Campos consultados: ",resultado[0]._fields)
+
     return [
         {
             "usuario": r.usuario,

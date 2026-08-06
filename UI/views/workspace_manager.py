@@ -208,6 +208,10 @@ class WorkspaceManagerUI(BaseWindow):
                 font-weight: bold;
                 border-bottom: 2px solid rgba(255,255,255,120);
             }
+            QTableWidget::item {
+            background-color: rgba(180, 199, 248, 1);
+            color: black;
+        }
         """
         )
 
@@ -485,7 +489,8 @@ class WorkspaceManagerUI(BaseWindow):
         if current_widget == self.page_asignaciones:
             self.cargar_datos_asignaciones()
         elif current_widget == self.page_reportes:
-            self.cargar_datos_reportes()
+            url_inicial =f"{Global.BACKEND_URL}/recomendaciones-usuario/admin/obtener-infimas-asignadas"
+            self.cargar_datos_reportes(url_inicial)
         elif current_widget == self.page_rechazadas:
             self.cargar_datos_rechazadas()
 
@@ -513,6 +518,7 @@ class WorkspaceManagerUI(BaseWindow):
                 return
 
             data = response.json()
+            print(f"Infimas totales: {len(data)}")
 
             if isinstance(data, dict) and "data" in data:
                 data = data["data"]
@@ -543,23 +549,23 @@ class WorkspaceManagerUI(BaseWindow):
             combo.setStyleSheet(
                 f"""
                 QComboBox {{
-                    background-color: rgb({color.red()},{color.green()},{color.blue()});
+                    background-color: rgba(180, 199, 248, 1);
                     color: black;
                     border: none;
                     padding: 3px;
                 }}
                 QComboBox QAbstractItemView {{
-                    background-color: rgb(220,235,255);
+                    background-color: rgba(220,235,255,1);
                     color: black;
-                    selection-background-color: rgb(80,140,230);
+                    selection-background-color: rgba(80,140,230,1);
                     selection-color: white;
                 }}
                 QComboBox::item {{
-                    background-color: rgb(220,235,255);
+                    background-color: rgba(220,235,255,1);
                     color: black;
                 }}
                 QComboBox::item:selected {{
-                    background-color: rgb(80,140,230);
+                    background-color: rgba(80,140,230,1);
                     color: white;
                 }}
             """
@@ -923,7 +929,7 @@ class WorkspaceManagerUI(BaseWindow):
             """Celda con enlace clickeable que abre el navegador."""
             container = QWidget()
             container.setStyleSheet(
-                f"background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});"
+                f"background-color: rgba(255, 255, 255, 1);"
             )
 
             layout = QHBoxLayout(container)

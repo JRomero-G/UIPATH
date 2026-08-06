@@ -25,6 +25,9 @@ MYSQL_CONFIG = {
     "user": Global.DB_USER,
     "password": Global.DB_PASSWORD,
     "database": Global.DATABASE,
+    "use_pure": True,              # ← Usa implementación Python pura
+    "connect_timeout": 30,         # ← Timeout de conexión
+    "connection_timeout": 60, 
 }
 
 # Ruta base del proyecto
@@ -55,26 +58,23 @@ session.headers.update(HEADERS)
 # =====================================================
 # 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
-
-def obtener_ruta_credenciales_gcs():
+def obtener_ruta_credenciales():
     """
-    Retorna ruta válida a credenciales de GCS.
-    - Render: crea archivo temporal desde variable de entorno
-    - Local:  usa archivo físico
+    Retorna (ruta, es_temporal).
+    El llamador debe hacer os.remove(ruta) si es_temporal=True.
     """
-    # PRODUCCIÓN (Render) - variable de entorno con JSON completo
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
     if credentials_json:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as temp:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w"
+        ) as temp:
             temp.write(credentials_json)
-            return temp.name
+            return temp.name, True  # ← flag para limpieza
 
-    # LOCAL - archivo físico
-    ruta_local = os.path.join(BASE_DIR, "data", "Clave_bucket_AIgemini.json")
-    if os.path.exists(ruta_local):
-        return ruta_local
+    if Global.CREDENTIALS_GEMINI:
+        return Global.CREDENTIALS_GEMINI, False
 
-    raise Exception("No se encontraron credenciales de GCS")
+    raise Exception("No se encontraron credenciales")
 
 
 
@@ -103,6 +103,32 @@ def subir_archivo_a_gcs_temporal(ruta_local, codigo_necesidad):
         return None
 
 
+def verificar_carpeta_existe_en_gcs(codigo_necesidad):
+    """
+    Verifica si ya existe una carpeta (con archivos) en GCS para el código de necesidad.
+    
+    Args:
+        codigo_necesidad (str): Código de necesidad a verificar
+        
+    Returns:
+        bool: True si existe carpeta con archivos, False si no existe
+    """
+    try:
+        # Prefijo de la carpeta en GCS
+        prefijo = f"Documentos de Contratación/{codigo_necesidad}/"
+        
+        # Listar blobs con ese prefijo (limit=1 es suficiente para verificar existencia)
+        blobs = list(bucket.list_blobs(prefix=prefijo, max_results=1))
+        
+        # Si hay al menos un blob, la carpeta existe
+        return len(blobs) > 0
+        
+    except Exception as e:
+        print(f"    [GCS] Error al verificar carpeta: {e}")
+        # En caso de error, devolver False para intentar la descarga
+        return False
+
+
 # =====================================================
 # 2. UTILITARIAS
 # =====================================================
@@ -118,7 +144,7 @@ def obtener_datos_preseleccionados():
 
         cursor.execute(
             "SELECT codigo_necesidad, entidad_contratante_url "
-            "FROM infimas WHERE etapa = 'preseleccionada' "
+            "FROM infimas WHERE etapa = 'preseleccionada'  AND etapa != 'en generacion' "
             "ORDER BY codigo_necesidad"
         )
 
@@ -135,18 +161,19 @@ def obtener_datos_preseleccionados():
 
 
 def obtener_datos_seleccionados():
-    """Obtiene ínfimas en etapa 'seleccionada'"""
+    """Obtiene ínfimas en etapa 'seleccionada' con PACdoc en NULL (sin análisis de PAC)"""
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor(dictionary=True)
 
         cursor.execute(
             "SELECT codigo_necesidad, entidad_contratante_url "
-            "FROM infimas WHERE etapa = 'seleccionada' "
+            "FROM infimas WHERE etapa = 'seleccionada'"
+            "AND etapa != 'en generacion' "
+            "AND etapa != 'finalizada' "
             "AND entidad_contratante_url IS NOT NULL "
-            "AND entidad_contratante_url != '' "
-            "AND PACweb AND PACdoc IS NULL"
-            "ORDER BY codigo_necesidad"
+            "AND entidad_contratante_url != ''"
+            "AND PACdoc IS NULL" 
         )
 
         datos = cursor.fetchall()
@@ -216,6 +243,33 @@ def obtener_suma_cantidades(html_content):
     return suma if suma > 0 else None
 
 
+def extraer_cpc(html_content):
+    """
+    Extrae el código CPC de la tabla de artículos.
+    El CPC se ubica en la segunda columna (índice 1), inmediatamente
+    después del número de artículo "No." (índice 0). Es idéntico para
+    todos los artículos de la necesidad, por lo que se toma el de la
+    primera fila de datos.
+    Se retorna como cadena de dígitos (no como entero) para preservar
+    posibles ceros iniciales, ya que la columna CPC es VARCHAR.
+    Retorna None si no se encuentra.
+    """
+    tabla, _ = encontrar_tabla_cantidad(html_content)
+    if not tabla:
+        return None
+
+    for fila in tabla.find_all("tr")[1:]:
+        celdas = fila.find_all(["td", "th"])
+        if len(celdas) < 2:
+            continue
+        # Segunda columna = CPC (serie de dígitos consecutivos, 9-10 dígitos)
+        texto = celdas[1].get_text(strip=True)
+        match = re.search(r"\d{9,}", texto)
+        if match:
+            return match.group()
+    return None
+
+
 def actualizar_etapa(codigo_necesidad, nueva_etapa):
     """
     Actualiza la etapa de una ínfima en la base de datos.
@@ -225,7 +279,7 @@ def actualizar_etapa(codigo_necesidad, nueva_etapa):
         conn = mysql.connector.connect(**MYSQL_CONFIG)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s",
+            "UPDATE infimas SET etapa = %s WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'",
             (nueva_etapa, codigo_necesidad),
         )
         conn.commit()
@@ -234,6 +288,27 @@ def actualizar_etapa(codigo_necesidad, nueva_etapa):
         return True
     except Exception as e:
         print(f"    [DB] Error actualizando etapa: {e}")
+        return False
+
+
+def actualizar_cpc(codigo_necesidad, cpc):
+    """
+    Guarda el código CPC (cadena de dígitos) de una ínfima en la columna
+    CPC (VARCHAR) de la tabla infimas.
+    """
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE infimas SET CPC = %s WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'",
+            (cpc, codigo_necesidad),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"    [DB] Error actualizando CPC: {e}")
         return False
 
 
@@ -316,7 +391,7 @@ def obtener_y_descargar_documentos(html, base_url, carpeta_destino):
         ruta_base = os.path.join(carpeta_destino, nombre)
 
         resultado = descargar_archivo(url_archivo, ruta_base, descripcion)
-        if resultado:
+        if resultado and os.path.exists(resultado):
             subir_archivo_a_gcs_temporal(resultado, os.path.basename(carpeta_destino))
             descargados += 1
 
@@ -335,7 +410,6 @@ def eliminar_carpeta_temporal(carpeta):
             print(f"    [CLEAN] Carpeta temporal eliminada")
     except Exception as e:
         print(f"    [CLEAN] Error: {e}")
-
 
 # =====================================================
 # 7. FASE 1: CLASIFICACIÓN
@@ -382,7 +456,12 @@ def fase_clasificacion():
             
             # Extraer suma de cantidades
             suma = obtener_suma_cantidades(r.text)
-            
+
+            # Extraer y guardar CPC (idéntico para todos los artículos)
+            cpc = extraer_cpc(r.text)
+            if cpc is not None and actualizar_cpc(codigo, cpc):
+                print(f"  ⓘ CPC: {cpc}")
+
             if suma is None:
                 print(f"  ⚠ Sin tabla de cantidades - OMITIDO")
                 sin_datos += 1
@@ -425,7 +504,7 @@ def fase_clasificacion():
 # =====================================================
 def fase_descarga():
     """
-    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada' con PACweb y PACdoc en NULL
+    FASE 2: Descargar documentos SOLO de ínfimas en etapa 'seleccionada' con PACdoc en NULL
     """
     print("\n" + "="*70)
     print(" "*18 + "FASE 2: DESCARGA DE DOCUMENTOS")
@@ -448,6 +527,11 @@ def fase_descarga():
         
         print(f"[{idx + 1}/{len(df)}] {codigo}")
         
+        # Verificar si ya existe carpeta en GCS (evitar duplicados)
+        if verificar_carpeta_existe_en_gcs(codigo):
+            print(f"  ⚠ Carpeta ya existe en GCS - OMITIDO (evitando duplicados)")
+            continue
+        
         try:
             # Obtener página web
             r = session.get(url, timeout=TIMEOUT_PAGINA)
@@ -467,14 +551,14 @@ def fase_descarga():
             if descargados > 0:
                 print(f"  ✓ {descargados} documento(s) procesado(s)")
                 exitosas += 1
-                eliminar_carpeta_temporal(carpeta)
             else:
                 print(f"  ⚠ No se encontraron documentos")
                 fallidas += 1
-                
         except Exception as e:
             print(f"  ✗ Error: {e}")
             fallidas += 1
+        finally:
+            eliminar_carpeta_temporal(carpeta)  
         
         time.sleep(PAUSA_ENTRE_PROCESOS)
     
@@ -510,7 +594,7 @@ def main():
 
     # Inicializar GCS aquí, de forma controlada
     print("[INIT] Conectando a Google Cloud Storage...")
-    ruta_creds = obtener_ruta_credenciales_gcs()
+    ruta_creds, es_temp = obtener_ruta_credenciales()
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = ruta_creds
     storage_client = storage.Client()
     bucket = storage_client.bucket(BUCKET_NAME)
@@ -526,12 +610,9 @@ def main():
     # ============================================================
     # FASE 2: DESCARGAR SOLO LAS SELECCIONADAS
     # ============================================================
-    if seleccionadas > 0:
-        total_archivos = fase_descarga()
-    else:
-        print("⚠ No hay ínfimas seleccionadas.")
-        print("  La FASE 2 (descarga) será omitida.\n")
-        total_archivos = 0
+    # NOTA: La FASE 2 se ejecuta SIEMPRE porque puede haber ínfimas
+    # ya seleccionadas de ejecuciones anteriores (no solo las de FASE 1 actual)
+    total_archivos = fase_descarga()
     
     # ============================================================
     # REPORTE FINAL
@@ -546,6 +627,12 @@ def main():
     print(f"Archivos descargados:       {total_archivos}")
     print(f"Tiempo total ejecución:     {duracion_total:.2f} minutos")
     print("="*70 + "\n")
+
+    if es_temp:
+        try:
+            os.remove(ruta_creds)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

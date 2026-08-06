@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dependencias del Generador de Fichas Técnicas y Proformas — IMPOCRUZ EC S.A.S.
+# Instalación:  pip install -r requerimentos_generador_proformas.txt
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Base de datos MySQL
+mysql-connector-python>=8.3.0
+
+# Google Cloud Storage (acceso al bucket)
+google-cloud-storage>=2.16.0
+
+# Vertex AI — Gemini (Google Gen AI SDK)
+google-genai>=1.0.0
+
+# Vertex AI — Claude Sonnet 4.6 (SDK de Anthropic con soporte Vertex)
+anthropic[vertex]>=0.40.0
+
+# Generación de documentos Word (.docx)
+python-docx>=1.1.0
+
+# Lectura/escritura de Excel con macros (.xlsm)
+openpyxl>=3.1.2
+
+# Manejo de imágenes (miniaturas en la proforma)
+pillow>=10.3.0
+
+# Descarga de imágenes y documentos por HTTP
+requests>=2.31.0

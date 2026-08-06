@@ -110,7 +110,7 @@ def obtener_infimas_disponibles_admin(db: Session):
             # Infima
         )
         .order_by(Infima.fecha_publicacion.desc())
-        .limit(15)
+        #.limit(150)
         .all()
     )
 
@@ -161,6 +161,31 @@ def actualizar_infimas_para_analisis(db: Session, id_infima = int):
         "id_infima": id_infima,
         "etapa": "en generacion",
         "mensaje": "Ínfima actualizada a 'en generacion'"
+        }
+
+    except IntegrityError as e:
+        db.rollback()
+        return {"error": str(e)}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+    
+
+def actualizar_infimas_no_seleccionada(db: Session, id_infima = int):
+    infima = (db.query(Infima).filter(Infima.id_infima == id_infima).first())
+
+    if not infima:
+        return {"error": "Infima no encontrada"}
+    
+    try:
+        
+        infima.etapa = "no seleccionada"
+        db.commit()
+        db.refresh(infima)
+        return {
+        "id_infima": id_infima,
+        "etapa": "no seleccionada",
+        "mensaje": "Ínfima actualizada a 'no seleccionada'"
         }
 
     except IntegrityError as e:
