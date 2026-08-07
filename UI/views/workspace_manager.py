@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QWidget,
     QStackedWidget,
+    QLineEdit,
 )
 
 import requests
@@ -167,6 +168,40 @@ class WorkspaceManagerUI(BaseWindow):
         page_asignaciones_layout = QVBoxLayout(self.page_asignaciones)
         page_asignaciones_layout.setContentsMargins(0, 0, 0, 0)
 
+        # =========================================================
+        # PANEL DE INFORMACIÓN - ASIGNACIONES
+        # =========================================================
+
+        info_asignaciones = QHBoxLayout()
+        info_asignaciones.setSpacing(15)
+
+        lbl_procesos = QLabel("Procesos:")
+        lbl_procesos.setStyleSheet("color:white;font-weight:bold;")
+
+        self.txt_procesos_asignaciones = QLineEdit()
+        self.txt_procesos_asignaciones.setReadOnly(True)
+        self.txt_procesos_asignaciones.setFixedWidth(80)
+
+        lbl_hora = QLabel("Última actualización:")
+        lbl_hora.setStyleSheet("color:white;font-weight:bold;")
+
+        self.txt_hora_actualizacion = QLineEdit()
+        self.txt_hora_actualizacion.setReadOnly(True)
+        self.txt_hora_actualizacion.setFixedWidth(120)
+
+        info_asignaciones.addWidget(lbl_procesos)
+        info_asignaciones.addWidget(self.txt_procesos_asignaciones)
+
+        info_asignaciones.addSpacing(30)
+
+        info_asignaciones.addWidget(lbl_hora)
+        info_asignaciones.addWidget(self.txt_hora_actualizacion)
+
+        info_asignaciones.addStretch()
+
+        page_asignaciones_layout.addLayout(info_asignaciones)
+        #============================================================
+
         self.table_asignaciones = QTableWidget(0, 5)
         self.table_asignaciones.setHorizontalHeaderLabels(
             ["Usuario", "NIC", "Descripción", "URL", "Etapa"]
@@ -275,6 +310,44 @@ class WorkspaceManagerUI(BaseWindow):
         self.page_rechazadas = QWidget()
         page_rechazadas_layout = QVBoxLayout(self.page_rechazadas)
         page_rechazadas_layout.setContentsMargins(0, 0, 0, 0)
+
+        # =========================================================
+        # PANEL DE INFORMACIÓN - RECHAZADAS
+        # =========================================================
+
+        info_rechazadas = QHBoxLayout()
+        info_rechazadas.setSpacing(15)
+
+        # Procesos
+        lbl_rechazadas = QLabel("Procesos:")
+        lbl_rechazadas.setStyleSheet("color:white;font-weight:bold;")
+
+        self.txt_procesos_rechazadas = QLineEdit()
+        self.txt_procesos_rechazadas.setReadOnly(True)
+        self.txt_procesos_rechazadas.setFixedWidth(80)
+
+        # Última actualización
+        lbl_hora_rechazadas = QLabel("Última actualización:")
+        lbl_hora_rechazadas.setStyleSheet("color:white;font-weight:bold;")
+
+        self.txt_hora_actualizacion_rechazadas = QLineEdit()
+        self.txt_hora_actualizacion_rechazadas.setReadOnly(True)
+        self.txt_hora_actualizacion_rechazadas.setFixedWidth(120)
+
+        # Agregar controles al layout
+        info_rechazadas.addWidget(lbl_rechazadas)
+        info_rechazadas.addWidget(self.txt_procesos_rechazadas)
+
+        info_rechazadas.addSpacing(30)
+
+        info_rechazadas.addWidget(lbl_hora_rechazadas)
+        info_rechazadas.addWidget(self.txt_hora_actualizacion_rechazadas)
+
+        info_rechazadas.addStretch()
+
+        page_rechazadas_layout.addLayout(info_rechazadas)
+
+        # =========================================================
 
         self.table_rechazadas = QTableWidget(0, 4)
         self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción","URL", "Etapa"])
@@ -952,6 +1025,41 @@ class WorkspaceManagerUI(BaseWindow):
 
             layout.addWidget(label)
             return container
+
+    # =========================================================
+    # MÉTODOS PARA PANEL DE INFORMACIÓN
+    # =========================================================
+
+    def actualizar_contador_asignaciones(self):
+        """
+        Actualiza la cantidad de procesos mostrados
+        en la pestaña Asignaciones.
+        """
+        pass
+
+
+    def actualizar_hora_asignaciones(self):
+        """
+        Actualiza la hora de la última actualización
+        de la pestaña Asignaciones.
+        """
+        pass
+
+
+    def actualizar_contador_rechazadas(self):
+        """
+        Actualiza la cantidad de procesos mostrados
+        en la pestaña Ínfimas rechazadas.
+        """
+        pass
+
+
+    def actualizar_hora_rechazadas(self):
+        """
+        Actualiza la hora de la última actualización
+        de la pestaña Ínfimas rechazadas.
+        """
+        pass
 
 # =========================================================
 # FUNCIÓN EXTERNA: CARGAR EMPLEADOS
