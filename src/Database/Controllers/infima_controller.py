@@ -109,7 +109,8 @@ def obtener_infimas_disponibles_admin(db: Session):
             # Infima.etapa == "seleccionada"
             # Infima
         )
-        .order_by(Infima.fecha_publicacion.desc())
+        # Ordenadas por fecha límite de proformas descendente (las fechas futuras primero)
+        .order_by(Infima.fecha_limite_proformas.desc())
         #.limit(150)
         .all()
     )

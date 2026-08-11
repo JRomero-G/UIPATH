@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from functools import partial
 
 from PyQt5.QtCore import QTimer, Qt
@@ -212,9 +213,9 @@ class WorkspaceManagerUI(BaseWindow):
         page_asignaciones_layout.addLayout(info_asignaciones)
         #============================================================
 
-        self.table_asignaciones = QTableWidget(0, 5)
+        self.table_asignaciones = QTableWidget(0, 6)
         self.table_asignaciones.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "URL", "Etapa"]
+            ["Usuario", "NIC", "Descripción", "Fecha de entrega", "URL", "Etapa"]
         )
         self.table_asignaciones.setWordWrap(True)
         self.table_asignaciones.setTextElideMode(Qt.ElideNone)
@@ -225,8 +226,10 @@ class WorkspaceManagerUI(BaseWindow):
         header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
         header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(3, 140)
         header_asignaciones.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table_asignaciones.setColumnWidth(4, 120)
+        header_asignaciones.setSectionResizeMode(5, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(5, 120)
 
         self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
@@ -614,7 +617,10 @@ class WorkspaceManagerUI(BaseWindow):
             return
 
         self.infimas_disponibles = len(data)
-        self.fecha_ultima_actualizacion = data[0].get("fecha_creacion") if data else None
+        # La tabla ya no viene ordenada por fecha de creación (ahora se ordena por
+        # fecha de entrega), así que se toma la fecha de creación más reciente.
+        fechas_creacion = [f for f in (i.get("fecha_creacion") for i in data) if f]
+        self.fecha_ultima_actualizacion = max(fechas_creacion) if fechas_creacion else None
 
         self.actualizar_contador_asignaciones()
         self.actualizar_hora_asignaciones()
@@ -685,17 +691,31 @@ class WorkspaceManagerUI(BaseWindow):
                 cell.setForeground(QColor(0, 0, 0))
                 self.table_asignaciones.setItem(row, col, cell)
 
-            # Col 3 → enlace clickeable
-            url = item.get("entidad_contratante_url", "")
-            self.table_asignaciones.setCellWidget(row, 3, self.link_button(url, color))
+            # Col 3 → fecha de entrega (fecha_limite_proformas) en formato día/mes/año
+            fecha = item.get("fecha_limite_proformas", "") or ""
+            if fecha:
+                try:
+                    fecha = datetime.strptime(fecha[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                except Exception:
+                    pass
+            cell_fecha = QTableWidgetItem(str(fecha))
+            cell_fecha.setFlags(Qt.ItemIsEnabled)
+            cell_fecha.setBackground(color)
+            cell_fecha.setForeground(QColor(0, 0, 0))
+            cell_fecha.setTextAlignment(Qt.AlignCenter)
+            self.table_asignaciones.setItem(row, 3, cell_fecha)
 
-            # Col 4 → etapa
+            # Col 4 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_asignaciones.setCellWidget(row, 4, self.link_button(url, color))
+
+            # Col 5 → etapa
             cell_etapa = QTableWidgetItem(datos[2])
             cell_etapa.setFlags(Qt.ItemIsEnabled)
             cell_etapa.setBackground(color)
             cell_etapa.setForeground(QColor(0, 0, 0))
             cell_etapa.setTextAlignment(Qt.AlignCenter)
-            self.table_asignaciones.setItem(row, 4, cell_etapa)
+            self.table_asignaciones.setItem(row, 5, cell_etapa)
 
         print("Ínfimas disponibles actualizadas")
 
