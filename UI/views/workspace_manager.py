@@ -29,6 +29,10 @@ from src.utils.updater import verificar_actualizacion_async
 from UI.components.classic_msgbox import ClassicMsgBox
 
 
+# Estilo del contenido de los cuadros informativos (Procesos / Última actualización)
+INFO_BOX_STYLE = "color:white;font-size:13px;"
+
+
 class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
         super().__init__()
@@ -38,6 +42,10 @@ class WorkspaceManagerUI(BaseWindow):
         # =========================================================
         self.asignaciones_pendientes = {}
         self.usuarios_dict = {}
+
+        self.infimas_disponibles = 0
+        self.fecha_ultima_actualizacion = None
+        self.infimas_rechazadas = 0
 
         self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Manager")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -176,18 +184,20 @@ class WorkspaceManagerUI(BaseWindow):
         info_asignaciones.setSpacing(15)
 
         lbl_procesos = QLabel("Procesos:")
-        lbl_procesos.setStyleSheet("color:white;font-weight:bold;")
+        lbl_procesos.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
 
         self.txt_procesos_asignaciones = QLineEdit()
         self.txt_procesos_asignaciones.setReadOnly(True)
         self.txt_procesos_asignaciones.setFixedWidth(80)
+        self.txt_procesos_asignaciones.setStyleSheet(INFO_BOX_STYLE)
 
         lbl_hora = QLabel("Última actualización:")
-        lbl_hora.setStyleSheet("color:white;font-weight:bold;")
+        lbl_hora.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
 
         self.txt_hora_actualizacion = QLineEdit()
         self.txt_hora_actualizacion.setReadOnly(True)
         self.txt_hora_actualizacion.setFixedWidth(120)
+        self.txt_hora_actualizacion.setStyleSheet(INFO_BOX_STYLE)
 
         info_asignaciones.addWidget(lbl_procesos)
         info_asignaciones.addWidget(self.txt_procesos_asignaciones)
@@ -320,19 +330,21 @@ class WorkspaceManagerUI(BaseWindow):
 
         # Procesos
         lbl_rechazadas = QLabel("Procesos:")
-        lbl_rechazadas.setStyleSheet("color:white;font-weight:bold;")
+        lbl_rechazadas.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
 
         self.txt_procesos_rechazadas = QLineEdit()
         self.txt_procesos_rechazadas.setReadOnly(True)
         self.txt_procesos_rechazadas.setFixedWidth(80)
+        self.txt_procesos_rechazadas.setStyleSheet(INFO_BOX_STYLE)
 
         # Última actualización
         lbl_hora_rechazadas = QLabel("Última actualización:")
-        lbl_hora_rechazadas.setStyleSheet("color:white;font-weight:bold;")
+        lbl_hora_rechazadas.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
 
         self.txt_hora_actualizacion_rechazadas = QLineEdit()
         self.txt_hora_actualizacion_rechazadas.setReadOnly(True)
         self.txt_hora_actualizacion_rechazadas.setFixedWidth(120)
+        self.txt_hora_actualizacion_rechazadas.setStyleSheet(INFO_BOX_STYLE)
 
         # Agregar controles al layout
         info_rechazadas.addWidget(lbl_rechazadas)
@@ -600,6 +612,12 @@ class WorkspaceManagerUI(BaseWindow):
             ClassicMsgBox.warning( "Error", "Servidor no disponible.")
             #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
+
+        self.infimas_disponibles = len(data)
+        self.fecha_ultima_actualizacion = data[0].get("fecha_creacion") if data else None
+
+        self.actualizar_contador_asignaciones()
+        self.actualizar_hora_asignaciones()
 
         lista_usuarios = cargar_empleados(self)
         self.table_asignaciones.setRowCount(0)
@@ -934,6 +952,13 @@ class WorkspaceManagerUI(BaseWindow):
             ClassicMsgBox.warning("Error", "Servidor no disponible.")
             return
 
+        self.infimas_rechazadas = len(data)
+        # La fecha de última actualización NO se toma de este endpoint:
+        # se copia desde la pestaña Asignaciones (ver actualizar_hora_rechazadas).
+
+        self.actualizar_contador_rechazadas()
+        self.actualizar_hora_rechazadas()
+
         # Limpiar tabla
         self.table_rechazadas.setRowCount(0)
 
@@ -1035,7 +1060,7 @@ class WorkspaceManagerUI(BaseWindow):
         Actualiza la cantidad de procesos mostrados
         en la pestaña Asignaciones.
         """
-        pass
+        self.txt_procesos_asignaciones.setText(str(self.infimas_disponibles))
 
 
     def actualizar_hora_asignaciones(self):
@@ -1043,7 +1068,12 @@ class WorkspaceManagerUI(BaseWindow):
         Actualiza la hora de la última actualización
         de la pestaña Asignaciones.
         """
-        pass
+        self.txt_hora_actualizacion.setText(
+            str(self.fecha_ultima_actualizacion) if self.fecha_ultima_actualizacion else ""
+        )
+
+        # Replicar el mismo valor en la pestaña Ínfimas rechazadas.
+        self.actualizar_hora_rechazadas()
 
 
     def actualizar_contador_rechazadas(self):
@@ -1051,15 +1081,17 @@ class WorkspaceManagerUI(BaseWindow):
         Actualiza la cantidad de procesos mostrados
         en la pestaña Ínfimas rechazadas.
         """
-        pass
+        self.txt_procesos_rechazadas.setText(str(self.infimas_rechazadas))
 
 
     def actualizar_hora_rechazadas(self):
         """
-        Actualiza la hora de la última actualización
-        de la pestaña Ínfimas rechazadas.
+        Muestra en la pestaña Ínfimas rechazadas exactamente la misma
+        hora de última actualización que la pestaña Asignaciones.
         """
-        pass
+        self.txt_hora_actualizacion_rechazadas.setText(
+            self.txt_hora_actualizacion.text()
+        )
 
 # =========================================================
 # FUNCIÓN EXTERNA: CARGAR EMPLEADOS
