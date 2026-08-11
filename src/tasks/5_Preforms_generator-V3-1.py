@@ -641,6 +641,34 @@ _FRAGMENTOS_RUTA_INVALIDA = [
     "/404", "/not-found", "/page-not-found", "/error",
     "/cart", "/carrito", "/checkout",
 ]
+# La contratación pública exige bienes NUEVOS: un enlace a un producto usado,
+# reacondicionado, "open box" o de exhibición se descarta aunque exista y coincida.
+# Señales en la RUTA/QUERY de la URL (el dominio se ignora a propósito).
+_RE_URL_USADO = re.compile(
+    r"(?:^|[^a-z])(usad[oa]s?|seminuev[oa]s?|segunda[-_ ]?mano|reacondicionad[oa]s?|"
+    r"remanufacturad[oa]s?|refurb(?:ished)?|open[-_ ]?box|pre[-_ ]?owned|"
+    r"second[-_ ]?hand|renewed)(?:[^a-z]|$)", re.IGNORECASE)
+# Señales en el HTML: solo cadenas de alta certeza (datos estructurados schema.org y
+# etiquetas explícitas de condición), para no descartar por un menú o filtro de la tienda.
+_MARCADORES_HTML_USADO = [
+    "usedcondition", "refurbishedcondition", "damagedcondition",
+    '"itemcondition":"used"', '"itemcondition": "used"',
+    "producto usado", "producto reacondicionado", "producto de segunda mano",
+    "artículo usado", "articulo usado", "equipo reacondicionado",
+    "(renewed)", "(refurbished)",
+]
+
+def _parece_usado(url_final, texto_html):
+    """True si el enlace o la página corresponden a un producto usado/reacondicionado/
+       open box/de exhibición (no admisible: solo se cotizan bienes NUEVOS)."""
+    try:
+        pf = urllib.parse.urlparse(url_final or "")
+        if _RE_URL_USADO.search(f"{pf.path} {pf.query}"):
+            return True
+    except Exception:
+        pass
+    return any(m in (texto_html or "") for m in _MARCADORES_HTML_USADO)
+
 _STOPWORDS = {
     "para", "con", "los", "las", "del", "una", "uno", "por", "que", "the", "and",
     "color", "negro", "blanco", "talla", "marca", "modelo", "nuevo", "nueva",
@@ -655,6 +683,7 @@ def _verificar_link_producto(url, nombre="", marca="", modelo="",
       • responde 200 siguiendo redirecciones,
       • no redirige a la raíz del dominio ni a búsqueda/carrito/404,
       • no es una página de "no encontrado",
+      • no corresponde a un producto usado/reacondicionado/open box,
       • (si exigir_contenido) menciona la marca/modelo o varias palabras del nombre.
     En caso contrario devuelve None.
     """
@@ -690,6 +719,10 @@ def _verificar_link_producto(url, nombre="", marca="", modelo="",
         return None
     texto = raw.decode("utf-8", errors="ignore").lower()
     if any(m in texto for m in _MARCADORES_NO_ENCONTRADO):
+        return None
+    # Solo bienes NUEVOS: se rechaza el enlace en ambos modos de verificación.
+    if _parece_usado(final, texto):
+        log("    Enlace descartado: el producto es usado/reacondicionado.", "INFO")
         return None
     if not exigir_contenido:
         return final
@@ -885,10 +918,18 @@ REGLAS DE SELECCIÓN:
    muchos casos una combinación de características es propia y exclusiva de una marca/modelo
    puntual; si solo un producto la cumple, esa es la opción correcta aunque su marca no se
    haya pedido explícitamente.
-2) El producto debe ser NUEVO. Quedan EXCLUIDOS los productos usados, reacondicionados/
-   "refurbished", de segunda mano, de exhibición o con desperfectos: NUNCA deben aparecer en
-   la ficha técnica ni en la proforma. Si la opción de menor precio resulta ser usada,
-   descártala y continúa evaluando la siguiente que sea nueva.
+2) CONDICIÓN — el producto debe ser NUEVO, sin excepción. Quedan EXCLUIDOS los productos
+   usados, reacondicionados/"refurbished"/"renewed", de segunda mano, "open box", seminuevos,
+   de exhibición, remanufacturados o con desperfectos: NUNCA deben aparecer en la ficha
+   técnica ni en la proforma. Si la opción de menor precio resulta ser usada, descártala y
+   continúa evaluando la siguiente que sea nueva. Si la publicación no permite confirmar que
+   el artículo es nuevo, NO la uses.
+2b) MARCA — de ser posible, elige un producto de MARCA RECONOCIBLE (fabricante identificable,
+   con presencia en el mercado y respaldo/garantía; p. ej. líderes del rubro correspondiente).
+   Evita artículos genéricos, sin marca, "OEM", de marca blanca o de fabricantes no
+   identificables. Si un producto de marca reconocible cumple TODAS las características, se
+   prefiere aunque no sea el más barato; solo si ninguno cumple, admite una marca menos
+   conocida — el cumplimiento de las características (regla 1) manda sobre la marca.
 3) Busca PRIMERO en estos proveedores NACIONALES (Ecuador):
 {nac}
 4) Si no lo encuentras en los nacionales, busca en estos proveedores EXTRANJEROS:
@@ -928,14 +969,17 @@ Devuelve ÚNICAMENTE un JSON válido (sin markdown):
 }}
 
 - "marca" / "modelo": los del producto que ENCUENTRES (para informar en la ficha/proforma);
-  no eran un criterio de búsqueda.
+  no eran un criterio de búsqueda. NUNCA los dejes vacíos ni pongas "genérico"/"sin marca":
+  si el producto elegido no declara una marca identificable, cambia a otra opción equivalente
+  que sí la tenga (regla 2b).
 - "costo_envio_aduana_usd": costo logístico TOTAL estimado para traer la cantidad solicitada
   hasta la dirección de entrega (incluye aduana si es extranjero). Para entregas fuera de
   Guayaquil suele ser de 86 a 155 USD.
 - "costo_instalacion_unitario_usd": mano de obra por unidad si el artículo requiere instalación
   (entre 60 y 80 USD); 0 si no requiere.
 - "alternativas": hasta 3 URLs reales de las siguientes mejores opciones, TODAS nuevas (nunca
-  usadas/reacondicionadas), en orden decreciente de conveniencia. [] si no hay.
+  usadas/reacondicionadas/open box) y preferentemente de marca reconocible, en orden
+  decreciente de conveniencia. [] si no hay.
 - Si NO encuentras ningún producto NUEVO que cumpla las características, devuelve
   {{"encontrado": false}}.
 """
@@ -1174,6 +1218,10 @@ def buscar_articulo(client, info, direccion, n_articulos, descargar_imagenes=Tru
         "imagen_url": "",
         "imagenes_adicionales_local": [],
     }
+
+    # Aviso: se pidió preferir marcas reconocibles (regla 2b del prompt de búsqueda).
+    if not out["marca"] or out["marca"].lower() in ("genérico", "generico", "sin marca", "oem", "n/a"):
+        log("    El producto elegido no declara una marca reconocible.", "WARN")
 
     out["url_producto"] = _resolver_url_producto(res)
     # Usar la URL canónica/verificada también para extraer la imagen de la página.
