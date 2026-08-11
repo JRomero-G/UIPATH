@@ -152,7 +152,7 @@ def obtener_infimas():
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT * FROM infimas
-        WHERE etapa = 'ingresada'
+        WHERE etapa = 'ingresada' AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -198,7 +198,7 @@ def actualizar_etapa(df, resultados):
             UPDATE infimas
             SET etapa = %s,
                 actualizado_en = NOW()
-            WHERE id_infima = %s
+            WHERE id_infima = %s AND etapa != 'en generacion' AND etapa != 'finalizada'
         """,
             (etapa, row["id_infima"]),
         )
@@ -223,20 +223,20 @@ def clasificar_descripcion_lote(batch_data, palabras_clave, model):
 Eres un analista experto de compras públicas especializado en clasificación de contenido.
 
 TAREA:
-Analiza si en las siguientes descripciones se mencionan estas palabras o frases clave:
+Analiza si en las siguientes descripciones se mencionan estas palabras, frases clave o referencias semánticas:
 {", ".join(palabras_clave)}
 
 INSTRUCCIONES:
 1. Lee cuidadosamente cada descripción
 2. Busca coincidencias exactas o variaciones semánticas de las palabras/frases clave
-3. Si encuentras AL MENOS UNA palabra o frase clave en la descripción, responde "SI"
-4. Si NO encuentras NINGUNA palabra o frase clave, responde "NO"
+3. Si encuentras AL MENOS UNA palabra clave, frase clave o referencia semántica de las palabras/frases clave  en la descripción, responde "SI"
+4. Si NO encuentras NINGUNA palabra clave, frase clave o referencia semántica de las palabras/frases clave, responde "NO"
 5. Sé preciso: las palabras deben estar realmente presentes o tener clara relación semántica
 
 FORMATO DE RESPUESTA:
 Responde ESTRICTAMENTE con un objeto JSON donde:
 - La clave es el número de fila
-- El valor es "SI" (se encontró al menos una palabra clave) o "NO" (no se encontró ninguna)
+- El valor es "SI" (se encontró al menos una palabra clave) o "NO" (no se encontró ninguna palabra clave)
 
 DATOS A ANALIZAR:
 {json.dumps(batch_data, ensure_ascii=False, indent=2)}
@@ -289,6 +289,8 @@ def obtener_seleccionadas_para_revision():
         WHERE etapa = 'seleccionada'
           AND PACdoc >= 0
           AND PACweb >= 0
+          AND etapa != 'en generacion'
+          AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -315,7 +317,7 @@ def marcar_no_seleccionada_por_codigo(codigo_necesidad):
         UPDATE infimas
         SET etapa = %s,
             actualizado_en = NOW()
-        WHERE codigo_necesidad = %s
+        WHERE codigo_necesidad = %s AND etapa != 'en generacion' AND etapa != 'finalizada'
         """,
         ("no seleccionada", codigo_necesidad),
     )

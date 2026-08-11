@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from functools import partial
 
 from PyQt5.QtCore import QTimer, Qt
@@ -15,6 +16,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QWidget,
     QStackedWidget,
+    QLineEdit,
 )
 
 import requests
@@ -28,6 +30,55 @@ from src.utils.updater import verificar_actualizacion_async
 from UI.components.classic_msgbox import ClassicMsgBox
 
 
+# Estilo del contenido de los cuadros informativos (Procesos / Última actualización)
+INFO_BOX_STYLE = "color:white;font-size:13px;"
+
+
+def parsear_fecha(valor):
+    """Convierte un valor de fecha (datetime o texto ISO) en datetime.
+
+    Devuelve None cuando el valor está vacío o no tiene un formato reconocible.
+    """
+    if not valor:
+        return None
+
+    if isinstance(valor, datetime):
+        return valor
+
+    texto = str(valor).strip().replace("T", " ")
+    if texto.endswith("Z"):
+        texto = texto[:-1]
+
+    formatos = (
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+    )
+
+    for formato in formatos:
+        try:
+            return datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+
+    return None
+
+
+def formatear_fecha_hora(valor):
+    """Formatea una fecha como día/mes/año hora:minuto am|pm (ej. 11/08/2026 02:35 pm)."""
+    fecha = parsear_fecha(valor)
+    if not fecha:
+        return ""
+
+    hora12 = fecha.hour % 12 or 12
+    sufijo = "am" if fecha.hour < 12 else "pm"
+    return f"{fecha:%d/%m/%Y} {hora12:02d}:{fecha:%M} {sufijo}"
+
+
 class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
         super().__init__()
@@ -37,6 +88,10 @@ class WorkspaceManagerUI(BaseWindow):
         # =========================================================
         self.asignaciones_pendientes = {}
         self.usuarios_dict = {}
+
+        self.infimas_disponibles = 0
+        self.fecha_ultima_actualizacion = None
+        self.infimas_rechazadas = 0
 
         self.setWindowTitle(f"Gestorex {CURRENT_VERSION} - Manager")
         self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -167,9 +222,45 @@ class WorkspaceManagerUI(BaseWindow):
         page_asignaciones_layout = QVBoxLayout(self.page_asignaciones)
         page_asignaciones_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.table_asignaciones = QTableWidget(0, 5)
+        # =========================================================
+        # PANEL DE INFORMACIÓN - ASIGNACIONES
+        # =========================================================
+
+        info_asignaciones = QHBoxLayout()
+        info_asignaciones.setSpacing(15)
+
+        lbl_procesos = QLabel("Procesos:")
+        lbl_procesos.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
+
+        self.txt_procesos_asignaciones = QLineEdit()
+        self.txt_procesos_asignaciones.setReadOnly(True)
+        self.txt_procesos_asignaciones.setFixedWidth(80)
+        self.txt_procesos_asignaciones.setStyleSheet(INFO_BOX_STYLE)
+
+        lbl_hora = QLabel("Última actualización:")
+        lbl_hora.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
+
+        self.txt_hora_actualizacion = QLineEdit()
+        self.txt_hora_actualizacion.setReadOnly(True)
+        self.txt_hora_actualizacion.setFixedWidth(175)
+        self.txt_hora_actualizacion.setStyleSheet(INFO_BOX_STYLE)
+
+        info_asignaciones.addWidget(lbl_procesos)
+        info_asignaciones.addWidget(self.txt_procesos_asignaciones)
+
+        info_asignaciones.addSpacing(30)
+
+        info_asignaciones.addWidget(lbl_hora)
+        info_asignaciones.addWidget(self.txt_hora_actualizacion)
+
+        info_asignaciones.addStretch()
+
+        page_asignaciones_layout.addLayout(info_asignaciones)
+        #============================================================
+
+        self.table_asignaciones = QTableWidget(0, 6)
         self.table_asignaciones.setHorizontalHeaderLabels(
-            ["Usuario", "NIC", "Descripción", "URL", "Etapa"]
+            ["Usuario", "NIC", "Descripción", "Fecha de entrega", "URL", "Etapa"]
         )
         self.table_asignaciones.setWordWrap(True)
         self.table_asignaciones.setTextElideMode(Qt.ElideNone)
@@ -180,8 +271,10 @@ class WorkspaceManagerUI(BaseWindow):
         header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
         header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(3, 140)
         header_asignaciones.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table_asignaciones.setColumnWidth(4, 120)
+        header_asignaciones.setSectionResizeMode(5, QHeaderView.Fixed)
+        self.table_asignaciones.setColumnWidth(5, 120)
 
         self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
@@ -275,6 +368,46 @@ class WorkspaceManagerUI(BaseWindow):
         self.page_rechazadas = QWidget()
         page_rechazadas_layout = QVBoxLayout(self.page_rechazadas)
         page_rechazadas_layout.setContentsMargins(0, 0, 0, 0)
+
+        # =========================================================
+        # PANEL DE INFORMACIÓN - RECHAZADAS
+        # =========================================================
+
+        info_rechazadas = QHBoxLayout()
+        info_rechazadas.setSpacing(15)
+
+        # Procesos
+        lbl_rechazadas = QLabel("Procesos:")
+        lbl_rechazadas.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
+
+        self.txt_procesos_rechazadas = QLineEdit()
+        self.txt_procesos_rechazadas.setReadOnly(True)
+        self.txt_procesos_rechazadas.setFixedWidth(80)
+        self.txt_procesos_rechazadas.setStyleSheet(INFO_BOX_STYLE)
+
+        # Última actualización
+        lbl_hora_rechazadas = QLabel("Última actualización:")
+        lbl_hora_rechazadas.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
+
+        self.txt_hora_actualizacion_rechazadas = QLineEdit()
+        self.txt_hora_actualizacion_rechazadas.setReadOnly(True)
+        self.txt_hora_actualizacion_rechazadas.setFixedWidth(175)
+        self.txt_hora_actualizacion_rechazadas.setStyleSheet(INFO_BOX_STYLE)
+
+        # Agregar controles al layout
+        info_rechazadas.addWidget(lbl_rechazadas)
+        info_rechazadas.addWidget(self.txt_procesos_rechazadas)
+
+        info_rechazadas.addSpacing(30)
+
+        info_rechazadas.addWidget(lbl_hora_rechazadas)
+        info_rechazadas.addWidget(self.txt_hora_actualizacion_rechazadas)
+
+        info_rechazadas.addStretch()
+
+        page_rechazadas_layout.addLayout(info_rechazadas)
+
+        # =========================================================
 
         self.table_rechazadas = QTableWidget(0, 4)
         self.table_rechazadas.setHorizontalHeaderLabels(["NIC", "Descripción","URL", "Etapa"])
@@ -528,6 +661,27 @@ class WorkspaceManagerUI(BaseWindow):
             #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
+        # Ordenar por fecha de entrega descendente (las fechas más futuras primero).
+        # Se ordena aquí y no solo en el backend para que el orden sea correcto
+        # aunque el servidor devuelva los registros en otra secuencia.
+        # Las ínfimas sin fecha quedan al final.
+        data = sorted(
+            data,
+            key=lambda i: parsear_fecha(i.get("fecha_limite_proformas")) or datetime.min,
+            reverse=True,
+        )
+
+        self.infimas_disponibles = len(data)
+        # La tabla ya no viene ordenada por fecha de creación (ahora se ordena por
+        # fecha de entrega), así que se toma la fecha de creación más reciente.
+        fechas_creacion = [
+            f for f in (parsear_fecha(i.get("fecha_creacion")) for i in data) if f
+        ]
+        self.fecha_ultima_actualizacion = max(fechas_creacion) if fechas_creacion else None
+
+        self.actualizar_contador_asignaciones()
+        self.actualizar_hora_asignaciones()
+
         lista_usuarios = cargar_empleados(self)
         self.table_asignaciones.setRowCount(0)
         self.asignaciones_pendientes.clear()
@@ -594,17 +748,27 @@ class WorkspaceManagerUI(BaseWindow):
                 cell.setForeground(QColor(0, 0, 0))
                 self.table_asignaciones.setItem(row, col, cell)
 
-            # Col 3 → enlace clickeable
-            url = item.get("entidad_contratante_url", "")
-            self.table_asignaciones.setCellWidget(row, 3, self.link_button(url, color))
+            # Col 3 → fecha de entrega (fecha_limite_proformas) en formato día/mes/año
+            fecha_entrega = parsear_fecha(item.get("fecha_limite_proformas"))
+            fecha = fecha_entrega.strftime("%d/%m/%Y") if fecha_entrega else ""
+            cell_fecha = QTableWidgetItem(fecha)
+            cell_fecha.setFlags(Qt.ItemIsEnabled)
+            cell_fecha.setBackground(color)
+            cell_fecha.setForeground(QColor(0, 0, 0))
+            cell_fecha.setTextAlignment(Qt.AlignCenter)
+            self.table_asignaciones.setItem(row, 3, cell_fecha)
 
-            # Col 4 → etapa
+            # Col 4 → enlace clickeable
+            url = item.get("entidad_contratante_url", "")
+            self.table_asignaciones.setCellWidget(row, 4, self.link_button(url, color))
+
+            # Col 5 → etapa
             cell_etapa = QTableWidgetItem(datos[2])
             cell_etapa.setFlags(Qt.ItemIsEnabled)
             cell_etapa.setBackground(color)
             cell_etapa.setForeground(QColor(0, 0, 0))
             cell_etapa.setTextAlignment(Qt.AlignCenter)
-            self.table_asignaciones.setItem(row, 4, cell_etapa)
+            self.table_asignaciones.setItem(row, 5, cell_etapa)
 
         print("Ínfimas disponibles actualizadas")
 
@@ -861,6 +1025,13 @@ class WorkspaceManagerUI(BaseWindow):
             ClassicMsgBox.warning("Error", "Servidor no disponible.")
             return
 
+        self.infimas_rechazadas = len(data)
+        # La fecha de última actualización NO se toma de este endpoint:
+        # se copia desde la pestaña Asignaciones (ver actualizar_hora_rechazadas).
+
+        self.actualizar_contador_rechazadas()
+        self.actualizar_hora_rechazadas()
+
         # Limpiar tabla
         self.table_rechazadas.setRowCount(0)
 
@@ -952,6 +1123,49 @@ class WorkspaceManagerUI(BaseWindow):
 
             layout.addWidget(label)
             return container
+
+    # =========================================================
+    # MÉTODOS PARA PANEL DE INFORMACIÓN
+    # =========================================================
+
+    def actualizar_contador_asignaciones(self):
+        """
+        Actualiza la cantidad de procesos mostrados
+        en la pestaña Asignaciones.
+        """
+        self.txt_procesos_asignaciones.setText(str(self.infimas_disponibles))
+
+
+    def actualizar_hora_asignaciones(self):
+        """
+        Actualiza la hora de la última actualización
+        de la pestaña Asignaciones.
+        """
+        # Formato: día/mes/año hora:minuto am|pm
+        self.txt_hora_actualizacion.setText(
+            formatear_fecha_hora(self.fecha_ultima_actualizacion)
+        )
+
+        # Replicar el mismo valor en la pestaña Ínfimas rechazadas.
+        self.actualizar_hora_rechazadas()
+
+
+    def actualizar_contador_rechazadas(self):
+        """
+        Actualiza la cantidad de procesos mostrados
+        en la pestaña Ínfimas rechazadas.
+        """
+        self.txt_procesos_rechazadas.setText(str(self.infimas_rechazadas))
+
+
+    def actualizar_hora_rechazadas(self):
+        """
+        Muestra en la pestaña Ínfimas rechazadas exactamente la misma
+        hora de última actualización que la pestaña Asignaciones.
+        """
+        self.txt_hora_actualizacion_rechazadas.setText(
+            self.txt_hora_actualizacion.text()
+        )
 
 # =========================================================
 # FUNCIÓN EXTERNA: CARGAR EMPLEADOS

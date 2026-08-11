@@ -279,7 +279,7 @@ def obtener_codigos_seleccionados():
     cursor.execute("""
         SELECT codigo_necesidad 
         FROM infimas 
-        WHERE etapa = 'seleccionada' 
+        WHERE etapa = 'seleccionada' AND etapa != 'en generacion' AND etapa != 'finalizada'
         AND PACdoc IS NULL
     """)
     filas = cursor.fetchall()
@@ -313,7 +313,7 @@ def obtener_infimas_con_pac():
     cursor.execute("""
         SELECT codigo_necesidad, descripcion_objeto_compra, entidad_contratante, CPC
         FROM infimas 
-        WHERE PACdoc >= 0 AND PACweb IS NULL
+        WHERE PACdoc >= 0 AND PACweb IS NULL AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -385,7 +385,7 @@ def actualizar_pac_desde_vtotal(df_infimas):
                 UPDATE infimas 
                 SET etapa = 'recomendada',
                     actualizado_en = NOW()
-                WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >= 0)
+                WHERE codigo_necesidad = %s AND (PACdoc >= 0 OR PACweb >= 0) AND etapa != 'en generacion' AND etapa != 'finalizada'
             """, (row['codigo_necesidad'],))
         
         conn.commit()
@@ -416,7 +416,7 @@ def obtener_codigos_pac_mayores_cero():
     cursor.execute("""
         SELECT codigo_necesidad, PACdoc, PACweb
         FROM infimas 
-        WHERE etapa = 'recomendada'
+        WHERE etapa = 'recomendada' AND etapa != 'en generacion' AND etapa != 'finalizada'
     """)
     datos = cursor.fetchall()
     cursor.close()
@@ -1454,7 +1454,7 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             UPDATE infimas
             SET etapa = 'seleccionada',
                 actualizado_en = NOW()
-            WHERE PACdoc >= 0 OR PACweb >= 0
+            WHERE etapa != 'en generacion' AND etapa != 'finalizada' AND (PACdoc >= 0 OR PACweb >= 0) 
         """)
         filas_etapa = cursor.rowcount
 
@@ -1469,6 +1469,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             WHERE e.Peso_total IS NOT NULL 
             AND e.Peso_total >= 0 
             AND e.Peso_total <= 0.20
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_1 = cursor.rowcount
 
@@ -1479,6 +1481,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             SET i.nivel_de_oportunidad = 'nivel 2',
                 i.actualizado_en = NOW()
             WHERE e.Peso_total > 0.20 AND e.Peso_total <= 0.50
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_2 = cursor.rowcount
 
@@ -1489,6 +1493,8 @@ def actualizar_etapa_y_nivel_de_oportunidad():
             SET i.nivel_de_oportunidad = 'nivel 3',
                 i.actualizado_en = NOW()
             WHERE e.Peso_total > 0.50 AND e.Peso_total <= 1.00
+            AND i.etapa != 'en generacion'
+            AND i.etapa != 'finalizada'
         """)
         filas_nivel_3 = cursor.rowcount
 
