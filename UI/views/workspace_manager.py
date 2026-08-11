@@ -34,6 +34,51 @@ from UI.components.classic_msgbox import ClassicMsgBox
 INFO_BOX_STYLE = "color:white;font-size:13px;"
 
 
+def parsear_fecha(valor):
+    """Convierte un valor de fecha (datetime o texto ISO) en datetime.
+
+    Devuelve None cuando el valor está vacío o no tiene un formato reconocible.
+    """
+    if not valor:
+        return None
+
+    if isinstance(valor, datetime):
+        return valor
+
+    texto = str(valor).strip().replace("T", " ")
+    if texto.endswith("Z"):
+        texto = texto[:-1]
+
+    formatos = (
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%d/%m/%Y",
+    )
+
+    for formato in formatos:
+        try:
+            return datetime.strptime(texto, formato)
+        except ValueError:
+            continue
+
+    return None
+
+
+def formatear_fecha_hora(valor):
+    """Formatea una fecha como día/mes/año hora:minuto am|pm (ej. 11/08/2026 02:35 pm)."""
+    fecha = parsear_fecha(valor)
+    if not fecha:
+        return ""
+
+    hora12 = fecha.hour % 12 or 12
+    sufijo = "am" if fecha.hour < 12 else "pm"
+    return f"{fecha:%d/%m/%Y} {hora12:02d}:{fecha:%M} {sufijo}"
+
+
 class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
         super().__init__()
@@ -197,7 +242,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         self.txt_hora_actualizacion = QLineEdit()
         self.txt_hora_actualizacion.setReadOnly(True)
-        self.txt_hora_actualizacion.setFixedWidth(120)
+        self.txt_hora_actualizacion.setFixedWidth(175)
         self.txt_hora_actualizacion.setStyleSheet(INFO_BOX_STYLE)
 
         info_asignaciones.addWidget(lbl_procesos)
@@ -346,7 +391,7 @@ class WorkspaceManagerUI(BaseWindow):
 
         self.txt_hora_actualizacion_rechazadas = QLineEdit()
         self.txt_hora_actualizacion_rechazadas.setReadOnly(True)
-        self.txt_hora_actualizacion_rechazadas.setFixedWidth(120)
+        self.txt_hora_actualizacion_rechazadas.setFixedWidth(175)
         self.txt_hora_actualizacion_rechazadas.setStyleSheet(INFO_BOX_STYLE)
 
         # Agregar controles al layout
@@ -616,10 +661,22 @@ class WorkspaceManagerUI(BaseWindow):
             #QMessageBox.warning(self, "Error", "Servidor no disponible.")
             return
 
+        # Ordenar por fecha de entrega descendente (las fechas más futuras primero).
+        # Se ordena aquí y no solo en el backend para que el orden sea correcto
+        # aunque el servidor devuelva los registros en otra secuencia.
+        # Las ínfimas sin fecha quedan al final.
+        data = sorted(
+            data,
+            key=lambda i: parsear_fecha(i.get("fecha_limite_proformas")) or datetime.min,
+            reverse=True,
+        )
+
         self.infimas_disponibles = len(data)
         # La tabla ya no viene ordenada por fecha de creación (ahora se ordena por
         # fecha de entrega), así que se toma la fecha de creación más reciente.
-        fechas_creacion = [f for f in (i.get("fecha_creacion") for i in data) if f]
+        fechas_creacion = [
+            f for f in (parsear_fecha(i.get("fecha_creacion")) for i in data) if f
+        ]
         self.fecha_ultima_actualizacion = max(fechas_creacion) if fechas_creacion else None
 
         self.actualizar_contador_asignaciones()
@@ -692,13 +749,9 @@ class WorkspaceManagerUI(BaseWindow):
                 self.table_asignaciones.setItem(row, col, cell)
 
             # Col 3 → fecha de entrega (fecha_limite_proformas) en formato día/mes/año
-            fecha = item.get("fecha_limite_proformas", "") or ""
-            if fecha:
-                try:
-                    fecha = datetime.strptime(fecha[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
-                except Exception:
-                    pass
-            cell_fecha = QTableWidgetItem(str(fecha))
+            fecha_entrega = parsear_fecha(item.get("fecha_limite_proformas"))
+            fecha = fecha_entrega.strftime("%d/%m/%Y") if fecha_entrega else ""
+            cell_fecha = QTableWidgetItem(fecha)
             cell_fecha.setFlags(Qt.ItemIsEnabled)
             cell_fecha.setBackground(color)
             cell_fecha.setForeground(QColor(0, 0, 0))
@@ -1088,8 +1141,9 @@ class WorkspaceManagerUI(BaseWindow):
         Actualiza la hora de la última actualización
         de la pestaña Asignaciones.
         """
+        # Formato: día/mes/año hora:minuto am|pm
         self.txt_hora_actualizacion.setText(
-            str(self.fecha_ultima_actualizacion) if self.fecha_ultima_actualizacion else ""
+            formatear_fecha_hora(self.fecha_ultima_actualizacion)
         )
 
         # Replicar el mismo valor en la pestaña Ínfimas rechazadas.
