@@ -1,6 +1,7 @@
 import os
-from datetime import datetime
+from datetime import datetime,timezone
 from functools import partial
+from zoneinfo import ZoneInfo
 
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QFont, QColor, QPixmap
@@ -33,6 +34,30 @@ from UI.components.classic_msgbox import ClassicMsgBox
 # Estilo del contenido de los cuadros informativos (Procesos / Última actualización)
 INFO_BOX_STYLE = "color:white;font-size:13px;"
 
+# Define tu zona horaria (Ecuador)
+TU_ZONA_HORARIA = "America/Guayaquil"  # UTC-5
+
+def utc_a_local(fecha_utc):
+    """Convierte un datetime (asumiendo UTC) a la zona horaria definida."""
+    if fecha_utc.tzinfo is None:
+        # Si no tiene zona, asumimos UTC
+        fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
+    # Convierte a la zona horaria deseada
+    return fecha_utc.astimezone(ZoneInfo(TU_ZONA_HORARIA))
+
+def formatear_fecha_hora(valor):
+    """Formatea una fecha como día/mes/año hora:minuto am|pm (ej. 11/08/2026 02:35 pm)."""
+    fecha = parsear_fecha(valor)
+    if not fecha:
+        return ""
+
+    # Convertir de UTC a Ecuador
+    fecha_local = utc_a_local(fecha)
+
+    # Ahora usamos fecha_local para todo
+    hora12 = fecha_local.hour % 12 or 12
+    sufijo = "am" if fecha_local.hour < 12 else "pm"
+    return f"{fecha_local:%d/%m/%Y} {hora12:02d}:{fecha_local:%M} {sufijo}"
 
 def parsear_fecha(valor):
     """Convierte un valor de fecha (datetime o texto ISO) en datetime.
@@ -66,18 +91,6 @@ def parsear_fecha(valor):
             continue
 
     return None
-
-
-def formatear_fecha_hora(valor):
-    """Formatea una fecha como día/mes/año hora:minuto am|pm (ej. 11/08/2026 02:35 pm)."""
-    fecha = parsear_fecha(valor)
-    if not fecha:
-        return ""
-
-    hora12 = fecha.hour % 12 or 12
-    sufijo = "am" if fecha.hour < 12 else "pm"
-    return f"{fecha:%d/%m/%Y} {hora12:02d}:{fecha:%M} {sufijo}"
-
 
 class WorkspaceManagerUI(BaseWindow):
     def __init__(self):
@@ -236,6 +249,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.txt_procesos_asignaciones.setReadOnly(True)
         self.txt_procesos_asignaciones.setFixedWidth(80)
         self.txt_procesos_asignaciones.setStyleSheet(INFO_BOX_STYLE)
+        self.txt_procesos_asignaciones.setAlignment(Qt.AlignCenter)
 
         lbl_hora = QLabel("Última actualización:")
         lbl_hora.setStyleSheet("color:white;font-weight:bold;font-size:15px;")
@@ -244,6 +258,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.txt_hora_actualizacion.setReadOnly(True)
         self.txt_hora_actualizacion.setFixedWidth(175)
         self.txt_hora_actualizacion.setStyleSheet(INFO_BOX_STYLE)
+        self.txt_hora_actualizacion.setAlignment(Qt.AlignCenter)
 
         info_asignaciones.addWidget(lbl_procesos)
         info_asignaciones.addWidget(self.txt_procesos_asignaciones)
@@ -384,6 +399,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.txt_procesos_rechazadas.setReadOnly(True)
         self.txt_procesos_rechazadas.setFixedWidth(80)
         self.txt_procesos_rechazadas.setStyleSheet(INFO_BOX_STYLE)
+        self.txt_procesos_rechazadas.setAlignment(Qt.AlignCenter)
 
         # Última actualización
         lbl_hora_rechazadas = QLabel("Última actualización:")
@@ -393,6 +409,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.txt_hora_actualizacion_rechazadas.setReadOnly(True)
         self.txt_hora_actualizacion_rechazadas.setFixedWidth(175)
         self.txt_hora_actualizacion_rechazadas.setStyleSheet(INFO_BOX_STYLE)
+        self.txt_hora_actualizacion_rechazadas.setAlignment(Qt.AlignCenter)
 
         # Agregar controles al layout
         info_rechazadas.addWidget(lbl_rechazadas)
@@ -674,6 +691,10 @@ class WorkspaceManagerUI(BaseWindow):
         self.infimas_disponibles = len(data)
         # La tabla ya no viene ordenada por fecha de creación (ahora se ordena por
         # fecha de entrega), así que se toma la fecha de creación más reciente.
+        # Depuración: imprime los ids y fechas que llegan
+        for item in data:
+            print(f"ID: {item.get('id_infima')}, fecha_creacion: {item.get('fecha_creacion')}")
+        
         fechas_creacion = [
             f for f in (parsear_fecha(i.get("fecha_creacion")) for i in data) if f
         ]
