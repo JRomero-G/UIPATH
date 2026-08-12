@@ -21,6 +21,13 @@ from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# En Windows la consola suele usar cp1252, que no puede codificar los emojis usados
+# en log(); sin esto, un simple print() revienta con UnicodeEncodeError y tapa el
+# error real (incluso el de los bloques except que intentan loguearlo).
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(RAIZ_PROYECTO))
 from Config import Global
@@ -472,6 +479,40 @@ def docx_a_pdf(docx_path):
         log(f"    Error al convertir a PDF: {e}", "WARN")
         return None
 
+_FIRMAS_NO_PDF = [
+    (b"Rar!\x1a\x07", "archivo RAR"),
+    (b"PK\x03\x04", "archivo ZIP/Office (docx/xlsx) con extensión .pdf incorrecta"),
+    (b"PK\x05\x06", "archivo ZIP/Office (docx/xlsx) con extensión .pdf incorrecta"),
+    (b"\xd0\xcf\x11\xe0", "archivo Office antiguo (doc/xls) con extensión .pdf incorrecta"),
+    (b"\x1f\x8b", "archivo GZIP"),
+]
+
+def _estado_pdf(pdf_path):
+    """Verifica que 'pdf_path' sea REALMENTE un PDF legible con al menos una
+       página, antes de enviarlo a Gemini. Un archivo subido con extensión
+       .pdf pero de otro tipo (p. ej. un .rar mal etiquetado por el
+       descargador) produce en Gemini el error genérico 'The document has no
+       pages.'; aquí se detecta antes y se informa la causa real.
+       Devuelve (True, None) si es válido, o (False, motivo) si no."""
+    try:
+        with open(pdf_path, "rb") as f:
+            firma = f.read(8)
+    except Exception as e:
+        return False, f"no se pudo leer el archivo ({e})"
+    if not firma.startswith(b"%PDF"):
+        for magic, motivo in _FIRMAS_NO_PDF:
+            if firma.startswith(magic):
+                return False, f"no es un PDF real, parece un {motivo}"
+        return False, f"no es un PDF real (firma desconocida: {firma!r})"
+    try:
+        from pypdf import PdfReader
+        n_paginas = len(PdfReader(pdf_path).pages)
+    except Exception as e:
+        return False, f"PDF corrupto o ilegible ({e})"
+    if n_paginas < 1:
+        return False, "el PDF no tiene páginas"
+    return True, None
+
 def _archivo_a_part_pdf(path_local):
     """Devuelve un types.Part PDF (convirtiendo .doc/.docx si hace falta)."""
     suf = Path(path_local).suffix.lower()
@@ -480,6 +521,10 @@ def _archivo_a_part_pdf(path_local):
         pdf_path = docx_a_pdf(path_local)
         if not pdf_path:
             return None
+    valido, motivo = _estado_pdf(pdf_path)
+    if not valido:
+        log(f"    Documento omitido ({Path(path_local).name}): {motivo}.", "WARN")
+        return None
     try:
         size_mb = Path(pdf_path).stat().st_size / (1024 * 1024)
         if size_mb > 18:

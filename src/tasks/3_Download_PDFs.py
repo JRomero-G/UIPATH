@@ -316,19 +316,27 @@ def actualizar_cpc(codigo_necesidad, cpc):
 # 4. EXTENSIÓN
 # =====================================================
 def detectar_extension(url, descripcion="", primeros_bytes=b""):
-    path = urlparse(url).path.lower()
+    """Determina la extensión real a partir de la FIRMA BINARIA del contenido
+       (más fiable que la URL, que en compraspublicas.gob.ec casi nunca trae
+       extensión). Si el contenido es un formato reconocible pero no un
+       documento (p. ej. un .rar servido por el portal), se conserva su
+       extensión real: así los pasos siguientes, que solo recogen .pdf/.doc/
+       .docx, lo excluyen en vez de tratarlo como un PDF corrupto (esto es lo
+       que causaba 'The document has no pages.' en Gemini)."""
+    if primeros_bytes.startswith(b"%PDF"):
+        return ".pdf"
+    if primeros_bytes.startswith(b"Rar!\x1a\x07"):
+        return ".rar"
+    if primeros_bytes.startswith(b"PK\x03\x04") or primeros_bytes.startswith(b"PK\x05\x06"):
+        return ".docx"
+    if primeros_bytes.startswith(b"\xd0\xcf\x11\xe0"):
+        return ".doc"
 
+    path = urlparse(url).path.lower()
     if path.endswith((".pdf", ".docx", ".xlsx", ".doc", ".xls")):
         return os.path.splitext(path)[1]
 
-    if primeros_bytes.startswith(b"%PDF"):
-        return ".pdf"
-    if primeros_bytes.startswith(b"PK"):
-        return ".docx"
-    if primeros_bytes.startswith(b"\xd0\xcf"):
-        return ".doc"
-
-    return ".pdf"
+    return ".bin"
 
 
 # =====================================================
