@@ -286,7 +286,7 @@ class WorkspaceManagerUI(BaseWindow):
         header_asignaciones.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header_asignaciones.setSectionResizeMode(2, QHeaderView.Stretch)
         header_asignaciones.setSectionResizeMode(3, QHeaderView.Fixed)
-        self.table_asignaciones.setColumnWidth(3, 140)
+        self.table_asignaciones.setColumnWidth(3, 175)
         header_asignaciones.setSectionResizeMode(4, QHeaderView.Fixed)
         header_asignaciones.setSectionResizeMode(5, QHeaderView.Fixed)
         self.table_asignaciones.setColumnWidth(5, 120)
@@ -294,7 +294,7 @@ class WorkspaceManagerUI(BaseWindow):
         self.table_asignaciones.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents
         )
-        self.table_asignaciones.verticalHeader().setMinimumSectionSize(38)
+        self.table_asignaciones.verticalHeader().setMinimumSectionSize(44)
         self.table_asignaciones.verticalHeader().setVisible(False)
         self.table_asignaciones.setAlternatingRowColors(True)
 
@@ -769,9 +769,9 @@ class WorkspaceManagerUI(BaseWindow):
                 cell.setForeground(QColor(0, 0, 0))
                 self.table_asignaciones.setItem(row, col, cell)
 
-            # Col 3 → fecha de entrega (fecha_limite_proformas) en formato día/mes/año
-            fecha_entrega = parsear_fecha(item.get("fecha_limite_proformas"))
-            fecha = fecha_entrega.strftime("%d/%m/%Y") if fecha_entrega else ""
+            # Col 3 → fecha de entrega (fecha_limite_proformas) en formato
+            # día/mes/año hora:minuto AM/PM
+            fecha = formatear_fecha_hora(item.get("fecha_limite_proformas")).upper()
             cell_fecha = QTableWidgetItem(fecha)
             cell_fecha.setFlags(Qt.ItemIsEnabled)
             cell_fecha.setBackground(color)
