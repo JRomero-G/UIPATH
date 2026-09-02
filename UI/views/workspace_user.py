@@ -96,11 +96,22 @@ class WorkspaceUserUI(BaseWindow):
 
         main_layout.addLayout(menu_layout)
 
-        # ================== TABLA ==================
-        self.table = QTableWidget(0, 7)
+        # =========================================================
+        # TABLA
+        # =========================================================
+
+        # ANTERIOR:
+        # self.table = QTableWidget(0, 7)
+        # self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # self.table.setHorizontalHeaderLabels(
+        #     ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
+        # )
+
+        # NUEVO:
+        self.table = QTableWidget(0, 6)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
+            ["", "NIC", "Descripción", "Nivel", "URL", "Acción"]
         )
 
         self.table.setWordWrap(True)
@@ -108,13 +119,28 @@ class WorkspaceUserUI(BaseWindow):
 
         header = self.table.horizontalHeader()
 
+        # =========================================================
+        # CONFIGURACIÓN DE COLUMNAS
+        # =========================================================
+
+        # ANTERIOR:
+        # header.setSectionResizeMode(0, QHeaderView.Fixed)
+        # self.table.setColumnWidth(0, 32)
+        #
+        # header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(2, QHeaderView.Stretch)
+        # header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        #
+        # header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+
+        # NUEVO:
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 32)
 
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
@@ -165,7 +191,7 @@ class WorkspaceUserUI(BaseWindow):
         """)
 
         self.Cargar_infimas()
-        self.table.sortItems(4, Qt.AscendingOrder)
+        self.table.sortItems(3, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
         apply_table_scrollbar_style(self.table) 
 
@@ -337,24 +363,45 @@ class WorkspaceUserUI(BaseWindow):
 
     def deshabilitar_boton_eliminar(self, row):
         """Desactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 6)
+
+        # ANTERIOR:
+        # widget = self.table.cellWidget(row, 6)
+
+        # NUEVO:
+        # La columna Acción ahora es la 5 porque se eliminó
+        # la columna "Grado de recomendación".
+        widget = self.table.cellWidget(row, 5)
+
         if not widget:
             return
 
         widget.setProperty("enabled_state", False)
-        widget.setCursor(Qt.ForbiddenCursor)  # ← Cursor de prohibido
+        widget.setCursor(Qt.ForbiddenCursor)
 
         # Cambiar estilo a gris apagado
         icon = widget.findChild(QLabel, "icon")
         text = widget.findChild(QLabel, "text")
+
         if icon:
-            icon.setStyleSheet("color: rgb(180, 180, 180); font-size: 15px;")
+            icon.setStyleSheet(
+                "color: rgb(180, 180, 180); font-size: 15px;"
+            )
+
         if text:
-            text.setStyleSheet("color: rgb(180, 180, 180); font-weight: bold;")
+            text.setStyleSheet(
+                "color: rgb(180, 180, 180); font-weight: bold;"
+            )
 
     def habilitar_boton_eliminar(self, row):
         """Reactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 6)
+
+        # ANTERIOR:
+        # widget = self.table.cellWidget(row, 6)
+
+        # NUEVO:
+        # La columna Acción ahora es la 5.
+        widget = self.table.cellWidget(row, 5)
+
         if not widget:
             return
 
@@ -364,10 +411,16 @@ class WorkspaceUserUI(BaseWindow):
         # Restaurar estilo original
         icon = widget.findChild(QLabel, "icon")
         text = widget.findChild(QLabel, "text")
+
         if icon:
-            icon.setStyleSheet("color: rgb(140, 30, 30); font-size: 15px;")
+            icon.setStyleSheet(
+                "color: rgb(140, 30, 30); font-size: 15px;"
+            )
+
         if text:
-            text.setStyleSheet("color: rgb(180, 40, 40); font-weight: bold;")
+            text.setStyleSheet(
+                "color: rgb(180, 40, 40); font-weight: bold;"
+            )
 
 
 
@@ -432,15 +485,24 @@ class WorkspaceUserUI(BaseWindow):
                 item.get("nivel_de_oportunidad") or "no asignado"
             )  # sino tiene nivel asignado por defecto sera "no asignado" aunque deberia ser "nivel 3" 
 
-            if nivel == "nivel 1":
-                row_color = QColor(150, 215, 175)
-                grado = "Recomendado"
-            elif nivel == "nivel 2":
-                row_color = QColor(220, 200, 140)
-                grado = "Poco recomendado"
-            else:
-                row_color = QColor(220, 170, 170)
-                grado = "No recomendado"
+            # =========================================================
+            # COLOR DE LAS FILAS
+            # =========================================================
+
+            # ANTERIOR: COLOR SEGÚN NIVEL
+            # if nivel == "nivel 1":
+            #     row_color = QColor(150, 215, 175)
+            #     grado = "Recomendado"
+            # elif nivel == "nivel 2":
+            #     row_color = QColor(220, 200, 140)
+            #     grado = "Poco recomendado"
+            # else:
+            #     row_color = QColor(220, 170, 170)
+            #     grado = "No recomendado"
+
+            # NUEVO:
+            # Un solo color para todas las filas.
+            row_color = QColor(210, 220, 225)
 
             text_color = QColor(0, 0, 0)
 
@@ -469,27 +531,56 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row, 2, cell)
 
-            # Grado
-            self.table.setCellWidget(row, 3, self.grado_button(grado, nic, row_color))
+            # =========================================================
+            # COLUMNA GRADO DE RECOMENDACIÓN
+            # =========================================================
 
-            # nivel
+            # ANTERIOR:
+            # self.table.setCellWidget(row, 3, self.grado_button(grado, nic, row_color))
+
+            # NUEVO:
+            # Se elimina la columna "Grado de recomendación".
+
+
+            
+            # NIVEL 3
+            
+
             cell = QTableWidgetItem(str(nivel))
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
             cell.setBackground(row_color)
             cell.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 4, cell)
+            self.table.setItem(row, 3, cell)
 
-            # URL
+
+            
+            # URL 4
+            
+
             url = item.get("entidad_contratante_url", "")
+
             cell = QTableWidgetItem(url)
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setBackground(row_color)
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self.table.setCellWidget(row, 5, self.link_button(url, row_color))
 
-            # Col 5: Acción
-            self.table.setCellWidget(row, 6, self.delete_button(row_color.name(),row))
+            self.table.setCellWidget(
+                row,
+                4,
+                self.link_button(url, row_color)
+            )
+
+
+            
+            # ACCIÓN 5
+            
+
+            self.table.setCellWidget(
+                row,
+                5,
+                self.delete_button(row_color.name(), row)
+            )
             # ================= Fin Celdas nuevo ==================
 
             #Conectar evento de checkbox (FUERA DEL LOOP)
@@ -571,103 +662,212 @@ class WorkspaceUserUI(BaseWindow):
         """
         Cuando el usuario hace clic en el botón Eliminar.
         """
-        #  Buscar la fila actual en la tabla usando id_infima
+
+        # Buscar la fila actual en la tabla usando id_infima
         # porque el row original puede haber cambiado después del sort
-        
+
         if row_original not in self.datos_filas:
             print(f" No hay datos para la fila original {row_original}")
             return
-        
+
         item_data = self.datos_filas[row_original]
         id_infima = item_data.get("id_infima")
         codigo_necesidad = item_data.get("codigo_necesidad", "N/A")
-        
+
         if not id_infima:
             print(f" Fila {row_original}: no tiene id_infima")
             return
-        
-        #  Buscar en qué fila ACTUAL está este id_infima (después del sort)
+
+        # Buscar en qué fila ACTUAL está este id_infima
         row_actual = None
+
         for r in range(self.table.rowCount()):
+
             # Buscar por el código NIC en columna 1
             nic_item = self.table.item(r, 1)
+
             if nic_item and nic_item.text() == codigo_necesidad:
                 row_actual = r
                 break
-        
+
         if row_actual is None:
-            print(f" No se encontró la fila actual para id_infima {id_infima}")
+            print(
+                f" No se encontró la fila actual para id_infima {id_infima}"
+            )
             return
-        
-        print(f" Fila original: {row_original}, Fila actual: {row_actual}")
-        
-        # Si ya está en pendientes de eliminación → removerla
+
+        print(
+            f" Fila original: {row_original}, "
+            f"Fila actual: {row_actual}"
+        )
+
+        # =========================================================
+        # SI YA ESTÁ EN PENDIENTES DE ELIMINACIÓN → RESTAURAR
+        # =========================================================
+
         if row_actual in self.eliminacion_pendiente:
+
             del self.eliminacion_pendiente[row_actual]
-            print(f"Ínfima {id_infima} removida de eliminación")
-            
+
+            print(
+                f"Ínfima {id_infima} removida de eliminación"
+            )
+
             # Rehabilitar checkbox
             self.table.blockSignals(True)
+
             check_item = self.table.item(row_actual, 0)
+
             if check_item:
-                check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                check_item.setFlags(
+                    Qt.ItemIsUserCheckable | Qt.ItemIsEnabled
+                )
+
             self.table.blockSignals(False)
 
-            # Restaurar color original según nivel
-            nivel = item_data.get("nivel_de_oportunidad", "no asignado")
-            if nivel == "nivel 1":
-                row_color = QColor(150, 215, 175)
-                hex_color = "#96d7af"
-            elif nivel == "nivel 2":
-                row_color = QColor(220, 200, 140)
-                hex_color = "#dcc88c"
-            else:
-                row_color = QColor(220, 170, 170)
-                hex_color = "#dcaaaa"
-            
-            #  Repintar fila ACTUAL (no la original)
+            # =====================================================
+            # RESTAURAR COLOR BASE
+            # =====================================================
+
+            # ANTERIOR:
+            # Restaurar color según nivel
+            #
+            # nivel = item_data.get("nivel_de_oportunidad", "no asignado")
+            #
+            # if nivel == "nivel 1":
+            #     row_color = QColor(150, 215, 175)
+            #     hex_color = "#96d7af"
+            # elif nivel == "nivel 2":
+            #     row_color = QColor(220, 200, 140)
+            #     hex_color = "#dcc88c"
+            # else:
+            #     row_color = QColor(220, 170, 170)
+            #     hex_color = "#dcaaaa"
+
+            # NUEVO:
+            # Un solo color base para todas las filas.
+            row_color = QColor(210, 220, 225)
+            hex_color = "#d2dce1"
+
+            # =====================================================
+            # REPINTAR FILA ACTUAL
+            # =====================================================
+
             for c in range(self.table.columnCount()):
-                item = self.table.item(row_actual, c)  # ← Usar row_actual
+
+                item = self.table.item(row_actual, c)
+
                 if item:
                     item.setBackground(row_color)
 
-            # Restaurar también el widget del botón
-            widget = self.table.cellWidget(row_actual, 5)
-            if widget:
-                widget.setStyleSheet(f"background-color: {hex_color};")
+            # =====================================================
+            # RESTAURAR URL
+            # =====================================================
 
-            print(f" Fila {row_actual} restaurada a color original")
-            
-            # Si NO está → agregarla
+            # URL = columna 4
+            url_widget = self.table.cellWidget(row_actual, 4)
+
+            if url_widget:
+                url_widget.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {hex_color};
+                    }}
+                """)
+
+            # =====================================================
+            # RESTAURAR ACCIÓN
+            # =====================================================
+
+            # Acción = columna 5
+            widget = self.table.cellWidget(row_actual, 5)
+
+            if widget:
+                widget.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {hex_color};
+                    }}
+                """)
+
+            print(
+                f" Fila {row_actual} restaurada a color original"
+            )
+
+        # =========================================================
+        # SI NO ESTÁ → AGREGAR A ELIMINACIÓN
+        # =========================================================
+
         else:
+
             # Agregar a eliminación
             self.eliminacion_pendiente[row_actual] = {
                 "id_infima": id_infima,
                 "codigo_necesidad": codigo_necesidad
             }
-            print(f"Ínfima {id_infima} agregada para eliminación")
-            
+
+            print(
+                f"Ínfima {id_infima} agregada para eliminación"
+            )
+
             # Deshabilitar checkbox
             self.table.blockSignals(True)
+
             check_item = self.table.item(row_actual, 0)
+
             if check_item:
-                check_item.setFlags(Qt.ItemIsEnabled)  # ← Quitar Qt.ItemIsUserCheckable
+                check_item.setFlags(Qt.ItemIsEnabled)
+
             self.table.blockSignals(False)
 
-            #  Pintar fila ACTUAL de rojo claro
+            # =====================================================
+            # CONSERVAR COLOR ROJO PARA ELIMINACIÓN
+            # =====================================================
+
             color_eliminacion = QColor(255, 200, 200)
+
             for c in range(self.table.columnCount()):
-                item = self.table.item(row_actual, c)  # ← Usar row_actual
+
+                item = self.table.item(row_actual, c)
+
                 if item:
                     item.setBackground(color_eliminacion)
-            
-            # Pintar también el widget del botón
+
+            # =====================================================
+            # PINTAR URL DE ROJO
+            # =====================================================
+
+            # URL = columna 4
+            url_widget = self.table.cellWidget(row_actual, 4)
+
+            if url_widget:
+                url_widget.setStyleSheet("""
+                    QWidget {
+                        background-color: #ffc8c8;
+                    }
+                """)
+
+            # =====================================================
+            # PINTAR ACCIÓN DE ROJO
+            # =====================================================
+
+            # Acción = columna 5
             widget = self.table.cellWidget(row_actual, 5)
+
             if widget:
-                widget.setStyleSheet("background-color: #ffc8c8;")  # mismo rojo claro en hex
-            #print(f" Fila {row_actual} pintada de rojo (eliminación)")
-        
-        print(f" Pendientes_de_eliminacion = {self.eliminacion_pendiente}")
+                widget.setStyleSheet("""
+                    QWidget {
+                        background-color: #ffc8c8;
+                    }
+                """)
+
+            print(
+                f" Fila {row_actual} pintada de rojo "
+                f"(eliminación)"
+            )
+
+        print(
+            f" Pendientes_de_eliminacion = "
+            f"{self.eliminacion_pendiente}"
+        )
 
     
     # Confirmar análisis (IGUAL ESTRUCTURA QUE confirmar_asignaciones del manager)
@@ -804,52 +1004,94 @@ class WorkspaceUserUI(BaseWindow):
         """
         exitosas = 0
         errores = 0
-        
+
         pendientes_copia = dict(self.Pendientes_de_analisis)
-        
+
         for fila, datos in pendientes_copia.items():
             id_infima = datos["id_infima"]
-            
+
             try:
                 resp = requests.patch(
                     f"{Global.BACKEND_URL}/infimas/analizar-infimas/{id_infima}",
                     headers={"Authorization": f"Bearer {token}"},
                     timeout=20,
                 )
-                
+
                 print(f" PATCH /analizar-infimas/{id_infima} → Status: {resp.status_code}")
-                
+
                 if resp.status_code == 200:
                     exitosas += 1
-                    
-                    # Pintar fila de verde
+
+                    # =====================================================
+                    # ANTERIOR:
+                    # Solo pintaba de verde los QTableWidgetItem.
+                    # La URL y Acción son QWidget personalizados.
+                    #
+                    # for c in range(self.table.columnCount()):
+                    #     item = self.table.item(fila, c)
+                    #     if item:
+                    #         item.setBackground(QColor(180, 240, 180))
+                    # =====================================================
+
+                    # =====================================================
+                    # NUEVO:
+                    # Pintar TODA la fila de verde, incluyendo URL y Acción.
+                    # =====================================================
+
+                    color_analisis = QColor(180, 240, 180)
+                    hex_color = "#b4f0b4"
+
+                    # Celdas normales
                     for c in range(self.table.columnCount()):
                         item = self.table.item(fila, c)
                         if item:
-                            item.setBackground(QColor(180, 240, 180))
-                    
+                            item.setBackground(color_analisis)
+
+                    # URL - columna 4
+                    url_widget = self.table.cellWidget(fila, 4)
+                    if url_widget:
+                        url_widget.setStyleSheet(f"""
+                            QWidget {{
+                                background-color: {hex_color};
+                            }}
+                        """)
+
+                    # Acción - columna 5
+                    action_widget = self.table.cellWidget(fila, 5)
+                    if action_widget:
+                        action_widget.setStyleSheet(f"""
+                            QWidget {{
+                                background-color: {hex_color};
+                            }}
+                        """)
+
                     # Desmarcar checkbox
                     self.table.blockSignals(True)
+
                     check_item = self.table.item(fila, 0)
+
                     if check_item:
                         check_item.setCheckState(Qt.Unchecked)
                         check_item.setFlags(Qt.ItemIsEnabled)
+
                     self.table.blockSignals(False)
-                    
+
                     print(f" Ínfima {id_infima} marcada para análisis")
-                
+
                 else:
                     errores += 1
+
                     try:
                         error_msg = resp.json().get("detail", "Error desconocido")
                     except:
                         error_msg = resp.text
+
                     print(f" Error al analizar ínfima {id_infima}: {error_msg}")
-            
+
             except requests.RequestException as e:
                 errores += 1
                 print(f" Error de conexión al analizar ínfima {id_infima}: {e}")
-        
+
         return exitosas, errores
 
     # ================== Funciones para celdas personalizadas ==================
@@ -877,48 +1119,48 @@ class WorkspaceUserUI(BaseWindow):
         
         return container
 
-    def grado_button(self, grado: str, codigo_necesidad: str, bg_color: QColor):
-        """Botón de grado que abre un popup con la evaluación de la ínfima."""
-        container = QWidget()
-        container.setStyleSheet(
-        f"""
-        QWidget {{
-            background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});
-        }}
-        QWidget:hover {{
-            background-color: rgb({bg_color.red()-30},{bg_color.green()-30},{bg_color.blue()-30});
-        }}
-        """
-        )
-        container.setCursor(Qt.PointingHandCursor)
+    #def grado_button(self, grado: str, codigo_necesidad: str, bg_color: QColor):
+     #   """Botón de grado que abre un popup con la evaluación de la ínfima."""
+      #  container = QWidget()
+       # container.setStyleSheet(
+        #f"""
+        #QWidget {{
+         #   background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});
+        #}}
+        #QWidget:hover {{
+         #   background-color: rgb({bg_color.red()-30},{bg_color.green()-30},{bg_color.blue()-30});
+        #}}
+        #"""
+        #)
+        #container.setCursor(Qt.PointingHandCursor)
 
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setAlignment(Qt.AlignCenter)
+        #layout = QHBoxLayout(container)
+        #layout.setContentsMargins(4, 0, 4, 0)
+        #layout.setAlignment(Qt.AlignCenter)
 
         # Texto según grado
-        if grado == "Recomendado":
-            texto = "✅ Recomendado"
-            color_texto = "rgb(30, 120, 60)"
-        elif grado == "Poco recomendado":
-            texto = "⚠️ Poco recomendado"
-            color_texto = "rgb(160, 100, 0)"
-        else:
-            texto = "❌ No recomendado"
-            color_texto = "rgb(160, 30, 30)"
+        #if grado == "Recomendado":
+         #   texto = "✅ Recomendado"
+         #   color_texto = "rgb(30, 120, 60)"
+        #elif grado == "Poco recomendado":
+         #   texto = "⚠️ Poco recomendado"
+         #   color_texto = "rgb(160, 100, 0)"
+        #else:
+        #    texto = "❌ No recomendado"
+        #    color_texto = "rgb(160, 30, 30)"
 
-        label = QLabel(texto)
-        label.setFont(QFont("Arial", 9, QFont.Bold))
-        label.setStyleSheet(f"color: {color_texto};")
-        label.setAlignment(Qt.AlignCenter)
+       # label = QLabel(texto)
+       # label.setFont(QFont("Arial", 9, QFont.Bold))
+       # label.setStyleSheet(f"color: {color_texto};")
+       # label.setAlignment(Qt.AlignCenter)
 
-        def mouse_press_event(event):
-            self.mostrar_evaluacion(codigo_necesidad)
+      #  def mouse_press_event(event):
+       #     self.mostrar_evaluacion(codigo_necesidad)
 
-        container.mousePressEvent = mouse_press_event
+       # container.mousePressEvent = mouse_press_event
 
-        layout.addWidget(label)
-        return container
+       # layout.addWidget(label)
+       # return container 
 
     def mostrar_evaluacion(self, codigo_necesidad: str):
         """Consulta y muestra la evaluación de una ínfima."""
