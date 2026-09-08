@@ -1,14 +1,15 @@
 """
-Script de clasificación de compras públicas (infimas) usando Gemini 2.5 Flash
+Script de clasificación de compras públicas (infimas) usando Gemini 3.8 Flash
 Conecta a MySQL, obtiene datos, clasifica con IA y actualiza estados
 
-ACTUALIZACIÓN: Migrado de gemini-2.0-flash (descontinuado) a gemini-2.5-flash
-Modelo actualizado: gemini-2.5-flash - Mejor precio/rendimiento con capacidades de pensamiento
-Región: us-central1 (soportada)
+ACTUALIZACIÓN: Migrado de gemini-2.5-pro (SDK vertexai, retirado el 24-jun-2026)
+a gemini-3.8-flash sobre el SDK google-genai.
+Modelo actualizado: gemini-3.8-flash - GA, el Flash más capaz, 1M de contexto
+Endpoint: global (requerido por la familia Gemini 3.x)
 
 ALTERNATIVAS DISPONIBLES:
-- gemini-2.5-pro: Para casos que requieran máximo razonamiento (más costoso)
-- gemini-3.1-pro-preview: Modelo experimental más avanzado (preview, puede tener limitaciones)
+- gemini-3.1-pro-preview: Máximo razonamiento (preview, cuotas más restrictivas)
+- gemini-3.5-flash-lite: Menor costo para volúmenes altos
 
 NUEVAS ETAPAS AÑADIDAS (v2):
 - Etapa Adicional 1: Revisión semántica de registros 'seleccionada' con PACdoc/PACweb >= 0.
@@ -27,8 +28,8 @@ import pandas as pd
 import mysql.connector
 from google.oauth2 import service_account
 from google.cloud import storage                      # ← NUEVO: cliente GCS
-import vertexai
-from vertexai.generative_models import GenerativeModel
+from google import genai
+from google.genai import types
 import sys
 from pathlib import Path
 
@@ -48,17 +49,20 @@ MYSQL_CONFIG = {
     "database": Global.DATABASE,
 }
 
-# Modelo actualizado - Gemini 2.5 Flash
+# Modelo actualizado - Gemini 3.8 Flash
 # Este modelo ofrece:
-# - Mejor rendimiento que 2.0 Flash
-# - Capacidades de "pensamiento" (thinking) para mayor precisión
-# - Disponibilidad en us-central1
-# - Precio competitivo
-GEMINI_MODEL = "gemini-2.5-pro"
+# - GA (producción), el Flash más capaz de la familia Gemini 3.x
+# - Razonamiento controlable vía thinking_level (aquí LOW: la tarea es simple)
+# - Ventana de contexto de 1M de tokens
+# - Precio muy competitivo frente a los modelos Pro
+GEMINI_MODEL = "gemini-3.8-flash"
+
+# Gemini 3.x se sirve únicamente por el endpoint global (no regional).
+VERTEX_LOCATION = "global"
 
 # ALTERNATIVAS:
-# GEMINI_MODEL = "gemini-2.5-pro"  # Para máxima precisión (más costoso)
-# GEMINI_MODEL = "gemini-3.1-pro-preview"  # Experimental (puede tener limitaciones regionales)
+# GEMINI_MODEL = "gemini-3.1-pro-preview"  # Máximo razonamiento (preview, más costoso)
+# GEMINI_MODEL = "gemini-3.5-flash-lite"   # Menor costo para volúmenes altos
 
 
 def obtener_ruta_credenciales():
@@ -85,10 +89,12 @@ def obtener_ruta_credenciales():
 # =========================
 
 def inicializar_vertex_ai():
+    """Crea el cliente google-genai apuntando a Vertex AI (endpoint global)."""
     ruta_credenciales, es_temp = obtener_ruta_credenciales()
     try:
         credentials = service_account.Credentials.from_service_account_file(
-            ruta_credenciales
+            ruta_credenciales,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
         )
         with open(ruta_credenciales, 'r') as f:
             creds_data = json.load(f)
@@ -97,18 +103,36 @@ def inicializar_vertex_ai():
         if not project_id:
             raise Exception("No se encontró project_id en las credenciales")
 
-        vertexai.init(
+        return genai.Client(
+            vertexai=True,
             project=project_id,
+            location=VERTEX_LOCATION,
             credentials=credentials,
-            location="us-central1"
+            http_options=types.HttpOptions(api_version="v1"),
         )
-        return GenerativeModel(GEMINI_MODEL)
     finally:
         if es_temp:
             try:
                 os.remove(ruta_credenciales)
             except Exception:
                 pass
+
+
+def _texto_de_respuesta(resp):
+    """Extrae texto de la respuesta de google-genai de forma robusta."""
+    try:
+        t = resp.text
+        if t:
+            return t
+    except Exception:
+        pass
+    partes = []
+    for cand in (getattr(resp, "candidates", None) or []):
+        content = getattr(cand, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            if getattr(part, "text", None):
+                partes.append(part.text)
+    return "\n".join(partes)
 
 
 # =========================
@@ -212,12 +236,12 @@ def actualizar_etapa(df, resultados):
 # 5. CLASIFICACIÓN CON IA (ORIGINAL)
 # =========================
 
-def clasificar_descripcion_lote(batch_data, palabras_clave, model):
+def clasificar_descripcion_lote(batch_data, palabras_clave, client):
     """
-    Clasifica un lote de descripciones usando Gemini 2.5 Flash
+    Clasifica un lote de descripciones usando Gemini 3.8 Flash
 
-    Gemini 2.5 Flash incluye capacidades de pensamiento que mejoran
-    la precisión en tareas de clasificación complejas.
+    Se pide salida JSON nativa (response_mime_type) y un nivel de razonamiento
+    bajo, suficiente para esta clasificación y mucho más rápido/barato.
     """
     prompt = f"""
 Eres un analista experto de compras públicas especializado en clasificación de contenido.
@@ -245,8 +269,15 @@ RESPONDE SOLO CON EL JSON, SIN TEXTO ADICIONAL.
 """
 
     try:
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+            ),
+        )
+        response_text = _texto_de_respuesta(response).strip()
 
         # Limpiar markdown si viene con ```json```
         if response_text.startswith("```"):
@@ -326,7 +357,7 @@ def marcar_no_seleccionada_por_codigo(codigo_necesidad):
     conn.close()
 
 
-def etapa_adicional_1_revision_seleccionadas(model):
+def etapa_adicional_1_revision_seleccionadas(client):
     """
     ETAPA ADICIONAL 1: Revisión semántica de registros 'seleccionada'.
 
@@ -397,7 +428,7 @@ def etapa_adicional_1_revision_seleccionadas(model):
     for bloque in dividir_dict(data_por_indice, size=40):
         lote_actual += 1
         print(f"   Procesando lote {lote_actual}/{total_lotes}...")
-        resultados = clasificar_descripcion_lote(bloque, palabras_clave, model)
+        resultados = clasificar_descripcion_lote(bloque, palabras_clave, client)
         resultados_finales.update(resultados)
 
     # --- 5. Aplicar cambios a la base de datos ---
@@ -589,7 +620,7 @@ def main():
 
     PROCESO ORIGINAL
     ─────────────────────────────────────────────────────────────
-    1. Inicializa el modelo Gemini 2.5 Flash.
+    1. Inicializa el cliente Vertex AI con Gemini 3.8 Flash.
     2. Obtiene registros con etapa='ingresada' y los clasifica:
        - Con palabra clave  → 'no seleccionada'
        - Sin palabra clave  → 'preseleccionada'
@@ -608,13 +639,13 @@ def main():
     """
     print("=" * 60)
     print("CLASIFICADOR DE COMPRAS PÚBLICAS")
-    print(f"Modelo: {GEMINI_MODEL}")
+    print(f"Modelo: {GEMINI_MODEL} (Vertex AI, location={VERTEX_LOCATION})")
     print("=" * 60)
 
-    # Inicializar modelo Gemini
+    # Inicializar cliente Gemini
     print(f"\n1. Inicializando modelo {GEMINI_MODEL}...")
     try:
-        model = inicializar_vertex_ai()
+        client = inicializar_vertex_ai()
         print("   ✓ Modelo inicializado correctamente")
     except Exception as e:
         print(f"   ✗ Error al inicializar modelo: {e}")
@@ -655,7 +686,7 @@ def main():
                 for bloque in dividir_dict(data, size=40):
                     lote_actual += 1
                     print(f"   Procesando lote {lote_actual}/{total_lotes}...")
-                    resultados = clasificar_descripcion_lote(bloque, palabras_clave, model)
+                    resultados = clasificar_descripcion_lote(bloque, palabras_clave, client)
                     resultados_finales.update(resultados)
 
                 # Actualizar base de datos
@@ -679,7 +710,7 @@ def main():
     # ──────────────────────────────────────────────────────────
     # Se ejecuta independientemente del resultado del proceso original,
     # porque puede haber registros 'seleccionada' de ejecuciones anteriores.
-    lista_codigos_para_gcs = etapa_adicional_1_revision_seleccionadas(model)
+    lista_codigos_para_gcs = etapa_adicional_1_revision_seleccionadas(client)
 
     # ──────────────────────────────────────────────────────────
     # ETAPA ADICIONAL 2: Verificación de documentos en GCS

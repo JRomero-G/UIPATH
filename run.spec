@@ -83,8 +83,10 @@ a = Analysis(
         'email_validator',
         'annotated_types',
 
-        # Google / VertexAI
-        'vertexai',
+        # Google / Vertex AI
+        'vertexai',                 # legacy (5_Preforms_generator.py y -V2)
+        'google.genai',             # SDK actual usado por 2, 4 y 5-V3-1
+        'google.genai.types',
         'google.cloud.storage',
         'google.auth',
         'google.auth.transport',

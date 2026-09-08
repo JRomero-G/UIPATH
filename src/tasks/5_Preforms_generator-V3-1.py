@@ -7,14 +7,14 @@
 #
 #  Cambios clave de esta versión (ver notas al pie del script):
 #   - Migrado al SDK google-genai (Vertex AI) con Gemini 3.1 Pro (tareas complejas
-#     y búsqueda con grounding) y Gemini 2.5 Pro como fallback.
+#     y búsqueda con grounding) y Gemini 3.8 Flash (GA) como fallback.
 #   - Búsqueda de productos con Google Search grounding (links reales) en vez del
 #     scraping/scoring manual; DuckDuckGo se conserva solo como respaldo de imágenes.
 #   - Ficha y proforma reescritas según la especificación y la estructura EXACTA
 #     de las plantillas (orden de secciones, celdas, alturas, alternativas, etc.).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import os, sys, json, shutil, tempfile, datetime, re, io, time, traceback
+import os, sys, json, shutil, tempfile, datetime, re, io, time, traceback, atexit
 import urllib.parse, html
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
@@ -50,8 +50,8 @@ CARPETA_FICHAS          = "Fichas Técnicas"
 CARPETA_PROFORMAS       = "Proformas"
 
 # --- Modelos / Vertex ---
-MODEL_COMPLEX   = "gemini-3.1-pro-preview"   # tareas complejas + grounding
-MODEL_SIMPLE    = "gemini-2.5-pro"           # tareas simples / fallback
+MODEL_COMPLEX   = "gemini-3.1-pro-preview"   # tareas complejas + grounding (máximo razonamiento)
+MODEL_SIMPLE    = "gemini-3.8-flash"         # tareas simples / fallback (GA, Flash más capaz)
 VERTEX_LOCATION = "global"                    # endpoint global (Gemini 3.x)
 
 # --- Reglas de negocio ---
@@ -168,10 +168,29 @@ def _localizar_archivo_credenciales(raw):
             continue
     return None
 
+_CREDS_PATH = None   # ruta cacheada: un único archivo de credenciales por proceso
+
+def _borrar_credencial_temporal(ruta):
+    """Elimina el .json temporal de credenciales, ignorando errores."""
+    try:
+        os.remove(ruta)
+    except Exception:
+        pass
+
 def resolver_credenciales_a_archivo():
     """Resuelve las credenciales de servicio de GCP a una RUTA de archivo .json.
        Acepta el JSON en texto plano (cualquiera de las variables soportadas) o una
-       ruta a un archivo .json. Devuelve la ruta del archivo de credenciales."""
+       ruta a un archivo .json. Devuelve la ruta del archivo de credenciales.
+
+       El resultado se cachea: get_genai_client() y obtener_cliente_gcs() llaman
+       aquí por separado y antes cada una materializaba su propio temporal.
+       Cuando el JSON viene de una variable de entorno, el temporal se borra al
+       cerrar el proceso (antes quedaba en %TEMP% con la clave privada dentro).
+       La limpieza SOLO se registra para el archivo que creamos nosotros; nunca
+       para un .json de credenciales que ya existiera en disco."""
+    global _CREDS_PATH
+    if _CREDS_PATH is not None:
+        return _CREDS_PATH
     candidatas = _candidatas_credenciales()
     if not candidatas:
         raise ValueError(
@@ -191,12 +210,15 @@ def resolver_credenciales_a_archivo():
                                               delete=False, encoding="utf-8")
             json.dump(creds_dict, tmp)
             tmp.close()
+            atexit.register(_borrar_credencial_temporal, tmp.name)
             log(f"Credenciales resueltas desde variable de entorno ({nombre}).")
-            return tmp.name
+            _CREDS_PATH = tmp.name
+            return _CREDS_PATH
         ruta = _localizar_archivo_credenciales(raw)      # (b) ruta a un archivo .json
         if ruta:
             log(f"Credenciales resueltas desde archivo ({nombre}): {ruta}")
-            return ruta
+            _CREDS_PATH = ruta
+            return _CREDS_PATH
         ultimo = f"{nombre}: no se encontró el archivo '{raw}'"
     raise ValueError(f"No se pudieron resolver las credenciales de GCP. Último problema: {ultimo}.")
 

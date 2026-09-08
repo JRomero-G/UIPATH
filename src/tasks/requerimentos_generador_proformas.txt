@@ -10,7 +10,8 @@ mysql-connector-python>=8.3.0
 google-cloud-storage>=2.16.0
 
 # Vertex AI — Gemini (Google Gen AI SDK)
-google-genai>=1.0.0
+# >=1.56.0: necesario para thinking_level / ThinkingLevel (familia Gemini 3.x)
+google-genai>=1.56.0
 
 # Vertex AI — Claude Sonnet 4.6 (SDK de Anthropic con soporte Vertex)
 anthropic[vertex]>=0.40.0

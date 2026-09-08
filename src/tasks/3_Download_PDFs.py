@@ -11,6 +11,7 @@ from google.cloud import storage
 import sys
 from pathlib import Path
 import tempfile
+import atexit
 
 #raíz del proyecto al path de Python
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -58,10 +59,22 @@ session.headers.update(HEADERS)
 # =====================================================
 # 1.1 GOOGLE CLOUD STORAGE
 # =====================================================
+def _borrar_credencial_temporal(ruta):
+    """Elimina el .json temporal de credenciales, ignorando errores."""
+    try:
+        os.remove(ruta)
+    except Exception:
+        pass
+
+
 def obtener_ruta_credenciales():
     """
     Retorna (ruta, es_temporal).
-    El llamador debe hacer os.remove(ruta) si es_temporal=True.
+
+    Si es_temporal=True el archivo se borra automáticamente al cerrar el proceso
+    (contiene la clave privada de la cuenta de servicio). Antes la limpieza vivía
+    solo al final de main(), fuera de un try/finally: si una fase lanzaba una
+    excepción, el temporal quedaba huérfano en %TEMP%.
     """
     credentials_json = Global.RENDER_CRENDENTIALS_JSON
     if credentials_json:
@@ -69,6 +82,8 @@ def obtener_ruta_credenciales():
             delete=False, suffix=".json", mode="w"
         ) as temp:
             temp.write(credentials_json)
+            # Solo para el archivo que creamos aquí; nunca para un .json ya en disco.
+            atexit.register(_borrar_credencial_temporal, temp.name)
             return temp.name, True  # ← flag para limpieza
 
     if Global.CREDENTIALS_GEMINI:
@@ -636,11 +651,10 @@ def main():
     print(f"Tiempo total ejecución:     {duracion_total:.2f} minutos")
     print("="*70 + "\n")
 
+    # Borrado inmediato en la ruta feliz; si esto no se alcanza por una excepción,
+    # el atexit registrado en obtener_ruta_credenciales() se encarga igualmente.
     if es_temp:
-        try:
-            os.remove(ruta_creds)
-        except Exception:
-            pass
+        _borrar_credencial_temporal(ruta_creds)
 
 
 if __name__ == "__main__":

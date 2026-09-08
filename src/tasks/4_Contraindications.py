@@ -17,13 +17,14 @@ import re
 import json
 import tempfile
 import time
+import atexit
 import unicodedata  # Para normalizar texto y quitar acentos
 import pandas as pd
 import mysql.connector
 from google.oauth2 import service_account
 from google.cloud import storage
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part
+from google import genai
+from google.genai import types
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -38,6 +39,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 from threading import Thread
 import queue
 import tempfile
+
+# En Windows la consola suele usar cp1252, que no puede codificar los emojis
+# usados en los print(); sin esto, un simple print() revienta con
+# UnicodeEncodeError y tapa el error real (incluso dentro de los except que
+# intentan loguearlo). Debe ejecutarse ANTES del primer print del módulo.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # Para procesar archivos DOCX (extraer texto)
 try:
@@ -73,6 +82,13 @@ CREDENTIALS_GEMINI_PATH = Global.CREDENTIALS_GEMINI
 BUCKET_NAME = Global.BUCKET_NAME
 CARPETA_DOCUMENTOS = "Documentos de Contratación"
 
+# --- Modelo / Vertex AI ---
+# gemini-3.8-flash: GA, el Flash más capaz de la familia Gemini 3.x, 1M de contexto.
+# Sustituye a gemini-2.5-flash sobre el SDK vertexai (retirado el 24-jun-2026).
+GEMINI_MODEL = "gemini-3.8-flash"
+# Gemini 3.x se sirve únicamente por el endpoint global (no regional).
+VERTEX_LOCATION = "global"
+
 # =========================
 # 2. INICIALIZACIÓN
 # =========================
@@ -94,38 +110,111 @@ def obtener_ruta_credenciales():
 
     raise Exception("No se encontraron credenciales")
 
+def _borrar_credencial_temporal(ruta):
+    """Elimina el archivo temporal de credenciales, ignorando errores."""
+    try:
+        os.remove(ruta)
+    except Exception:
+        pass
+
+
 def inicializar_servicios():
     global BUCKET_NAME
     ruta_credencial, es_temp = obtener_ruta_credenciales()
+
+    # La ruta se devuelve al llamador y se sigue usando durante TODA la ejecución:
+    # cada worker de DOCX reconstruye su propio cliente de GCS leyendo este archivo.
+    # Por eso el temporal no puede borrarse aquí (antes se borraba en un finally y
+    # los .docx se omitían silenciosamente con FileNotFoundError); se difiere la
+    # limpieza al cierre del proceso, que también cubre el caso de fallo aquí.
+    if es_temp:
+        atexit.register(_borrar_credencial_temporal, ruta_credencial)
+
+    credentials = service_account.Credentials.from_service_account_file(
+        ruta_credencial,
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    with open(ruta_credencial, 'r') as f:
+        creds_data = json.load(f)
+        project_id = creds_data.get('project_id')
+
+    if not project_id:
+        raise Exception("No se encontró project_id en credenciales")
+
+    storage_client = storage.Client(
+        project=project_id,
+        credentials=credentials
+    )
+    client = genai.Client(
+        vertexai=True,
+        project=project_id,
+        location=VERTEX_LOCATION,
+        credentials=credentials,
+        http_options=types.HttpOptions(api_version="v1"),
+    )
+    bucket = storage_client.bucket(BUCKET_NAME)
+    return client, ruta_credencial, bucket
+
+
+def _texto_de_respuesta(resp):
+    """Extrae texto de la respuesta de google-genai de forma robusta."""
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            ruta_credencial
-        )
-        with open(ruta_credencial, 'r') as f:
-            creds_data = json.load(f)
-            project_id = creds_data.get('project_id')
+        t = resp.text
+        if t:
+            return t
+    except Exception:
+        pass
+    partes = []
+    for cand in (getattr(resp, "candidates", None) or []):
+        content = getattr(cand, "content", None)
+        for part in (getattr(content, "parts", None) or []):
+            if getattr(part, "text", None):
+                partes.append(part.text)
+    return "\n".join(partes)
 
-        if not project_id:
-            raise Exception("No se encontró project_id en credenciales")
+def _texto_de_tabla(tabla):
+    """
+    Devuelve las filas de una tabla como 'celda | celda | …'.
 
-        vertexai.init(
-            project=project_id,
-            credentials=credentials,
-            location="us-central1"
-        )
-        storage_client = storage.Client(
-            project=project_id,
-            credentials=credentials
-        )
-        model = GenerativeModel("gemini-2.5-flash")
-        bucket = storage_client.bucket(BUCKET_NAME)
-        return model, ruta_credencial, bucket
-    finally:
-        if es_temp:
-            try:
-                os.remove(ruta_credencial)
-            except Exception:
-                pass
+    Se conserva la estructura de fila porque en estos documentos el importe vive
+    en la celda contigua a su etiqueta ("Presupuesto referencial | 15.000,50");
+    aplanar las celdas sueltas rompería esa relación para el modelo.
+    Recorre también las tablas anidadas, que doc.tables no expone.
+    """
+    filas = []
+    for fila in tabla.rows:
+        celdas = []
+        for celda in fila.cells:
+            partes = [p.text.strip() for p in celda.paragraphs if p.text.strip()]
+            for anidada in celda.tables:
+                anidada_txt = _texto_de_tabla(anidada)
+                if anidada_txt:
+                    partes.append(anidada_txt)
+            texto_celda = " ".join(partes).strip()
+            # Las celdas combinadas se repiten en fila.cells; evitar duplicarlas.
+            if texto_celda and (not celdas or celdas[-1] != texto_celda):
+                celdas.append(texto_celda)
+        if celdas:
+            filas.append(" | ".join(celdas))
+    return "\n".join(filas)
+
+
+def _texto_de_docx(doc):
+    """
+    Extrae el texto de un .docx: párrafos Y tablas.
+
+    Los documentos de contratación pública suelen llevar el presupuesto y las
+    especificaciones dentro de tablas. doc.paragraphs NO incluye el texto de las
+    celdas, así que leer solo párrafos devolvía cadena vacía y el archivo se
+    omitía en silencio (el worker devolvía ('success', None)).
+    """
+    bloques = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    for tabla in doc.tables:
+        texto_tabla = _texto_de_tabla(tabla)
+        if texto_tabla:
+            bloques.append(texto_tabla)
+    return "\n".join(bloques)
+
 
 def _extraer_texto_docx_worker(blob_path, result_queue,credentials_path):
     """
@@ -149,10 +238,10 @@ def _extraer_texto_docx_worker(blob_path, result_queue,credentials_path):
                 blob.download_to_filename(temp_file.name)
                 temp_path = temp_file.name
         
-        # Extraer texto
+        # Extraer texto (párrafos + tablas)
         doc = Document(temp_path)
-        texto = "\n".join([paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()])
-        
+        texto = _texto_de_docx(doc)
+
         # Limpiar
         os.remove(temp_path)
         
@@ -464,14 +553,14 @@ def actualizar_peso_en_bd(codigo_necesidad, peso, contraindicaciones_encontradas
 # 4. FUNCIONES DE BUCKET/IA
 # =========================
 
-def buscar_pac_en_documentos(bucket, codigo_necesidad, model, credentials_path):
+def buscar_pac_en_documentos(bucket, codigo_necesidad, client, credentials_path):
     """
     Busca el PAC (presupuesto) en documentos del bucket usando IA de Google Gemini.
-    
+
     Args:
         bucket: Cliente de Google Cloud Storage
         codigo_necesidad (str): Código de la ínfima
-        model: Modelo generativo de VertexAI
+        client: Cliente google-genai sobre Vertex AI
         credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     Returns:
         float: Valor del PAC encontrado, o 0.0 si no se encuentra
@@ -508,10 +597,12 @@ def buscar_pac_en_documentos(bucket, codigo_necesidad, model, credentials_path):
         # Procesar PDFs (enviar por URI)
         if nombre_lower.endswith('.pdf'):
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
-            documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
+            documentos_contenido.append(
+                types.Part.from_uri(file_uri=blob_uri, mime_type="application/pdf")
+            )
             print(f"      📄 PDF agregado: {blob.name.split('/')[-1]}")
 
-        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
+        # Procesar archivos DOCX (extraer texto, Gemini NO soporta DOCX por URI)
         elif nombre_lower.endswith('.docx'):
             print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
             texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
@@ -586,21 +677,22 @@ Tu respuesta (solo el número):"""
             
             print(f"      🤖 Enviando {len(documentos_contenido)} documento(s) a IA... (Intento {intento + 1}/{max_intentos})")
             
-            # Configuración para respuestas determinísticas
-            generation_config = {
-                "temperature": 0.1,  # Baja temperatura = más determinístico
-                "top_p": 0.8,
-                "top_k": 20,
-                "max_output_tokens": 500,  # Solo necesitamos un número
-            }
-            
-            # Llamada a IA
-            response = model.generate_content(
-                contenido_completo,
-                generation_config=generation_config
+            # Gemini 3.x ignora temperature/top_p/top_k: el modelo gestiona su
+            # propio muestreo. El determinismo se controla con thinking_level.
+            # max_output_tokens debe cubrir también los tokens de razonamiento.
+            generation_config = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+                max_output_tokens=2048,
             )
-            response_text = response.text.strip()
-            
+
+            # Llamada a IA
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contenido_completo,
+                config=generation_config
+            )
+            response_text = _texto_de_respuesta(response).strip()
+
             print(f"      💬 Respuesta IA: '{response_text}'")
             
             # Limpiar respuesta (remover símbolos de moneda)
@@ -641,7 +733,7 @@ Tu respuesta (solo el número):"""
     
     return 0.0
 
-def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, model,credentials_path):
+def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindicaciones_list, client,credentials_path):
     """
     Busca contraindicaciones mencionadas en documentos usando IA.
     
@@ -649,7 +741,7 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         bucket: Cliente de Google Cloud Storage
         codigo_necesidad (str): Código de la ínfima
         contraindicaciones_list (list): Lista de contraindicaciones a buscar
-        model: Modelo generativo de VertexAI
+        client: Cliente google-genai sobre Vertex AI
         credentials_path (str): Ruta al archivo de credenciales de Google Cloud
     
     Returns:
@@ -678,9 +770,11 @@ def buscar_contraindicaciones_en_documentos(bucket, codigo_necesidad, contraindi
         
         if blob.name.lower().endswith('.pdf'):
             blob_uri = f"gs://{BUCKET_NAME}/{blob.name}"
-            documentos_contenido.append(Part.from_uri(blob_uri, mime_type="application/pdf"))
+            documentos_contenido.append(
+                types.Part.from_uri(file_uri=blob_uri, mime_type="application/pdf")
+            )
 
-        # Procesar archivos DOCX (extraer texto, Gemini 2.5 Flash NO soporta DOCX por URI)
+        # Procesar archivos DOCX (extraer texto, Gemini NO soporta DOCX por URI)
         elif blob.name.lower().endswith('.docx'):
             print(f"      🔄 Procesando DOCX: {blob.name.split('/')[-1]}...")
             texto_docx = extraer_texto_docx(blob, credentials_path, timeout=60)
@@ -746,9 +840,16 @@ NO incluyas explicaciones, solo el array JSON con los nombres exactos de las con
 
     try:
         contenido_completo = [prompt] + documentos_contenido
-        response = model.generate_content(contenido_completo)
-        response_text = response.text.strip()
-        
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=contenido_completo,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_level="LOW"),
+            ),
+        )
+        response_text = _texto_de_respuesta(response).strip()
+
         # Limpiar markdown (```json ... ```)
         if response_text.startswith("```"):
             response_text = re.sub(r"```json\n?|```\n?", "", response_text).strip()
@@ -1569,15 +1670,15 @@ def main():
     # PASO 4-6: Buscar PAC en documentos con IA
     # ========================================================
     print("\n[3] Inicializando servicios Google Cloud...")
-    model, ruta_credencial, bucket = inicializar_servicios()
-    print("   ✓ Servicios inicializados")
+    client, ruta_credencial, bucket = inicializar_servicios()
+    print(f"   ✓ Servicios inicializados (modelo: {GEMINI_MODEL}, location: {VERTEX_LOCATION})")
     
     print("\n[4] Buscando PAC en documentos...")
     codigos_pac_dict = {}
 
     for i, codigo in enumerate(codigos_preseleccionados, 1):
         print(f"   [{i}/{len(codigos_preseleccionados)}] {codigo}")
-        pac = buscar_pac_en_documentos(bucket, codigo, model, ruta_credencial)
+        pac = buscar_pac_en_documentos(bucket, codigo, client, ruta_credencial)
         codigos_pac_dict[codigo] = pac
 
         if pac > 0:
@@ -1587,7 +1688,7 @@ def main():
         
         # Delay entre códigos para evitar rate limits de Google Cloud
         if i < len(codigos_preseleccionados):
-            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash: permite 6 req/min)
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 3.8 Flash: permite 3 req/min)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
     
@@ -1626,7 +1727,7 @@ def main():
     for i, codigo in enumerate(codigos_pac_positivos.keys(), 1):
         print(f"   [{i}/{len(codigos_pac_positivos)}] {codigo}")
         contraindicaciones_encontradas = buscar_contraindicaciones_en_documentos(
-            bucket, codigo, contraindicaciones_list, model, ruta_credencial
+            bucket, codigo, contraindicaciones_list, client, ruta_credencial
         )
         contraindicaciones_por_codigo[codigo] = contraindicaciones_encontradas
         
@@ -1637,7 +1738,7 @@ def main():
     
         # Delay entre códigos
         if i < len(codigos_pac_positivos):
-            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 2.5 Flash)
+            tiempo_espera = 20  # 20 segundos (optimizado para Gemini 3.8 Flash)
             print(f"      ⏸ Esperando {tiempo_espera}s antes del siguiente código...")
             time.sleep(tiempo_espera)
 
