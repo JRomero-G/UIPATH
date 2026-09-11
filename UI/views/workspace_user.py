@@ -97,10 +97,18 @@ class WorkspaceUserUI(BaseWindow):
         main_layout.addLayout(menu_layout)
 
         # ================== TABLA ==================
-        self.table = QTableWidget(0, 7)
+        # [GRADO] Columna "Grado de recomendación" desactivada.
+        # Para volver a mostrarla: restaurar estas líneas y reactivar todos los
+        # bloques marcados con [GRADO] en este archivo (los índices de las columnas
+        # Nivel/URL/Acción vuelven a ser 4/5/6).
+        # self.table = QTableWidget(0, 7)
+        # self.table.setHorizontalHeaderLabels(
+        #     ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
+        # )
+        self.table = QTableWidget(0, 6)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setHorizontalHeaderLabels(
-            ["", "NIC", "Descripción", "Grado de recomendación", "Nivel","URL", "Acción"]
+            ["", "NIC", "Descripción", "Nivel", "URL", "Acción"]
         )
 
         self.table.setWordWrap(True)
@@ -111,12 +119,21 @@ class WorkspaceUserUI(BaseWindow):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 32)
 
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        # [GRADO] Distribución original con 7 columnas (col 3 = Grado de recomendación):
+        # header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(2, QHeaderView.Stretch)
+        # header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        # header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        # Distribución con 6 columnas: la Descripción absorbe el espacio que
+        # dejaba libre la columna de grado y el resto se ajusta a su contenido.
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)   # NIC
+        header.setSectionResizeMode(2, QHeaderView.Stretch)            # Descripción
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)   # Nivel
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)   # URL
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)   # Acción
+        header.setStretchLastSection(False)
 
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.verticalHeader().setMinimumSectionSize(38)
@@ -165,7 +182,9 @@ class WorkspaceUserUI(BaseWindow):
         """)
 
         self.Cargar_infimas()
-        self.table.sortItems(4, Qt.AscendingOrder)
+        # [GRADO] Nivel estaba en la columna 4; ahora es la columna 3.
+        # self.table.sortItems(4, Qt.AscendingOrder)
+        self.table.sortItems(3, Qt.AscendingOrder)
         main_layout.addWidget(self.table)
         apply_table_scrollbar_style(self.table) 
 
@@ -337,7 +356,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def deshabilitar_boton_eliminar(self, row):
         """Desactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 6)
+        widget = self.table.cellWidget(row, 5)   # [GRADO] antes col 6
         if not widget:
             return
 
@@ -354,7 +373,7 @@ class WorkspaceUserUI(BaseWindow):
 
     def habilitar_boton_eliminar(self, row):
         """Reactiva visualmente el botón eliminar de una fila."""
-        widget = self.table.cellWidget(row, 6)
+        widget = self.table.cellWidget(row, 5)   # [GRADO] antes col 6
         if not widget:
             return
 
@@ -432,15 +451,18 @@ class WorkspaceUserUI(BaseWindow):
                 item.get("nivel_de_oportunidad") or "no asignado"
             )  # sino tiene nivel asignado por defecto sera "no asignado" aunque deberia ser "nivel 3" 
 
-            if nivel == "nivel 1":
-                row_color = QColor(150, 215, 175)
-                grado = "Recomendado"
-            elif nivel == "nivel 2":
-                row_color = QColor(220, 200, 140)
-                grado = "Poco recomendado"
-            else:
-                row_color = QColor(220, 170, 170)
-                grado = "No recomendado"
+            # [GRADO] Color por nivel + cálculo del grado de recomendación.
+            # Desactivado: ahora todas las filas usan el verde de "nivel 1".
+            # if nivel == "nivel 1":
+            #     row_color = QColor(150, 215, 175)
+            #     grado = "Recomendado"
+            # elif nivel == "nivel 2":
+            #     row_color = QColor(220, 200, 140)
+            #     grado = "Poco recomendado"
+            # else:
+            #     row_color = QColor(220, 170, 170)
+            #     grado = "No recomendado"
+            row_color = QColor(150, 215, 175)
 
             text_color = QColor(0, 0, 0)
 
@@ -469,27 +491,27 @@ class WorkspaceUserUI(BaseWindow):
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row, 2, cell)
 
-            # Grado
-            self.table.setCellWidget(row, 3, self.grado_button(grado, nic, row_color))
+            # [GRADO] Celda con el botón de grado de recomendación (desactivada).
+            # self.table.setCellWidget(row, 3, self.grado_button(grado, nic, row_color))
 
-            # nivel
+            # Col 3: Nivel (antes col 4)
             cell = QTableWidgetItem(str(nivel))
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setForeground(text_color)
             cell.setBackground(row_color)
             cell.setTextAlignment(Qt.AlignCenter)
-            self.table.setItem(row, 4, cell)
+            self.table.setItem(row, 3, cell)
 
-            # URL
+            # Col 4: URL (antes col 5)
             url = item.get("entidad_contratante_url", "")
             cell = QTableWidgetItem(url)
             cell.setFlags(Qt.ItemIsEnabled)
             cell.setBackground(row_color)
             cell.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            self.table.setCellWidget(row, 5, self.link_button(url, row_color))
+            self.table.setCellWidget(row, 4, self.link_button(url, row_color))
 
-            # Col 5: Acción
-            self.table.setCellWidget(row, 6, self.delete_button(row_color.name(),row))
+            # Col 5: Acción (antes col 6)
+            self.table.setCellWidget(row, 5, self.delete_button(row_color.name(),row))
             # ================= Fin Celdas nuevo ==================
 
             #Conectar evento de checkbox (FUERA DEL LOOP)
@@ -502,7 +524,10 @@ class WorkspaceUserUI(BaseWindow):
             
         print("Ínfimas cargadas y eventos conectados")
 
-        setup_row_logic(self.table, row, nic_col=0, action_col=5) 
+        # [GRADO] setup_row_logic tomaba el widget de la columna 3 (grado) como
+        # "doc_widget"; sin esa columna la función no aplica. Reactivar junto con
+        # la columna de grado.
+        # setup_row_logic(self.table, row, nic_col=0, action_col=5) 
 
     def on_table_item_changed(self, item: QTableWidgetItem):
         """
@@ -613,17 +638,20 @@ class WorkspaceUserUI(BaseWindow):
                 check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
             self.table.blockSignals(False)
 
-            # Restaurar color original según nivel
-            nivel = item_data.get("nivel_de_oportunidad", "no asignado")
-            if nivel == "nivel 1":
-                row_color = QColor(150, 215, 175)
-                hex_color = "#96d7af"
-            elif nivel == "nivel 2":
-                row_color = QColor(220, 200, 140)
-                hex_color = "#dcc88c"
-            else:
-                row_color = QColor(220, 170, 170)
-                hex_color = "#dcaaaa"
+            # [GRADO] Color original según nivel (desactivado): todas las filas
+            # son verdes, así que se restaura siempre el mismo verde.
+            # nivel = item_data.get("nivel_de_oportunidad", "no asignado")
+            # if nivel == "nivel 1":
+            #     row_color = QColor(150, 215, 175)
+            #     hex_color = "#96d7af"
+            # elif nivel == "nivel 2":
+            #     row_color = QColor(220, 200, 140)
+            #     hex_color = "#dcc88c"
+            # else:
+            #     row_color = QColor(220, 170, 170)
+            #     hex_color = "#dcaaaa"
+            row_color = QColor(150, 215, 175)
+            hex_color = "#96d7af"
             
             #  Repintar fila ACTUAL (no la original)
             for c in range(self.table.columnCount()):
@@ -632,7 +660,7 @@ class WorkspaceUserUI(BaseWindow):
                     item.setBackground(row_color)
 
             # Restaurar también el widget del botón
-            widget = self.table.cellWidget(row_actual, 5)
+            widget = self.table.cellWidget(row_actual, 4)   # [GRADO] antes col 5
             if widget:
                 widget.setStyleSheet(f"background-color: {hex_color};")
 
@@ -662,7 +690,7 @@ class WorkspaceUserUI(BaseWindow):
                     item.setBackground(color_eliminacion)
             
             # Pintar también el widget del botón
-            widget = self.table.cellWidget(row_actual, 5)
+            widget = self.table.cellWidget(row_actual, 4)   # [GRADO] antes col 5
             if widget:
                 widget.setStyleSheet("background-color: #ffc8c8;")  # mismo rojo claro en hex
             #print(f" Fila {row_actual} pintada de rojo (eliminación)")
@@ -877,109 +905,122 @@ class WorkspaceUserUI(BaseWindow):
         
         return container
 
-    def grado_button(self, grado: str, codigo_necesidad: str, bg_color: QColor):
-        """Botón de grado que abre un popup con la evaluación de la ínfima."""
-        container = QWidget()
-        container.setStyleSheet(
-        f"""
-        QWidget {{
-            background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});
-        }}
-        QWidget:hover {{
-            background-color: rgb({bg_color.red()-30},{bg_color.green()-30},{bg_color.blue()-30});
-        }}
-        """
-        )
-        container.setCursor(Qt.PointingHandCursor)
+    # ============================================================================
+    # [GRADO] Columna "Grado de recomendación" DESACTIVADA.
+    #
+    # Debajo quedan comentados:
+    #   - grado_button(): el botón coloreado que se pintaba en la columna 3.
+    #   - mostrar_evaluacion(): la consulta a
+    #     GET {BACKEND_URL}/infimas/obtener-evaluacion-infima/{codigo_necesidad}
+    #     y la ventana emergente con la justificación de la ínfima.
+    #
+    # Al estar comentados NO se hace ninguna consulta a la base de datos por este
+    # concepto. Para volver a mostrar la columna basta con descomentar este bloque
+    # y los demás marcados con [GRADO] en este archivo.
+    # ============================================================================
+    # def grado_button(self, grado: str, codigo_necesidad: str, bg_color: QColor):
+    #     """Botón de grado que abre un popup con la evaluación de la ínfima."""
+    #     container = QWidget()
+    #     container.setStyleSheet(
+    #     f"""
+    #     QWidget {{
+    #         background-color: rgb({bg_color.red()},{bg_color.green()},{bg_color.blue()});
+    #     }}
+    #     QWidget:hover {{
+    #         background-color: rgb({bg_color.red()-30},{bg_color.green()-30},{bg_color.blue()-30});
+    #     }}
+    #     """
+    #     )
+    #     container.setCursor(Qt.PointingHandCursor)
 
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setAlignment(Qt.AlignCenter)
+    #     layout = QHBoxLayout(container)
+    #     layout.setContentsMargins(4, 0, 4, 0)
+    #     layout.setAlignment(Qt.AlignCenter)
 
-        # Texto según grado
-        if grado == "Recomendado":
-            texto = "✅ Recomendado"
-            color_texto = "rgb(30, 120, 60)"
-        elif grado == "Poco recomendado":
-            texto = "⚠️ Poco recomendado"
-            color_texto = "rgb(160, 100, 0)"
-        else:
-            texto = "❌ No recomendado"
-            color_texto = "rgb(160, 30, 30)"
+    #     # Texto según grado
+    #     if grado == "Recomendado":
+    #         texto = "✅ Recomendado"
+    #         color_texto = "rgb(30, 120, 60)"
+    #     elif grado == "Poco recomendado":
+    #         texto = "⚠️ Poco recomendado"
+    #         color_texto = "rgb(160, 100, 0)"
+    #     else:
+    #         texto = "❌ No recomendado"
+    #         color_texto = "rgb(160, 30, 30)"
 
-        label = QLabel(texto)
-        label.setFont(QFont("Arial", 9, QFont.Bold))
-        label.setStyleSheet(f"color: {color_texto};")
-        label.setAlignment(Qt.AlignCenter)
+    #     label = QLabel(texto)
+    #     label.setFont(QFont("Arial", 9, QFont.Bold))
+    #     label.setStyleSheet(f"color: {color_texto};")
+    #     label.setAlignment(Qt.AlignCenter)
 
-        def mouse_press_event(event):
-            self.mostrar_evaluacion(codigo_necesidad)
+    #     def mouse_press_event(event):
+    #         self.mostrar_evaluacion(codigo_necesidad)
 
-        container.mousePressEvent = mouse_press_event
+    #     container.mousePressEvent = mouse_press_event
 
-        layout.addWidget(label)
-        return container
+    #     layout.addWidget(label)
+    #     return container
 
-    def mostrar_evaluacion(self, codigo_necesidad: str):
-        """Consulta y muestra la evaluación de una ínfima."""
-        token = get_session().get("token")
+    # def mostrar_evaluacion(self, codigo_necesidad: str):
+    #     """Consulta y muestra la evaluación de una ínfima."""
+    #     token = get_session().get("token")
 
-        try:
-            response = requests.get(
-                f"{Global.BACKEND_URL}/infimas/obtener-evaluacion-infima/{codigo_necesidad}",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=20,
-            )
+    #     try:
+    #         response = requests.get(
+    #             f"{Global.BACKEND_URL}/infimas/obtener-evaluacion-infima/{codigo_necesidad}",
+    #             headers={"Authorization": f"Bearer {token}"},
+    #             timeout=20,
+    #         )
 
-            #print(f"STATUS: {response.status_code}")
-            #print(f"RESPUESTA: {response.text}") 
+    #         #print(f"STATUS: {response.status_code}")
+    #         #print(f"RESPUESTA: {response.text}") 
 
-            if response.status_code == 404:
-                ClassicMsgBox.info(
-                    "Sin evaluación",
-                    f"La ínfima {codigo_necesidad} no tiene contraindicaciones registradas."
-                )
-                return
+    #         if response.status_code == 404:
+    #             ClassicMsgBox.info(
+    #                 "Sin evaluación",
+    #                 f"La ínfima {codigo_necesidad} no tiene contraindicaciones registradas."
+    #             )
+    #             return
 
-            if response.status_code != 200:
-                ClassicMsgBox.warning("Error", "No se pudo obtener las contraindicaciones.")
-                return
+    #         if response.status_code != 200:
+    #             ClassicMsgBox.warning("Error", "No se pudo obtener las contraindicaciones.")
+    #             return
 
-            data = response.json()
+    #         data = response.json()
 
-            # Normalizar si viene como {"data": {...}}
-            if isinstance(data, dict) and "data" in data:
-                data = data["data"]
+    #         # Normalizar si viene como {"data": {...}}
+    #         if isinstance(data, dict) and "data" in data:
+    #             data = data["data"]
 
-            # Verificar si hay justificación (no vacía, no null, no None)
-            justificacion = data.get("justificacion", "").strip()
-            
-            # Si no hay justificación (recomendación nivel 1 - bueno)
-            if not justificacion or justificacion.lower() in ["null", "none", ""]:
-                justificacion = "No hay Contraindicaciones Encontradas en el análisis. Revisar link de proceso para más información."
-                es_nivel_1 = True
-            else:
-                es_nivel_1 = False
+    #         # Verificar si hay justificación (no vacía, no null, no None)
+    #         justificacion = data.get("justificacion", "").strip()
 
-            # Mostrar el popup
-            msg = QMessageBox()
-            msg.setWindowTitle("Evaluación de ínfima")
-            msg.setText(f"<b>Código NIC:</b> {codigo_necesidad}")
-            msg.setInformativeText(f"<b>Justificación:</b><br>{justificacion}")
-            
-            # Opcional: Cambiar ícono o agregar info extra si es nivel 1
-            if es_nivel_1:
-                msg.setIcon(QMessageBox.Information)
-                # Podrías agregar un texto adicional
-                msg.setDetailedText("Esto indica una recomendación de Nivel 1 (buen resultado)")
-            else:
-                msg.setIcon(QMessageBox.Information)
-                
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
+    #         # Si no hay justificación (recomendación nivel 1 - bueno)
+    #         if not justificacion or justificacion.lower() in ["null", "none", ""]:
+    #             justificacion = "No hay Contraindicaciones Encontradas en el análisis. Revisar link de proceso para más información."
+    #             es_nivel_1 = True
+    #         else:
+    #             es_nivel_1 = False
 
-        except requests.RequestException:
-            ClassicMsgBox.warning("Error", "No se pudo conectar al servidor.")
+    #         # Mostrar el popup
+    #         msg = QMessageBox()
+    #         msg.setWindowTitle("Evaluación de ínfima")
+    #         msg.setText(f"<b>Código NIC:</b> {codigo_necesidad}")
+    #         msg.setInformativeText(f"<b>Justificación:</b><br>{justificacion}")
+
+    #         # Opcional: Cambiar ícono o agregar info extra si es nivel 1
+    #         if es_nivel_1:
+    #             msg.setIcon(QMessageBox.Information)
+    #             # Podrías agregar un texto adicional
+    #             msg.setDetailedText("Esto indica una recomendación de Nivel 1 (buen resultado)")
+    #         else:
+    #             msg.setIcon(QMessageBox.Information)
+
+    #         msg.setStandardButtons(QMessageBox.Ok)
+    #         msg.exec_()
+
+    #     except requests.RequestException:
+    #         ClassicMsgBox.warning("Error", "No se pudo conectar al servidor.")
 
     # llamar al RE
     def open_workspace_userRE(self):
