@@ -1,0 +1,33 @@
+# requirements-frontend.txt
+# Dependencias minimas para COMPILAR Y EJECUTAR solo el cliente de escritorio
+# (Gestorex frontend). No incluye el stack de backend (FastAPI, SQLAlchemy,
+# MySQL, vertexai) ni el de scraping (selenium, pandas, bs4), que corren en
+# GitHub Actions y en Cloud Run.
+#
+#   python -m venv .venv
+#   .venv/Scripts/activate
+#   pip install -r requirements-frontend.txt
+#   python Build_Instalador.py
+
+# Interfaz
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5_sip==12.18.0
+
+# Llamadas al backend de Cloud Run y a la API de GitHub (autoactualizador)
+requests==2.32.5
+urllib3==2.6.3
+certifi==2026.1.4
+charset-normalizer==3.4.4
+idna==3.11
+
+# Descarga de documentos desde Google Cloud Storage
+google-cloud-storage==2.19.0
+google-auth==2.47.0
+
+# Configuracion y control de versiones
+python-dotenv==1.2.1
+packaging==25.0
+
+# Empaquetado
+pyinstaller==6.21.0

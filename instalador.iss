@@ -1,4 +1,6 @@
 ; instalador.iss
+; Rutas relativas al propio .iss ({#SourcePath} incluye la barra final),
+; de modo que el build funciona desde cualquier carpeta del repositorio.
 #define AppName "Gestorex"
 #define AppVersion "1.2.9"
 #define AppPublisher "Nexus"
@@ -9,15 +11,19 @@
 AppId={{F4A2B3C1-1234-5678-ABCD-000000000001}}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
+VersionInfoVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
-OutputDir=D:\WEB\UIPATH\instalador_output
+OutputDir={#SourcePath}instalador_output
 OutputBaseFilename=Installer_Gestorex_v1.2.9
-SetupIconFile=D:\WEB\UIPATH\UI\assets\Logo_app.ico
+SetupIconFile={#SourcePath}UI\assets\Logo_app.ico
+UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayName={#AppName} {#AppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -33,35 +39,32 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Group
 
 [Files]
 ; El ejecutable principal
-Source: "D:\WEB\UIPATH\dist\run.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}dist\run.exe"; DestDir: "{app}"; Flags: ignoreversion
 
-; El archivo .env — se instala solo si NO existe ya uno
-; Así no sobreescribe configuraciones del usuario en actualizaciones
-Source: "D:\WEB\UIPATH\dist\.env"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+; El archivo .env - se instala solo si NO existe ya uno
+; Asi no sobreescribe configuraciones del usuario en actualizaciones
+Source: "{#SourcePath}dist\.env"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 
-; El ícono para accesos directos
-Source: "D:\WEB\UIPATH\UI\assets\Logo_app.ico"; DestDir: "{app}"; Flags: ignoreversion
+; El icono para accesos directos
+Source: "{#SourcePath}UI\assets\Logo_app.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; Acceso directo en el menú inicio
+; Acceso directo en el menu inicio
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"; IconIndex: 0;
 
 ; Acceso directo en escritorio (opcional, el usuario elige)
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\Logo_app.ico"; IconIndex: 0; Tasks: desktopicon
 
-; Desinstalar desde el menú inicio
+; Desinstalar desde el menu inicio
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
-; Ejecutar la app automáticamente al terminar (sin preguntar)
+; Ejecutar la app automaticamente al terminar (sin preguntar)
 Filename: "{app}\{#AppExeName}"; Flags: nowait postinstall skipifsilent runasoriginaluser
-
-; Ofrecer ejecutar la app al terminar la instalación
-;Filename: "{app}\{#AppExeName}"; Description: "Ejecutar {#AppName} ahora"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/f /im {#AppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
 
 [Registry]
-; Registrar la app para que /RESTARTAPPLICATIONS sepa qué reiniciar
+; Registrar la app para que /RESTARTAPPLICATIONS sepa que reiniciar
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{#AppExeName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName}"; Flags: uninsdeletekey

@@ -15,7 +15,9 @@ class Global:
     DATABASE_URL = os.getenv("DATABASE_URL")
     BACKEND_URL = os.getenv("BACKEND_URL")
     BUCKET_NAME = os.getenv("BUCKET_NAME")
-    CREDENTIALS_GEMINI = os.getenv("CREDENCIALES_GEMINI")
+    # Acepta ambas grafias: el .env define CREDENTIALS_GEMINI, pero aqui se leia
+    # solo "CREDENCIALES_GEMINI", con lo que este fallback era siempre None.
+    CREDENTIALS_GEMINI = os.getenv("CREDENTIALS_GEMINI") or os.getenv("CREDENCIALES_GEMINI")
     RENDER_CRENDENTIALS_JSON = os.getenv("RENDER_CRENDENTIALS_JSON")
     SECRET_KEY_JWT= os.getenv("SECRET_KEY_JWT")
     ALGORITHM = os.getenv("ALGORITHM")
